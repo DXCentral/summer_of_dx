@@ -137,6 +137,18 @@ def calculate_distance(lat1, lon1, lat2, lon2):
     except Exception:
         return 0.0
 
+def get_grid(lat, lon):
+    try:
+        if pd.isna(lat) or pd.isna(lon):
+            return "N/A"
+        lat = float(lat)
+        lon = float(lon)
+        if lat == 0.0 and lon == 0.0:
+            return "N/A"
+        return mh.to_maiden(lat, lon)
+    except Exception:
+        return "N/A"
+
 def reverse_geocode(lat, lon):
     try:
         geolocator = Nominatim(user_agent="dx_central_logger_v6")
@@ -465,8 +477,10 @@ elif st.session_state.sys_state == "MW_LOG":
             st.write(f"> {len(results)} TARGETS FOUND:")
             if not results.empty:
                 results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+                results['Grid'] = results.apply(lambda r: get_grid(r.get('LAT'), r.get('LON')), axis=1)
                 results.insert(0, 'Log?', False)
-                view_df = results[['Log?', 'Frequency', 'Callsign', 'City', 'State', 'County', 'Dist']]
+                
+                view_df = results[['Log?', 'Frequency', 'Callsign', 'City', 'State', 'County', 'Grid', 'Dist']]
                 
                 edited_df = st.data_editor(
                     view_df, 
@@ -476,14 +490,14 @@ elif st.session_state.sys_state == "MW_LOG":
                         "Log?": st.column_config.CheckboxColumn("Log?"), 
                         "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f")
                     },
-                    disabled=['Frequency', 'Callsign', 'City', 'State', 'County', 'Dist'],
+                    disabled=['Frequency', 'Callsign', 'City', 'State', 'County', 'Grid', 'Dist'],
                     key="mw_db_editor"
                 )
                 
                 selected_rows = edited_df[edited_df['Log?'] == True]
                 if not selected_rows.empty:
                     target = selected_rows.iloc[0]
-                    st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['Dist']} mi)")
+                    st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
                     
                     target_data = {
                         "freq": target['Frequency'], 
@@ -644,8 +658,10 @@ elif st.session_state.sys_state == "FM_LOG":
             st.write(f"> {len(results)} TARGETS FOUND:")
             if not results.empty:
                 results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+                results['Grid'] = results.apply(lambda r: get_grid(r.get('LAT'), r.get('LON')), axis=1)
                 results.insert(0, 'Log?', False)
-                view_df = results[['Log?', 'Frequency', 'Callsign', 'City', 'State', 'County', 'PI Code', 'Dist']]
+                
+                view_df = results[['Log?', 'Frequency', 'Callsign', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist']]
                 
                 edited_df = st.data_editor(
                     view_df, 
@@ -655,14 +671,14 @@ elif st.session_state.sys_state == "FM_LOG":
                         "Log?": st.column_config.CheckboxColumn("Log?"), 
                         "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f")
                     },
-                    disabled=['Frequency', 'Callsign', 'City', 'State', 'County', 'PI Code', 'Dist'],
+                    disabled=['Frequency', 'Callsign', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist'],
                     key="fm_db_editor"
                 )
                 
                 selected_rows = edited_df[edited_df['Log?'] == True]
                 if not selected_rows.empty:
                     target = selected_rows.iloc[0]
-                    st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['Dist']} mi)")
+                    st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
                     
                     target_data = {
                         "freq": target['Frequency'], 
