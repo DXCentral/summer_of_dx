@@ -202,10 +202,19 @@ if 'operator_profile' not in st.session_state:
 def nav_to(page):
     st.session_state.sys_state = page
 
+# --- 5b. GLOBAL IRONCLAD FAILSAFE ---
+# If they are anywhere except the login screen, verify their profile is complete.
+# If Name is blank or Lat/Lon is 0.0, instantly boot them to the Login terminal.
 if st.session_state.sys_state != "OPERATOR_LOGIN":
-    op_name_display = st.session_state.operator_profile.get('name', 'UNKNOWN').upper()
-    st.markdown(f"<div style='text-align: right; font-size: 1.2rem;'>AGENT: {op_name_display} | STATUS: SECURE</div>", unsafe_allow_html=True)
-    st.markdown("<hr style='margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+    prof = st.session_state.operator_profile
+    if not prof.get('name') or float(prof.get('lat', 0.0)) == 0.0 or float(prof.get('lon', 0.0)) == 0.0:
+        st.session_state.sys_state = "OPERATOR_LOGIN"
+        st.rerun()
+    else:
+        # If they pass the check, show the persistent status header
+        op_name_display = prof.get('name', 'UNKNOWN').upper()
+        st.markdown(f"<div style='text-align: right; font-size: 1.2rem;'>AGENT: {op_name_display} | STATUS: SECURE</div>", unsafe_allow_html=True)
+        st.markdown("<hr style='margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
 # --- 6. OPERATOR LOGIN SCREEN ---
 if st.session_state.sys_state == "OPERATOR_LOGIN":
@@ -221,10 +230,15 @@ if st.session_state.sys_state == "OPERATOR_LOGIN":
         st.session_state.op_lat_val = float(saved_data.get("lat", 0.0))
         st.session_state.op_lon_val = float(saved_data.get("lon", 0.0))
         st.session_state.ls_loaded = True
-        st.success(f"LOCAL PROFILE DETECTED: {st.session_state.op_name_val.upper()}")
+        if st.session_state.op_name_val:
+            st.success(f"LOCAL PROFILE DETECTED: {st.session_state.op_name_val.upper()}")
         
     for key in ['op_name_val', 'op_city_val', 'op_state_val', 'op_lat_val', 'op_lon_val']:
         if key not in st.session_state: st.session_state[key] = "" if "val" not in key or "lat" not in key and "lon" not in key else 0.0
+
+    # Explicit Warning if location is missing
+    if st.session_state.op_lat_val == 0.0 or st.session_state.op_lon_val == 0.0:
+        st.error("🛑 ACTION REQUIRED: CALIBRATE TERMINAL LOCATION. A valid Latitude and Longitude are required to calculate intercept distances.")
 
     st.markdown("#### 1. CALIBRATE LOCATION")
     loc_method = st.radio("CALIBRATION METHOD", ["GRID SQUARE", "CITY SEARCH", "MANUAL COORDINATES"], horizontal=True)
@@ -251,7 +265,7 @@ if st.session_state.sys_state == "OPERATOR_LOGIN":
         remember_me = st.checkbox("[ SAVE CREDENTIALS TO LOCAL TERMINAL ]", value=True)
         
         if st.form_submit_button("> AUTHENTICATE"):
-            if op_name and st.session_state.op_lat_val != 0.0:
+            if op_name and st.session_state.op_lat_val != 0.0 and st.session_state.op_lon_val != 0.0:
                 st.session_state.operator_profile = {
                     "name": op_name, "city": op_city, "state": op_state, 
                     "country": "United States", "lat": st.session_state.op_lat_val, "lon": st.session_state.op_lon_val
@@ -262,7 +276,7 @@ if st.session_state.sys_state == "OPERATOR_LOGIN":
                 nav_to("TERMINAL_HOME")
                 st.rerun()
             else:
-                st.error("ACCESS DENIED. AGENT IDENTITY AND LOCATION REQUIRED.")
+                st.error("ACCESS DENIED. AGENT IDENTITY AND NON-ZERO LOCATION REQUIRED.")
 
 # --- 7. THE HOME TERMINAL ---
 elif st.session_state.sys_state == "TERMINAL_HOME":
@@ -292,7 +306,9 @@ elif st.session_state.sys_state == "MW_LOG":
     st.markdown("#### 1. OPERATING PARAMETERS")
     r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed")
     rover_grid = ""
-    active_lat, active_lon = st.session_state.operator_profile['lat'], st.session_state.operator_profile['lon']
+    
+    active_lat = st.session_state.operator_profile.get('lat', 0.0)
+    active_lon = st.session_state.operator_profile.get('lon', 0.0)
     
     if r_cat == "ROVER":
         st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -382,7 +398,7 @@ elif st.session_state.sys_state == "MW_LOG":
                 try:
                     op = st.session_state.operator_profile
                     row_data = [
-                        op['name'], op['city'], op['state'], op['country'], 
+                        op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''), 
                         "AM", target_data.get("freq", ""), "", 
                         target_data.get("call", ""), "", target_data.get("city", ""), 
                         target_data.get("state", ""), target_data.get("country", ""), 
@@ -407,7 +423,9 @@ elif st.session_state.sys_state == "FM_LOG":
     st.markdown("#### 1. OPERATING PARAMETERS")
     r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="fm_cat")
     rover_grid = ""
-    active_lat, active_lon = st.session_state.operator_profile['lat'], st.session_state.operator_profile['lon']
+    
+    active_lat = st.session_state.operator_profile.get('lat', 0.0)
+    active_lon = st.session_state.operator_profile.get('lon', 0.0)
     
     if r_cat == "ROVER":
         st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -495,7 +513,7 @@ elif st.session_state.sys_state == "FM_LOG":
                 try:
                     op = st.session_state.operator_profile
                     row_data = [
-                        op['name'], op['city'], op['state'], op['country'], 
+                        op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''), 
                         "FM", "", target_data.get("freq", ""), 
                         target_data.get("call", ""), "", target_data.get("city", ""), 
                         target_data.get("state", ""), target_data.get("country", ""), 
