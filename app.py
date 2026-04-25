@@ -10,7 +10,11 @@ from google.oauth2.service_account import Credentials
 from streamlit_javascript import st_javascript
 
 # --- 1. CORE CONFIGURATION ---
-st.set_page_config(page_title="SUMMER OF DX: DEFCON 6", layout="centered", initial_sidebar_state="collapsed")
+st.set_page_config(
+    page_title="SUMMER OF DX: DEFCON 6", 
+    layout="centered", 
+    initial_sidebar_state="collapsed"
+)
 
 # --- 2. WARGAMES CRT CSS ---
 crt_css = """
@@ -25,8 +29,12 @@ html, body, [class*="st-"] {
     letter-spacing: 2px;
 }
 
-header {visibility: hidden;}
-footer {visibility: hidden;}
+header {
+    visibility: hidden;
+}
+footer {
+    visibility: hidden;
+}
 
 div.stButton > button {
     background-color: transparent !important;
@@ -40,6 +48,7 @@ div.stButton > button {
     width: 100%;
     transition: all 0.2s ease-in-out;
 }
+
 div.stButton > button:hover {
     background-color: #39ff14 !important;
     color: #050505 !important;
@@ -65,18 +74,22 @@ input, textarea, div[data-baseweb="select"] > div {
     margin-bottom: 40px;
     line-height: 1.2;
 }
+
 .blink {
     animation: blinker 1s linear infinite;
 }
+
 @keyframes blinker {
     50% { opacity: 0; }
 }
+
 .classified-box {
     border: 2px dashed #39ff14;
     padding: 20px;
     margin-top: 20px;
     background-color: rgba(57, 255, 20, 0.05);
 }
+
 hr {
     border-color: #39ff14 !important;
     opacity: 0.3;
@@ -87,29 +100,51 @@ st.markdown(crt_css, unsafe_allow_html=True)
 
 # --- 3. GEOSPATIAL & MATH HELPERS ---
 def calculate_distance(lat1, lon1, lat2, lon2):
-    if any(v is None or pd.isna(v) for v in [lat1, lon1, lat2, lon2]): return 0.0
+    if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
+        return 0.0
+    if lat1 is None or lon1 is None or lat2 is None or lon2 is None:
+        return 0.0
+        
     try:
-        lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
-        if lat1 == 0 and lon1 == 0: return 0.0
+        lat1 = float(lat1)
+        lon1 = float(lon1)
+        lat2 = float(lat2)
+        lon2 = float(lon2)
+        
+        if lat1 == 0.0 and lon1 == 0.0:
+            return 0.0
+            
         R = 3958.8 
-        phi1, phi2 = math.radians(lat1), math.radians(lat2)
-        dphi, dlambda = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        
         a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-        return round(2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a)), 1)
-    except:
+        dist = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        return round(dist, 1)
+    except Exception:
         return 0.0
 
 def reverse_geocode(lat, lon):
     try:
         geolocator = Nominatim(user_agent="dx_central_logger_v6")
         location = geolocator.reverse(f"{lat}, {lon}", language='en')
+        
         if location:
             addr = location.raw.get('address', {})
-            found_city = next((addr[tag] for tag in ['city', 'town', 'village', 'hamlet'] if tag in addr), "")
+            
+            found_city = ""
+            for tag in ['city', 'town', 'village', 'hamlet']:
+                if tag in addr:
+                    found_city = addr[tag]
+                    break
+                    
             st.session_state.op_city_val = found_city
             st.session_state.op_state_val = addr.get('state', addr.get('province', ''))
             st.session_state.op_country_val = addr.get('country', 'United States')
-    except: pass
+    except Exception:
+        pass
 
 def update_from_grid():
     grid = st.session_state.grid_input.strip()
@@ -119,7 +154,8 @@ def update_from_grid():
             st.session_state.op_lat_val = float(lat)
             st.session_state.op_lon_val = float(lon)
             reverse_geocode(lat, lon)
-        except: pass
+        except Exception:
+            pass
 
 def update_from_search():
     query = st.session_state.search_query.strip()
@@ -131,7 +167,8 @@ def update_from_search():
                 st.session_state.op_lat_val = float(loc.latitude)
                 st.session_state.op_lon_val = float(loc.longitude)
                 reverse_geocode(loc.latitude, loc.longitude)
-        except: pass
+        except Exception:
+            pass
 
 # --- 4. DATABANK CONNECTIONS ---
 @st.cache_data
@@ -146,7 +183,7 @@ def load_mw_intel():
         df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
         df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
         return df
-    except:
+    except Exception:
         return pd.DataFrame()
 
 @st.cache_data
@@ -154,31 +191,36 @@ def load_fm_intel():
     try:
         df = pd.read_csv("WTFDA Enriched.csv", dtype=str)
         df['Frequency'] = pd.to_numeric(df['Frequency'], errors='coerce')
+        
         if 'Call Letters' in df.columns and 'Callsign' not in df.columns:
             df['Callsign'] = df['Call Letters']
+            
         df['Callsign'] = df['Callsign'].fillna("Unknown")
         df['State'] = df['S/P'].fillna("XX")
         df['County'] = df['County'].fillna("Unknown")
         df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
         df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
         return df
-    except:
+    except Exception:
         return pd.DataFrame()
 
 @st.cache_data
 def load_countries():
     try:
         df = pd.read_csv("DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv")
-        return df['Country Name'].dropna().sort_values().tolist()
-    except:
+        country_col = df['Country Name'].dropna().sort_values().tolist()
+        return country_col
+    except Exception:
         return ["Canada", "Mexico", "United States"]
 
 def get_gsheet():
     scope = ["https://www.googleapis.com/auth/spreadsheets"]
     creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
     client = gspread.authorize(creds)
-    return client.open_by_key("11_4lKQRCrV2Q0YZM1syECgoSINmnGIG3k6UJH0m_u3Y").worksheet("Form Entries")
+    sheet = client.open_by_key("11_4lKQRCrV2Q0YZM1syECgoSINmnGIG3k6UJH0m_u3Y").worksheet("Form Entries")
+    return sheet
 
+# Load core datasets into memory
 mw_db = load_mw_intel()
 fm_db = load_fm_intel()
 country_list = load_countries()
@@ -188,31 +230,46 @@ can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "S
 mex_states = ["AGU", "BCN", "BCS", "CAM", "CHP", "CHH", "CMX", "COA", "COL", "DUR", "GUA", "GRO", "HID", "JAL", "MEX", "MIC", "MOR", "NAY", "NLE", "OAX", "PUE", "QUE", "ROO", "SLP", "SIN", "SON", "TAB", "TAM", "TLA", "VER", "YUC", "ZAC"]
 
 def get_state_list(country):
-    if country == "United States": return us_states
-    if country == "Canada": return can_prov
-    if country == "Mexico": return mex_states
+    if country == "United States": 
+        return us_states
+    if country == "Canada": 
+        return can_prov
+    if country == "Mexico": 
+        return mex_states
     return ["DX"]
 
 # --- 5. SESSION STATE ROUTING & PROFILE ---
-if 'sys_state' not in st.session_state: st.session_state.sys_state = "OPERATOR_LOGIN"
-if 'matrix_unlocked' not in st.session_state: st.session_state.matrix_unlocked = False
+if 'sys_state' not in st.session_state: 
+    st.session_state.sys_state = "OPERATOR_LOGIN"
+
+if 'matrix_unlocked' not in st.session_state: 
+    st.session_state.matrix_unlocked = False
+
 if 'operator_profile' not in st.session_state:
-    st.session_state.operator_profile = {"name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0}
+    st.session_state.operator_profile = {
+        "name": "", 
+        "city": "", 
+        "state": "", 
+        "country": "United States", 
+        "lat": 0.0, 
+        "lon": 0.0
+    }
 
 def nav_to(page):
     st.session_state.sys_state = page
 
 # --- 5b. GLOBAL IRONCLAD FAILSAFE ---
-# If they are anywhere except the login screen, verify their profile is complete.
-# If Name is blank or Lat/Lon is 0.0, instantly boot them to the Login terminal.
 if st.session_state.sys_state != "OPERATOR_LOGIN":
     prof = st.session_state.operator_profile
-    if not prof.get('name') or float(prof.get('lat', 0.0)) == 0.0 or float(prof.get('lon', 0.0)) == 0.0:
+    op_name = prof.get('name')
+    op_lat = float(prof.get('lat', 0.0))
+    op_lon = float(prof.get('lon', 0.0))
+    
+    if not op_name or op_lat == 0.0 or op_lon == 0.0:
         st.session_state.sys_state = "OPERATOR_LOGIN"
         st.rerun()
     else:
-        # If they pass the check, show the persistent status header
-        op_name_display = prof.get('name', 'UNKNOWN').upper()
+        op_name_display = op_name.upper()
         st.markdown(f"<div style='text-align: right; font-size: 1.2rem;'>AGENT: {op_name_display} | STATUS: SECURE</div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
@@ -230,13 +287,18 @@ if st.session_state.sys_state == "OPERATOR_LOGIN":
         st.session_state.op_lat_val = float(saved_data.get("lat", 0.0))
         st.session_state.op_lon_val = float(saved_data.get("lon", 0.0))
         st.session_state.ls_loaded = True
+        
         if st.session_state.op_name_val:
             st.success(f"LOCAL PROFILE DETECTED: {st.session_state.op_name_val.upper()}")
         
-    for key in ['op_name_val', 'op_city_val', 'op_state_val', 'op_lat_val', 'op_lon_val']:
-        if key not in st.session_state: st.session_state[key] = "" if "val" not in key or "lat" not in key and "lon" not in key else 0.0
+    state_keys = ['op_name_val', 'op_city_val', 'op_state_val', 'op_lat_val', 'op_lon_val']
+    for key in state_keys:
+        if key not in st.session_state: 
+            if "lat" in key or "lon" in key:
+                st.session_state[key] = 0.0
+            else:
+                st.session_state[key] = ""
 
-    # Explicit Warning if location is missing
     if st.session_state.op_lat_val == 0.0 or st.session_state.op_lon_val == 0.0:
         st.error("🛑 ACTION REQUIRED: CALIBRATE TERMINAL LOCATION. A valid Latitude and Longitude are required to calculate intercept distances.")
 
@@ -258,6 +320,7 @@ if st.session_state.sys_state == "OPERATOR_LOGIN":
     st.markdown("#### 2. AGENT IDENTITY")
     with st.form("login_form"):
         op_name = st.text_input("AGENT IDENTITY (CALLSIGN/HANDLE)", value=st.session_state.get("op_name_val", ""))
+        
         c1, c2 = st.columns(2)
         op_city = c1.text_input("HOME QTH: CITY", value=st.session_state.get("op_city_val", ""))
         op_state = c2.text_input("HOME QTH: STATE/PROV", value=st.session_state.get("op_state_val", ""))
@@ -266,13 +329,27 @@ if st.session_state.sys_state == "OPERATOR_LOGIN":
         
         if st.form_submit_button("> AUTHENTICATE"):
             if op_name and st.session_state.op_lat_val != 0.0 and st.session_state.op_lon_val != 0.0:
+                
                 st.session_state.operator_profile = {
-                    "name": op_name, "city": op_city, "state": op_state, 
-                    "country": "United States", "lat": st.session_state.op_lat_val, "lon": st.session_state.op_lon_val
+                    "name": op_name, 
+                    "city": op_city, 
+                    "state": op_state, 
+                    "country": "United States", 
+                    "lat": st.session_state.op_lat_val, 
+                    "lon": st.session_state.op_lon_val
                 }
+                
                 if remember_me:
-                    prof = {"name": op_name, "city": op_city, "state": op_state, "lat": st.session_state.op_lat_val, "lon": st.session_state.op_lon_val}
-                    st_javascript(f"localStorage.setItem('dx_central_operator', JSON.stringify({json.dumps(prof)}));")
+                    prof_data = {
+                        "name": op_name, 
+                        "city": op_city, 
+                        "state": op_state, 
+                        "lat": st.session_state.op_lat_val, 
+                        "lon": st.session_state.op_lon_val
+                    }
+                    js_string = json.dumps(prof_data)
+                    st_javascript(f"localStorage.setItem('dx_central_operator', JSON.stringify({js_string}));")
+                    
                 nav_to("TERMINAL_HOME")
                 st.rerun()
             else:
@@ -316,8 +393,10 @@ elif st.session_state.sys_state == "MW_LOG":
         if len(rover_grid) >= 4:
             try:
                 r_lat, r_lon = mh.to_location(rover_grid)
-                active_lat, active_lon = float(r_lat), float(r_lon)
-            except: pass
+                active_lat = float(r_lat)
+                active_lon = float(r_lon)
+            except Exception:
+                pass
             
     st.markdown("#### 2. TARGET ACQUISITION")
     tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
@@ -343,8 +422,13 @@ elif st.session_state.sys_state == "MW_LOG":
                 view_df = results[['Log?', 'Frequency', 'Callsign', 'City', 'State', 'County', 'Dist']]
                 
                 edited_df = st.data_editor(
-                    view_df, hide_index=True, use_container_width=True,
-                    column_config={"Log?": st.column_config.CheckboxColumn("Log?"), "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f")},
+                    view_df, 
+                    hide_index=True, 
+                    use_container_width=True,
+                    column_config={
+                        "Log?": st.column_config.CheckboxColumn("Log?"), 
+                        "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f")
+                    },
                     disabled=['Frequency', 'Callsign', 'City', 'State', 'County', 'Dist'],
                     key="mw_db_editor"
                 )
@@ -353,37 +437,72 @@ elif st.session_state.sys_state == "MW_LOG":
                 if not selected_rows.empty:
                     target = selected_rows.iloc[0]
                     st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['Dist']} mi)")
-                    target_data = {"freq": target['Frequency'], "call": target['Callsign'], "city": target['City'], "state": target['State'], "county": target['County'], "country": "United States", "dist": target['Dist']}
+                    
+                    target_data = {
+                        "freq": target['Frequency'], 
+                        "call": target['Callsign'], 
+                        "city": target['City'], 
+                        "state": target['State'], 
+                        "county": target['County'], 
+                        "country": "United States", 
+                        "dist": target['Dist']
+                    }
 
     with tab_manual:
         st.write("INITIATE UNLISTED / INTERNATIONAL PROTOCOL...")
         spacing = st.radio("CHANNEL SPACING", ["10 kHz (Region 2)", "9 kHz (Regions 1 & 3)"], horizontal=True)
-        step_val = 10 if "10" in spacing else 9
         
+        step_val = 10
+        if "9" in spacing:
+            step_val = 9
+            
         c_m1, c_m2, c_m3 = st.columns(3)
         man_freq = c_m1.number_input("MANUAL FREQ (kHz)", min_value=531, max_value=1710, value=540, step=step_val, key="man_mw")
         man_call = c_m2.text_input("STATION ID")
         
-        full_countries = country_list + ["Other"] if "Other" not in country_list else country_list
-        def_idx = full_countries.index("United States") if "United States" in full_countries else 0
+        full_countries = country_list
+        if "Other" not in full_countries:
+            full_countries.append("Other")
+            
+        def_idx = 0
+        if "United States" in full_countries:
+            def_idx = full_countries.index("United States")
+            
         man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx)
         
-        man_other = st.text_input("SPECIFY COUNTRY:") if man_ctry == "Other" else ""
-        
+        man_other = ""
+        if man_ctry == "Other":
+            man_other = st.text_input("SPECIFY COUNTRY:")
+            
         c_m4, c_m5, c_m6 = st.columns(3)
         man_city = c_m4.text_input("STATION CITY")
+        
         state_opts = get_state_list(man_ctry)
         man_sp = c_m5.selectbox("STATION STATE/PROV", state_opts)
+        
         man_dist = c_m6.number_input("EST. DISTANCE (MILES)", min_value=0.0, step=1.0)
         
         if man_call:
             is_manual = True
-            target_data = {"freq": man_freq, "call": man_call, "city": man_city, "state": man_sp, "county": "Unknown", "country": man_other if man_ctry == "Other" else man_ctry, "dist": man_dist}
+            selected_country = man_ctry
+            if man_ctry == "Other":
+                selected_country = man_other
+                
+            target_data = {
+                "freq": man_freq, 
+                "call": man_call, 
+                "city": man_city, 
+                "state": man_sp, 
+                "county": "Unknown", 
+                "country": selected_country, 
+                "dist": man_dist
+            }
 
     st.markdown("#### 3. SUBMIT INTERCEPT")
     with st.form("mw_submit_form", clear_on_submit=True):
         col_s1, col_s2, col_s3 = st.columns(3)
         now = datetime.datetime.now(datetime.timezone.utc)
+        
         log_date = col_s1.date_input("DATE (UTC)", value=now.date())
         log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"))
         log_prop = col_s3.selectbox("PROPAGATION MODE", ["Groundwave - Daytime", "Grayline - Sunset", "Grayline - Sunrise", "Skywave - Nighttime", "Other"])
@@ -398,15 +517,34 @@ elif st.session_state.sys_state == "MW_LOG":
                 try:
                     op = st.session_state.operator_profile
                     row_data = [
-                        op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''), 
-                        "AM", target_data.get("freq", ""), "", 
-                        target_data.get("call", ""), "", target_data.get("city", ""), 
-                        target_data.get("state", ""), target_data.get("country", ""), 
-                        "", rover_grid, log_date.strftime("%m/%d/%Y"), log_time, 
-                        target_data.get("dist", 0.0), log_notes, "", "", log_prop, target_data.get("county", ""), 
-                        r_cat, "", ""
+                        op.get('name', ''), 
+                        op.get('city', ''), 
+                        op.get('state', ''), 
+                        op.get('country', ''), 
+                        "AM", 
+                        target_data.get("freq", ""), 
+                        "", 
+                        target_data.get("call", ""), 
+                        "", 
+                        target_data.get("city", ""), 
+                        target_data.get("state", ""), 
+                        target_data.get("country", ""), 
+                        "", 
+                        rover_grid, 
+                        log_date.strftime("%m/%d/%Y"), 
+                        log_time, 
+                        target_data.get("dist", 0.0), 
+                        log_notes, 
+                        "", 
+                        "", 
+                        log_prop, 
+                        target_data.get("county", ""), 
+                        r_cat, 
+                        "", 
+                        ""
                     ]
-                    get_gsheet().append_row(row_data)
+                    sheet = get_gsheet()
+                    sheet.append_row(row_data)
                     st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                 except Exception as e:
                     st.error(f"TRANSMISSION FAILED: {e}")
@@ -433,8 +571,10 @@ elif st.session_state.sys_state == "FM_LOG":
         if len(rover_grid) >= 4:
             try:
                 r_lat, r_lon = mh.to_location(rover_grid)
-                active_lat, active_lon = float(r_lat), float(r_lon)
-            except: pass
+                active_lat = float(r_lat)
+                active_lon = float(r_lon)
+            except Exception:
+                pass
             
     st.markdown("#### 2. TARGET ACQUISITION")
     tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
@@ -458,8 +598,13 @@ elif st.session_state.sys_state == "FM_LOG":
                 view_df = results[['Log?', 'Frequency', 'Callsign', 'City', 'State', 'County', 'PI Code', 'Dist']]
                 
                 edited_df = st.data_editor(
-                    view_df, hide_index=True, use_container_width=True,
-                    column_config={"Log?": st.column_config.CheckboxColumn("Log?"), "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f")},
+                    view_df, 
+                    hide_index=True, 
+                    use_container_width=True,
+                    column_config={
+                        "Log?": st.column_config.CheckboxColumn("Log?"), 
+                        "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f")
+                    },
                     disabled=['Frequency', 'Callsign', 'City', 'State', 'County', 'PI Code', 'Dist'],
                     key="fm_db_editor"
                 )
@@ -468,7 +613,17 @@ elif st.session_state.sys_state == "FM_LOG":
                 if not selected_rows.empty:
                     target = selected_rows.iloc[0]
                     st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['Dist']} mi)")
-                    target_data = {"freq": target['Frequency'], "call": target['Callsign'], "city": target['City'], "state": target['State'], "county": target['County'], "country": "United States", "pi": target['PI Code'], "dist": target['Dist']}
+                    
+                    target_data = {
+                        "freq": target['Frequency'], 
+                        "call": target['Callsign'], 
+                        "city": target['City'], 
+                        "state": target['State'], 
+                        "county": target['County'], 
+                        "country": "United States", 
+                        "pi": target['PI Code'], 
+                        "dist": target['Dist']
+                    }
 
     with tab_manual:
         st.write("INITIATE UNLISTED PROTOCOL...")
@@ -476,32 +631,60 @@ elif st.session_state.sys_state == "FM_LOG":
         man_freq = c_m1.number_input("MANUAL FREQ (MHz)", min_value=87.7, max_value=107.9, value=88.1, step=0.1, key="man_fm")
         man_call = c_m2.text_input("STATION ID", key="man_fm_call")
         
-        full_countries = country_list + ["Other"] if "Other" not in country_list else country_list
-        def_idx = full_countries.index("United States") if "United States" in full_countries else 0
+        full_countries = country_list
+        if "Other" not in full_countries:
+            full_countries.append("Other")
+            
+        def_idx = 0
+        if "United States" in full_countries:
+            def_idx = full_countries.index("United States")
+            
         man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx, key="fm_man_ctry")
         
-        man_other = st.text_input("SPECIFY COUNTRY:") if man_ctry == "Other" else ""
-        
+        man_other = ""
+        if man_ctry == "Other":
+            man_other = st.text_input("SPECIFY COUNTRY:")
+            
         c_m4, c_m5, c_m6 = st.columns(3)
         man_city = c_m4.text_input("STATION CITY", key="fm_man_cty")
+        
         state_opts = get_state_list(man_ctry)
         man_sp = c_m5.selectbox("STATION STATE/PROV", state_opts, key="fm_man_sp")
+        
         man_dist = c_m6.number_input("EST. DISTANCE (MILES)", min_value=0.0, step=1.0, key="fm_man_dst")
 
         if man_call:
-            target_data = {"freq": man_freq, "call": man_call, "city": man_city, "state": man_sp, "county": "Unknown", "country": man_other if man_ctry == "Other" else man_ctry, "pi": "", "dist": man_dist}
+            selected_country = man_ctry
+            if man_ctry == "Other":
+                selected_country = man_other
+                
+            target_data = {
+                "freq": man_freq, 
+                "call": man_call, 
+                "city": man_city, 
+                "state": man_sp, 
+                "county": "Unknown", 
+                "country": selected_country, 
+                "pi": "", 
+                "dist": man_dist
+            }
 
     st.markdown("#### 3. SUBMIT INTERCEPT")
     with st.form("fm_submit_form", clear_on_submit=True):
         col_s1, col_s2, col_s3 = st.columns(3)
         now = datetime.datetime.now(datetime.timezone.utc)
+        
         log_date = col_s1.date_input("DATE (UTC)", value=now.date(), key="fm_dt")
         log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="fm_tm")
         log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"])
         
         c_p1, c_p2 = st.columns(2)
         log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
-        log_pi = c_p2.text_input("PI CODE", value=target_data.get("pi", ""))
+        
+        default_pi = ""
+        if "pi" in target_data:
+            default_pi = target_data["pi"]
+        log_pi = c_p2.text_input("PI CODE", value=default_pi)
         
         log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
         
@@ -513,15 +696,34 @@ elif st.session_state.sys_state == "FM_LOG":
                 try:
                     op = st.session_state.operator_profile
                     row_data = [
-                        op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''), 
-                        "FM", "", target_data.get("freq", ""), 
-                        target_data.get("call", ""), "", target_data.get("city", ""), 
-                        target_data.get("state", ""), target_data.get("country", ""), 
-                        "", rover_grid, log_date.strftime("%m/%d/%Y"), log_time, 
-                        target_data.get("dist", 0.0), log_notes, log_rds, log_pi, log_prop, target_data.get("county", ""), 
-                        r_cat, "", ""
+                        op.get('name', ''), 
+                        op.get('city', ''), 
+                        op.get('state', ''), 
+                        op.get('country', ''), 
+                        "FM", 
+                        "", 
+                        target_data.get("freq", ""), 
+                        target_data.get("call", ""), 
+                        "", 
+                        target_data.get("city", ""), 
+                        target_data.get("state", ""), 
+                        target_data.get("country", ""), 
+                        "", 
+                        rover_grid, 
+                        log_date.strftime("%m/%d/%Y"), 
+                        log_time, 
+                        target_data.get("dist", 0.0), 
+                        log_notes, 
+                        log_rds, 
+                        log_pi, 
+                        log_prop, 
+                        target_data.get("county", ""), 
+                        r_cat, 
+                        "", 
+                        ""
                     ]
-                    get_gsheet().append_row(row_data)
+                    sheet = get_gsheet()
+                    sheet.append_row(row_data)
                     st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                 except Exception as e:
                     st.error(f"TRANSMISSION FAILED: {e}")
