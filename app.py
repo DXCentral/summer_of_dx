@@ -5,6 +5,7 @@ import math
 import json
 import gspread
 import maidenhead as mh
+import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
 from google.oauth2.service_account import Credentials
 from streamlit_javascript import st_javascript
@@ -98,7 +99,17 @@ hr {
 """
 st.markdown(crt_css, unsafe_allow_html=True)
 
-# --- 3. GEOSPATIAL & MATH HELPERS ---
+# --- 3. BACKGROUND TASKS (LOCAL STORAGE INJECTION) ---
+if "profile_to_save" in st.session_state:
+    js_string = json.dumps(st.session_state.profile_to_save)
+    components.html(
+        f"<script>window.parent.localStorage.setItem('dx_central_operator', JSON.stringify({js_string}));</script>",
+        height=0, 
+        width=0
+    )
+    del st.session_state.profile_to_save
+
+# --- 4. GEOSPATIAL & MATH HELPERS ---
 def calculate_distance(lat1, lon1, lat2, lon2):
     if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
         return 0.0
@@ -170,39 +181,74 @@ def update_from_search():
         except Exception:
             pass
 
-# --- 4. DATABANK CONNECTIONS ---
+# --- 5. DATABANK CONNECTIONS ---
 @st.cache_data
 def load_mw_intel():
-    try:
-        df = pd.read_csv("Mesa Mike Enriched.csv", dtype=str)
-        df['Frequency'] = pd.to_numeric(df['FREQ'], errors='coerce')
-        df['Callsign'] = df['CALL'].fillna("Unknown")
-        df['State'] = df['STATE'].fillna("XX")
-        df['City'] = df['CITY'].fillna("Unknown")
-        df['County'] = df['County'].fillna("Unknown")
-        df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
-        df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
-        return df
-    except Exception:
-        return pd.DataFrame()
+    files_to_try = [
+        "Mesa_Mike_Enriched.csv",
+        "Mesa_Mike_Enriched (1).csv",
+        "Mesa Mike Enriched.csv", 
+        "Mesa Mike US Station Data - Sheet1.csv"
+    ]
+    
+    for file in files_to_try:
+        try:
+            df = pd.read_csv(file, dtype=str)
+            if not df.empty:
+                df['Frequency'] = pd.to_numeric(df['FREQ'], errors='coerce')
+                df['Callsign'] = df['CALL'].fillna("Unknown")
+                df['State'] = df['STATE'].fillna("XX")
+                df['City'] = df['CITY'].fillna("Unknown")
+                
+                if 'County' in df.columns:
+                    df['County'] = df['County'].fillna("Unknown")
+                else:
+                    df['County'] = "Unknown"
+                    
+                df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
+                df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
+                return df
+        except Exception:
+            continue
+            
+    return pd.DataFrame()
 
 @st.cache_data
 def load_fm_intel():
-    try:
-        df = pd.read_csv("WTFDA Enriched.csv", dtype=str)
-        df['Frequency'] = pd.to_numeric(df['Frequency'], errors='coerce')
-        
-        if 'Call Letters' in df.columns and 'Callsign' not in df.columns:
-            df['Callsign'] = df['Call Letters']
+    files_to_try = [
+        "WTFDA_Enriched.csv",
+        "WTFDA Enriched.csv", 
+        "FM Challenge - Station List and Data - WTFDA Data.csv",
+        "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"
+    ]
+    
+    for file in files_to_try:
+        try:
+            df = pd.read_csv(file, dtype=str)
+            if not df.empty:
+                df['Frequency'] = pd.to_numeric(df['Frequency'], errors='coerce')
+                
+                if 'Call Letters' in df.columns and 'Callsign' not in df.columns:
+                    df['Callsign'] = df['Call Letters']
+                    
+                df['Callsign'] = df.get('Callsign', pd.Series(["Unknown"] * len(df))).fillna("Unknown")
+                df['State'] = df.get('S/P', pd.Series(["XX"] * len(df))).fillna("XX")
+                
+                if 'County' in df.columns:
+                    df['County'] = df['County'].fillna("Unknown")
+                else:
+                    df['County'] = "Unknown"
+                    
+                lat_col = 'LAT' if 'LAT' in df.columns else 'Lat_N'
+                lon_col = 'LON' if 'LON' in df.columns else 'Long_W'
+                
+                df['LAT'] = pd.to_numeric(df.get(lat_col, pd.Series([0.0]*len(df))), errors='coerce')
+                df['LON'] = pd.to_numeric(df.get(lon_col, pd.Series([0.0]*len(df))), errors='coerce')
+                return df
+        except Exception:
+            continue
             
-        df['Callsign'] = df['Callsign'].fillna("Unknown")
-        df['State'] = df['S/P'].fillna("XX")
-        df['County'] = df['County'].fillna("Unknown")
-        df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
-        df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
-        return df
-    except Exception:
-        return pd.DataFrame()
+    return pd.DataFrame()
 
 @st.cache_data
 def load_countries():
@@ -220,7 +266,6 @@ def get_gsheet():
     sheet = client.open_by_key("11_4lKQRCrV2Q0YZM1syECgoSINmnGIG3k6UJH0m_u3Y").worksheet("Form Entries")
     return sheet
 
-# Load core datasets into memory
 mw_db = load_mw_intel()
 fm_db = load_fm_intel()
 country_list = load_countries()
@@ -238,7 +283,7 @@ def get_state_list(country):
         return mex_states
     return ["DX"]
 
-# --- 5. SESSION STATE ROUTING & PROFILE ---
+# --- 6. SESSION STATE ROUTING & PROFILE ---
 if 'sys_state' not in st.session_state: 
     st.session_state.sys_state = "OPERATOR_LOGIN"
 
@@ -258,7 +303,7 @@ if 'operator_profile' not in st.session_state:
 def nav_to(page):
     st.session_state.sys_state = page
 
-# --- 5b. GLOBAL IRONCLAD FAILSAFE ---
+# --- 6b. GLOBAL IRONCLAD FAILSAFE ---
 if st.session_state.sys_state != "OPERATOR_LOGIN":
     prof = st.session_state.operator_profile
     op_name = prof.get('name')
@@ -273,7 +318,7 @@ if st.session_state.sys_state != "OPERATOR_LOGIN":
         st.markdown(f"<div style='text-align: right; font-size: 1.2rem;'>AGENT: {op_name_display} | STATUS: SECURE</div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
-# --- 6. OPERATOR LOGIN SCREEN ---
+# --- 7. OPERATOR LOGIN SCREEN ---
 if st.session_state.sys_state == "OPERATOR_LOGIN":
     st.markdown('<div class="typewriter">DX CENTRAL MAINFRAME<br>AUTHENTICATION REQUIRED<span class="blink">_</span></div>', unsafe_allow_html=True)
     
@@ -340,22 +385,20 @@ if st.session_state.sys_state == "OPERATOR_LOGIN":
                 }
                 
                 if remember_me:
-                    prof_data = {
+                    st.session_state.profile_to_save = {
                         "name": op_name, 
                         "city": op_city, 
                         "state": op_state, 
                         "lat": st.session_state.op_lat_val, 
                         "lon": st.session_state.op_lon_val
                     }
-                    js_string = json.dumps(prof_data)
-                    st_javascript(f"localStorage.setItem('dx_central_operator', JSON.stringify({js_string}));")
                     
                 nav_to("TERMINAL_HOME")
                 st.rerun()
             else:
                 st.error("ACCESS DENIED. AGENT IDENTITY AND NON-ZERO LOCATION REQUIRED.")
 
-# --- 7. THE HOME TERMINAL ---
+# --- 8. THE HOME TERMINAL ---
 elif st.session_state.sys_state == "TERMINAL_HOME":
     st.markdown('<div class="typewriter">GREETINGS, FELLOW SIGNAL TRAVELER.<br>WOULD YOU LIKE TO PLAY A GAME?<span class="blink">_</span></div>', unsafe_allow_html=True)
     
@@ -372,11 +415,11 @@ elif st.session_state.sys_state == "TERMINAL_HOME":
         st.rerun()
         
     if st.button("> LOGOUT / PURGE LOCAL CACHE"):
-        st_javascript("localStorage.removeItem('dx_central_operator');")
+        components.html("<script>window.parent.localStorage.removeItem('dx_central_operator');</script>", height=0, width=0)
         st.session_state.clear()
         st.rerun()
 
-# --- 8. MW INTERCEPT ROOM ---
+# --- 9. MW INTERCEPT ROOM ---
 elif st.session_state.sys_state == "MW_LOG":
     st.markdown("### [ MW INTERCEPT CONSOLE ACTIVE ]")
     
@@ -384,8 +427,8 @@ elif st.session_state.sys_state == "MW_LOG":
     r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed")
     rover_grid = ""
     
-    active_lat = st.session_state.operator_profile.get('lat', 0.0)
-    active_lon = st.session_state.operator_profile.get('lon', 0.0)
+    active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
+    active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
     
     if r_cat == "ROVER":
         st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -406,12 +449,16 @@ elif st.session_state.sys_state == "MW_LOG":
     
     with tab_search:
         st.write("ACCESSING DOMESTIC AM DATABANKS...")
-        c1, c2 = st.columns([1, 2])
-        search_freq = c1.number_input("FREQ (kHz)", min_value=530, max_value=1710, value=540, step=10)
-        search_call = c2.text_input("CALLSIGN (OPTIONAL)")
         
-        if not mw_db.empty:
-            results = mw_db[mw_db['Frequency'] == search_freq].copy()
+        if mw_db.empty:
+            st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: Mesa Mike database not found in repository.")
+        else:
+            c1, c2 = st.columns([1, 2])
+            search_freq = c1.number_input("FREQ (kHz)", min_value=530, max_value=1710, value=540, step=10)
+            search_call = c2.text_input("CALLSIGN (OPTIONAL)")
+            
+            results = mw_db[mw_db['Frequency'] == float(search_freq)].copy()
+            
             if search_call:
                 results = results[results['Callsign'].str.contains(search_call.upper(), na=False)]
                 
@@ -554,7 +601,7 @@ elif st.session_state.sys_state == "MW_LOG":
         nav_to("TERMINAL_HOME")
         st.rerun()
 
-# --- 9. FM INTERCEPT ROOM ---
+# --- 10. FM INTERCEPT ROOM ---
 elif st.session_state.sys_state == "FM_LOG":
     st.markdown("### [ FM INTERCEPT CONSOLE ACTIVE ]")
     
@@ -562,8 +609,8 @@ elif st.session_state.sys_state == "FM_LOG":
     r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="fm_cat")
     rover_grid = ""
     
-    active_lat = st.session_state.operator_profile.get('lat', 0.0)
-    active_lon = st.session_state.operator_profile.get('lon', 0.0)
+    active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
+    active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
     
     if r_cat == "ROVER":
         st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -582,12 +629,15 @@ elif st.session_state.sys_state == "FM_LOG":
     
     with tab_search:
         st.write("ACCESSING WTFDA DATABANKS...")
-        c1, c2 = st.columns([1, 2])
-        search_freq = c1.number_input("FREQ (MHz)", min_value=87.7, max_value=107.9, value=88.1, step=0.2, format="%.1f")
-        search_call = c2.text_input("CALLSIGN (OPTIONAL)", key="fm_call_srch")
         
-        if not fm_db.empty:
-            results = fm_db[fm_db['Frequency'] == search_freq].copy()
+        if fm_db.empty:
+            st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: WTFDA database not found in repository.")
+        else:
+            c1, c2 = st.columns([1, 2])
+            search_freq = c1.number_input("FREQ (MHz)", min_value=87.7, max_value=107.9, value=88.1, step=0.2, format="%.1f")
+            search_call = c2.text_input("CALLSIGN (OPTIONAL)", key="fm_call_srch")
+            
+            results = fm_db[fm_db['Frequency'] == float(search_freq)].copy()
             if search_call:
                 results = results[results['Callsign'].str.contains(search_call.upper(), na=False)]
                 
@@ -621,7 +671,7 @@ elif st.session_state.sys_state == "FM_LOG":
                         "state": target['State'], 
                         "county": target['County'], 
                         "country": "United States", 
-                        "pi": target['PI Code'], 
+                        "pi": target.get('PI Code', ''), 
                         "dist": target['Dist']
                     }
 
@@ -684,8 +734,8 @@ elif st.session_state.sys_state == "FM_LOG":
         default_pi = ""
         if "pi" in target_data:
             default_pi = target_data["pi"]
+            
         log_pi = c_p2.text_input("PI CODE", value=default_pi)
-        
         log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
         
         submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
@@ -733,7 +783,7 @@ elif st.session_state.sys_state == "FM_LOG":
         nav_to("TERMINAL_HOME")
         st.rerun()
 
-# --- 10. THE CLANDESTINE MATRIX (BOUNTY ROOM) ---
+# --- 11. THE CLANDESTINE MATRIX (BOUNTY ROOM) ---
 elif st.session_state.sys_state == "BOUNTY_HUNT":
     st.markdown("### --- SECURE UPLINK ESTABLISHED ---")
     st.markdown("AWAITING MATRIX ALIGNMENT PARAMETERS<span class='blink'>_</span>", unsafe_allow_html=True)
@@ -781,7 +831,7 @@ elif st.session_state.sys_state == "BOUNTY_HUNT":
         nav_to("TERMINAL_HOME")
         st.rerun()
 
-# --- 11. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
+# --- 12. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
 elif st.session_state.sys_state == "DASHBOARD":
     st.markdown("### [ GLOBAL INTELLIGENCE DATABANKS ]")
     st.write("ESTABLISHING CONNECTION TO PLOTLY SERVERS...")
