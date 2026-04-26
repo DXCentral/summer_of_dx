@@ -11,7 +11,6 @@ from google.oauth2.service_account import Credentials
 from streamlit_javascript import st_javascript
 
 # --- 1. CORE CONFIGURATION ---
-# We use "wide" layout but constrain it with columns so the UI doesn't stretch too far
 st.set_page_config(
     page_title="SUMMER OF DX: DEFCON 6", 
     layout="wide", 
@@ -27,7 +26,7 @@ html, body, [class*="st-"] {
     background-color: #050505 !important;
     font-family: 'VT323', monospace !important;
     color: #1bd2d4 !important; 
-    text-shadow: 0px 0px 5px rgba(19, 154, 155, 0.8);
+    text-shadow: 0px 0px 5px rgba(19, 154, 155, 0.8); 
     letter-spacing: 2px;
 }
 
@@ -162,11 +161,13 @@ def reverse_geocode(lat, lon):
         
         if location:
             addr = location.raw.get('address', {})
+            
             found_city = ""
             for tag in ['city', 'town', 'village', 'hamlet']:
                 if tag in addr:
                     found_city = addr[tag]
                     break
+                    
             st.session_state.op_city_val = found_city
             st.session_state.op_state_val = addr.get('state', addr.get('province', ''))
             st.session_state.op_country_val = addr.get('country', 'United States')
@@ -263,10 +264,12 @@ def load_mw_intel():
                     
                 df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
                 df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
+                
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 return df
         except Exception:
             continue
+            
     return pd.DataFrame()
 
 @st.cache_data
@@ -300,10 +303,12 @@ def load_fm_intel():
                 
                 df['LAT'] = pd.to_numeric(df.get(lat_col, pd.Series([0.0]*len(df))), errors='coerce')
                 df['LON'] = pd.to_numeric(df.get(lon_col, pd.Series([0.0]*len(df))), errors='coerce')
+                
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 return df
         except Exception:
             continue
+            
     return pd.DataFrame()
 
 @st.cache_data
@@ -319,6 +324,7 @@ def load_countries():
             return country_col
         except Exception:
             continue
+            
     return ["Canada", "Mexico", "United States"]
 
 mw_db = load_mw_intel()
@@ -330,10 +336,20 @@ can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "S
 mex_states = ["AGU", "BCN", "BCS", "CAM", "CHP", "CHH", "CMX", "COA", "COL", "DUR", "GUA", "GRO", "HID", "JAL", "MEX", "MIC", "MOR", "NAY", "NLE", "OAX", "PUE", "QUE", "ROO", "SLP", "SIN", "SON", "TAB", "TAM", "TLA", "VER", "YUC", "ZAC"]
 
 def get_state_list(country):
-    if country == "United States": return us_states
-    if country == "Canada": return can_prov
-    if country == "Mexico": return mex_states
+    if country == "United States": 
+        return us_states
+    if country == "Canada": 
+        return can_prov
+    if country == "Mexico": 
+        return mex_states
     return ["DX"]
+
+def get_idx(guess_list, cols):
+    for g in guess_list:
+        for idx, c in enumerate(cols):
+            if g.lower() in c.lower(): 
+                return idx
+    return 0
 
 # --- 6. SESSION STATE ROUTING & PROFILE ---
 if 'sys_state' not in st.session_state: 
@@ -344,7 +360,12 @@ if 'matrix_unlocked' not in st.session_state:
 
 if 'operator_profile' not in st.session_state:
     st.session_state.operator_profile = {
-        "name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0
+        "name": "", 
+        "city": "", 
+        "state": "", 
+        "country": "United States", 
+        "lat": 0.0, 
+        "lon": 0.0
     }
 
 def nav_to(page):
@@ -506,6 +527,7 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -515,11 +537,12 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
+                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
         st.markdown("#### 2. TARGET ACQUISITION")
-        tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
+        tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
         
         target_data = {}
         is_manual = False
@@ -670,6 +693,79 @@ with main_content:
                     "dist": man_dist
                 }
 
+        with tab_import:
+            st.write("INITIATE BULK INGESTION PROTOCOL (MWLIST / WLOGGER)...")
+            uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="mw_bulk")
+            
+            if uploaded_file is not None:
+                try:
+                    df_import = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str)
+                    st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
+                    st.dataframe(df_import.head(5), use_container_width=True)
+
+                    st.markdown("#### MAP DATABANK COLUMNS")
+                    cols = ["<Skip>"] + df_import.columns.tolist()
+                    
+                    c_i1, c_i2, c_i3 = st.columns(3)
+                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["freq", "khz"], cols))
+                    map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["call", "station"], cols))
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "utc date"], cols))
+
+                    c_i4, c_i5, c_i6 = st.columns(3)
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["time", "utc time"], cols))
+                    map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["city", "loc", "town"], cols))
+                    map_state = c_i6.selectbox("STATION STATE", cols, index=get_idx(["state", "prov", "sp"], cols))
+
+                    c_i7, c_i8, c_i9 = st.columns(3)
+                    map_ctry = c_i7.selectbox("COUNTRY", cols, index=get_idx(["countr", "itu"], cols))
+                    map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["dist", "mi", "km"], cols))
+                    map_notes = c_i9.selectbox("NOTES / DETAILS", cols, index=get_idx(["note", "detail", "info", "comment"], cols))
+
+                    if st.button("> PROCESS & TRANSMIT BULK PAYLOAD"):
+                        sheet = get_gsheet()
+                        if sheet is None:
+                            st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                        else:
+                            bulk_rows = []
+                            op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+
+                            for idx, row in df_import.iterrows():
+                                freq_val = row[map_freq] if map_freq != "<Skip>" else ""
+                                call_val = row[map_call] if map_call != "<Skip>" else ""
+                                date_val = row[map_date] if map_date != "<Skip>" else datetime.datetime.now(datetime.timezone.utc).strftime("%m/%d/%Y")
+                                time_val = row[map_time] if map_time != "<Skip>" else ""
+                                city_val = row[map_city] if map_city != "<Skip>" else ""
+                                state_val = row[map_state] if map_state != "<Skip>" else ""
+                                ctry_val = row[map_ctry] if map_ctry != "<Skip>" else "United States"
+                                dist_val = row[map_dist] if map_dist != "<Skip>" else 0.0
+                                notes_val = row[map_notes] if map_notes != "<Skip>" else ""
+
+                                try:
+                                    dist_val = float(str(dist_val).replace('km', '').replace('mi', '').strip())
+                                except Exception:
+                                    dist_val = 0.0
+
+                                r_data = [
+                                    op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
+                                    "AM", freq_val, "", call_val, "", city_val, state_val, ctry_val,
+                                    "", active_grid_calc, date_val, time_val, dist_val, notes_val, "", "",
+                                    "Other", "", entry_cat_val, "", ""
+                                ]
+
+                                sanitized_row = ["" if pd.isna(x) else (x.item() if hasattr(x, 'item') else x) for x in r_data]
+                                bulk_rows.append(sanitized_row)
+
+                            try:
+                                sheet.append_rows(bulk_rows)
+                                st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED SUCCESSFULLY ]")
+                                st.balloons()
+                            except Exception as e:
+                                st.error(f"BULK TRANSMISSION FAILED: {e}")
+
+                except Exception as e:
+                    st.error(f"FILE PARSING ERROR: {e}")
+
         st.markdown("#### 3. SUBMIT INTERCEPT")
         with st.form("mw_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns(3)
@@ -746,6 +842,7 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -755,11 +852,12 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
+                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
         st.markdown("#### 2. TARGET ACQUISITION")
-        tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
+        tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
         target_data = {}
         
         with tab_search:
@@ -902,6 +1000,79 @@ with main_content:
                     "pi": "", 
                     "dist": man_dist
                 }
+
+        with tab_import:
+            st.write("INITIATE BULK INGESTION PROTOCOL (FMLIST / WLOGGER)...")
+            uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="fm_bulk")
+            
+            if uploaded_file is not None:
+                try:
+                    df_import = pd.read_csv(uploaded_file, sep=None, engine='python', dtype=str)
+                    st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
+                    st.dataframe(df_import.head(5), use_container_width=True)
+
+                    st.markdown("#### MAP DATABANK COLUMNS")
+                    cols = ["<Skip>"] + df_import.columns.tolist()
+                    
+                    c_i1, c_i2, c_i3 = st.columns(3)
+                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["freq", "mhz"], cols), key="fm_map_1")
+                    map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["call", "station"], cols), key="fm_map_2")
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "utc date"], cols), key="fm_map_3")
+
+                    c_i4, c_i5, c_i6 = st.columns(3)
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["time", "utc time"], cols), key="fm_map_4")
+                    map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["city", "loc", "town"], cols), key="fm_map_5")
+                    map_state = c_i6.selectbox("STATION STATE", cols, index=get_idx(["state", "prov", "sp"], cols), key="fm_map_6")
+
+                    c_i7, c_i8, c_i9 = st.columns(3)
+                    map_ctry = c_i7.selectbox("COUNTRY", cols, index=get_idx(["countr", "itu"], cols), key="fm_map_7")
+                    map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["dist", "mi", "km"], cols), key="fm_map_8")
+                    map_notes = c_i9.selectbox("NOTES / DETAILS", cols, index=get_idx(["note", "detail", "info", "comment"], cols), key="fm_map_9")
+
+                    if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="fm_bulk_btn"):
+                        sheet = get_gsheet()
+                        if sheet is None:
+                            st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                        else:
+                            bulk_rows = []
+                            op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+
+                            for idx, row in df_import.iterrows():
+                                freq_val = row[map_freq] if map_freq != "<Skip>" else ""
+                                call_val = row[map_call] if map_call != "<Skip>" else ""
+                                date_val = row[map_date] if map_date != "<Skip>" else datetime.datetime.now(datetime.timezone.utc).strftime("%m/%d/%Y")
+                                time_val = row[map_time] if map_time != "<Skip>" else ""
+                                city_val = row[map_city] if map_city != "<Skip>" else ""
+                                state_val = row[map_state] if map_state != "<Skip>" else ""
+                                ctry_val = row[map_ctry] if map_ctry != "<Skip>" else "United States"
+                                dist_val = row[map_dist] if map_dist != "<Skip>" else 0.0
+                                notes_val = row[map_notes] if map_notes != "<Skip>" else ""
+
+                                try:
+                                    dist_val = float(str(dist_val).replace('km', '').replace('mi', '').strip())
+                                except Exception:
+                                    dist_val = 0.0
+
+                                r_data = [
+                                    op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
+                                    "FM", "", freq_val, call_val, "", city_val, state_val, ctry_val,
+                                    "", active_grid_calc, date_val, time_val, dist_val, notes_val, "", "",
+                                    "Other", "", entry_cat_val, "", ""
+                                ]
+
+                                sanitized_row = ["" if pd.isna(x) else (x.item() if hasattr(x, 'item') else x) for x in r_data]
+                                bulk_rows.append(sanitized_row)
+
+                            try:
+                                sheet.append_rows(bulk_rows)
+                                st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED SUCCESSFULLY ]")
+                                st.balloons()
+                            except Exception as e:
+                                st.error(f"BULK TRANSMISSION FAILED: {e}")
+
+                except Exception as e:
+                    st.error(f"FILE PARSING ERROR: {e}")
 
         st.markdown("#### 3. SUBMIT INTERCEPT")
         with st.form("fm_submit_form", clear_on_submit=True):
