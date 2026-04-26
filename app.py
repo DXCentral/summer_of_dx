@@ -119,12 +119,20 @@ if "profile_to_save" in st.session_state:
 # --- 4. HELPERS & TRANSLATORS ---
 itu_map = {
     "USA": "United States", "CAN": "Canada", "MEX": "Mexico", "CUB": "Cuba", 
-    "CLM": "Colombia", "DOM": "Dominican Republic", "PRU": "Peru", "BHS": "Bahamas",
-    "GTM": "Guatemala", "HND": "Honduras", "NIC": "Nicaragua", "CRI": "Costa Rica",
-    "PAN": "Panama", "VEN": "Venezuela", "ECU": "Ecuador", "BRA": "Brazil",
-    "BOL": "Bolivia", "CHL": "Chile", "ARG": "Argentina", "URY": "Uruguay",
-    "PRY": "Paraguay", "JAM": "Jamaica", "HTI": "Haiti", "BEL": "Belize",
-    "SLV": "El Salvador", "PUR": "Puerto Rico", "BER": "Bermuda"
+    "CLM": "Colombia", "DOM": "Dominican Republic", "PRU": "Peru", 
+    "BAH": "Bahamas", "BHS": "Bahamas", 
+    "GTM": "Guatemala", "HND": "Honduras", "NCG": "Nicaragua", "NIC": "Nicaragua", 
+    "CTR": "Costa Rica", "CRI": "Costa Rica", "PNR": "Panama", "PAN": "Panama", 
+    "VEN": "Venezuela", "EQA": "Ecuador", "ECU": "Ecuador", "BRA": "Brazil",
+    "BOL": "Bolivia", "CHL": "Chile", "ARG": "Argentina", "URG": "Uruguay", "URY": "Uruguay",
+    "PRG": "Paraguay", "PRY": "Paraguay", "JMC": "Jamaica", "JAM": "Jamaica", 
+    "HTI": "Haiti", "BLZ": "Belize", "BEL": "Belize", "SLV": "El Salvador", 
+    "PTR": "Puerto Rico", "PUR": "Puerto Rico", "BER": "Bermuda", 
+    "VIR": "US Virgin Islands", "ALG": "Algeria", "BVI": "British Virgin Islands", 
+    "ATG": "Antigua", "KNA": "St. Kitts & Nevis", "LCA": "St. Lucia", 
+    "VCT": "St. Vincent", "GRD": "Grenada", "TCA": "Turks & Caicos", 
+    "AIA": "Anguilla", "CYM": "Cayman Islands", "MSR": "Montserrat", 
+    "GLP": "Guadeloupe", "MTQ": "Martinique", "SPM": "St. Pierre & Miquelon"
 }
 
 def clean_callsign(call):
@@ -695,7 +703,6 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -705,7 +712,6 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
-                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
@@ -893,9 +899,7 @@ with main_content:
                     map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols))
                     map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols))
                     
-                    c_i9, c_i10 = st.columns(2)
-                    map_prop = c_i9.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols))
-                    map_notes = c_i10.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
+                    map_notes = st.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
                     
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="mw_bulk_btn"):
                         sheet = get_gsheet()
@@ -909,6 +913,16 @@ with main_content:
                             for _, row in df_import.iterrows():
                                 
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
+                                
+                                # AM Bandpass Filter: Skip anything outside 530 - 1710 kHz (NDB, SW)
+                                if raw_freq:
+                                    try:
+                                        f_val = float(str(raw_freq).replace(',', '.').strip())
+                                        if f_val < 530.0 or f_val > 1710.0:
+                                            continue 
+                                    except Exception:
+                                        pass
+                                
                                 raw_call = row[map_call] if map_call != "<Skip>" else ""
                                 clean_call = clean_callsign(raw_call)
                                 
@@ -940,7 +954,7 @@ with main_content:
                                 
                                 if not mw_db.empty and clean_call and raw_freq:
                                     try:
-                                        match = mw_db[(mw_db['Callsign'].str.upper() == clean_call.upper()) & (mw_db['Frequency'] == float(raw_freq))]
+                                        match = mw_db[(mw_db['Callsign'].str.upper() == clean_call.upper()) & (mw_db['Frequency'] == float(str(raw_freq).replace(',', '.')))]
                                         if not match.empty:
                                             station_grid = match.iloc[0]['Grid']
                                             station_county = match.iloc[0]['County']
@@ -968,7 +982,7 @@ with main_content:
                                     row[map_notes] if map_notes != "<Skip>" else "", 
                                     "", 
                                     "", 
-                                    map_mw_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
+                                    "", 
                                     station_county, 
                                     entry_cat_val, 
                                     "", 
@@ -1070,7 +1084,6 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -1080,7 +1093,6 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
-                    active_grid_calc = rover_grid.upper()
                 except Exception: 
                     pass
                     
@@ -1324,7 +1336,7 @@ with main_content:
                                     # Fallback to Call + Freq lookup
                                     if not station_grid and clean_call and raw_freq:
                                         try:
-                                            match = fm_db[(fm_db['Callsign'].str.upper() == clean_call.upper()) & (fm_db['Frequency'] == float(raw_freq))]
+                                            match = fm_db[(fm_db['Callsign'].str.upper() == clean_call.upper()) & (fm_db['Frequency'] == float(str(raw_freq).replace(',', '.')))]
                                             if not match.empty:
                                                 station_county = match.iloc[0]['County']
                                                 station_grid = match.iloc[0]['Grid']
