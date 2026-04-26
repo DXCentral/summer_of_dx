@@ -119,20 +119,18 @@ if "profile_to_save" in st.session_state:
 # --- 4. HELPERS & TRANSLATORS ---
 itu_map = {
     "USA": "United States", "CAN": "Canada", "MEX": "Mexico", "CUB": "Cuba", 
-    "CLM": "Colombia", "DOM": "Dominican Republic", "PRU": "Peru", 
-    "BAH": "Bahamas", "BHS": "Bahamas", 
-    "GTM": "Guatemala", "HND": "Honduras", "NCG": "Nicaragua", "NIC": "Nicaragua", 
-    "CTR": "Costa Rica", "CRI": "Costa Rica", "PNR": "Panama", "PAN": "Panama", 
-    "VEN": "Venezuela", "EQA": "Ecuador", "ECU": "Ecuador", "BRA": "Brazil",
-    "BOL": "Bolivia", "CHL": "Chile", "ARG": "Argentina", "URG": "Uruguay", "URY": "Uruguay",
-    "PRG": "Paraguay", "PRY": "Paraguay", "JMC": "Jamaica", "JAM": "Jamaica", 
-    "HTI": "Haiti", "BLZ": "Belize", "BEL": "Belize", "SLV": "El Salvador", 
-    "PTR": "Puerto Rico", "PUR": "Puerto Rico", "BER": "Bermuda", 
-    "VIR": "US Virgin Islands", "ALG": "Algeria", "BVI": "British Virgin Islands", 
-    "ATG": "Antigua", "KNA": "St. Kitts & Nevis", "LCA": "St. Lucia", 
-    "VCT": "St. Vincent", "GRD": "Grenada", "TCA": "Turks & Caicos", 
-    "AIA": "Anguilla", "CYM": "Cayman Islands", "MSR": "Montserrat", 
-    "GLP": "Guadeloupe", "MTQ": "Martinique", "SPM": "St. Pierre & Miquelon"
+    "CLM": "Colombia", "DOM": "Dominican Republic", "PRU": "Peru", "BHS": "Bahamas", "BAH": "Bahamas",
+    "GTM": "Guatemala", "HND": "Honduras", "NIC": "Nicaragua", "NCG": "Nicaragua", "CRI": "Costa Rica", "CTR": "Costa Rica",
+    "PAN": "Panama", "PNR": "Panama", "VEN": "Venezuela", "ECU": "Ecuador", "EQA": "Ecuador", "BRA": "Brazil",
+    "BOL": "Bolivia", "CHL": "Chile", "ARG": "Argentina", "URY": "Uruguay", "URG": "Uruguay",
+    "PRY": "Paraguay", "PRG": "Paraguay", "JAM": "Jamaica", "JMC": "Jamaica", "HTI": "Haiti", "BEL": "Belize", "BLZ": "Belize",
+    "SLV": "El Salvador", "PUR": "Puerto Rico", "PTR": "Puerto Rico", "BER": "Bermuda",
+    "BVI": "British Virgin Islands", "VGB": "British Virgin Islands", "VRG": "British Virgin Islands", "BRITISH VIRGIN ISLANDS": "British Virgin Islands",
+    "VIR": "US Virgin Islands", "ALG": "Algeria", "ATG": "Antigua", "KNA": "St. Kitts & Nevis",
+    "LCA": "St. Lucia", "VCT": "St. Vincent", "GRD": "Grenada", "TCA": "Turks & Caicos",
+    "AIA": "Anguilla", "CYM": "Cayman Islands", "MSR": "Montserrat", "GLP": "Guadeloupe",
+    "MTQ": "Martinique", "SPM": "St. Pierre & Miquelon",
+    "BON": "Bonaire", "BES": "Bonaire", "ATN": "Bonaire", "ANT": "Bonaire", "BONAIRE": "Bonaire"
 }
 
 def clean_callsign(call):
@@ -703,6 +701,7 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -712,6 +711,7 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
+                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
@@ -775,6 +775,7 @@ with main_content:
                         results = results[~results['Check'].isin(logged_set)]
                         
                 st.write(f"> {len(results)} TARGETS FOUND:")
+                st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: Mesa Mike's List of USA AM Band Radio Stations at http://mesamike.org/radio/amdb/amdb.mvc*</div>", unsafe_allow_html=True)
                 
                 if not results.empty:
                     results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
@@ -899,7 +900,9 @@ with main_content:
                     map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols))
                     map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols))
                     
-                    map_notes = st.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
+                    c_i9, c_i10 = st.columns(2)
+                    map_prop = c_i9.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols))
+                    map_notes = c_i10.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
                     
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="mw_bulk_btn"):
                         sheet = get_gsheet()
@@ -982,7 +985,7 @@ with main_content:
                                     row[map_notes] if map_notes != "<Skip>" else "", 
                                     "", 
                                     "", 
-                                    "", 
+                                    map_mw_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
                                     station_county, 
                                     entry_cat_val, 
                                     "", 
