@@ -597,6 +597,7 @@ elif st.session_state.sys_state == "MW_LOG":
                         "state": target['State'], 
                         "county": target['County'], 
                         "country": "United States", 
+                        "grid": target['Grid'],
                         "dist": target['Dist']
                     }
 
@@ -647,6 +648,7 @@ elif st.session_state.sys_state == "MW_LOG":
                 "state": man_sp, 
                 "county": "Unknown", 
                 "country": selected_country, 
+                "grid": "",
                 "dist": man_dist
             }
 
@@ -672,6 +674,8 @@ elif st.session_state.sys_state == "MW_LOG":
                 else:
                     try:
                         op = st.session_state.operator_profile
+                        entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                        
                         row_data = [
                             op.get('name', ''), 
                             op.get('city', ''), 
@@ -686,7 +690,7 @@ elif st.session_state.sys_state == "MW_LOG":
                             target_data.get("state", ""), 
                             target_data.get("country", ""), 
                             "", 
-                            rover_grid, 
+                            target_data.get("grid", ""), 
                             log_date.strftime("%m/%d/%Y"), 
                             log_time, 
                             target_data.get("dist", 0.0), 
@@ -695,12 +699,11 @@ elif st.session_state.sys_state == "MW_LOG":
                             "", 
                             log_prop, 
                             target_data.get("county", ""), 
-                            r_cat, 
+                            entry_cat_val, 
                             "", 
                             ""
                         ]
                         
-                        # Data Sanitizer for Google Sheets JSON Serialization
                         sanitized_row = []
                         for item in row_data:
                             if pd.isna(item):
@@ -837,6 +840,7 @@ elif st.session_state.sys_state == "FM_LOG":
                         "state": target['State'], 
                         "county": target['County'], 
                         "country": "United States", 
+                        "grid": target['Grid'],
                         "pi": target.get('PI Code', ''), 
                         "dist": target['Dist']
                     }
@@ -881,6 +885,7 @@ elif st.session_state.sys_state == "FM_LOG":
                 "state": man_sp, 
                 "county": "Unknown", 
                 "country": selected_country, 
+                "grid": "",
                 "pi": "", 
                 "dist": man_dist
             }
@@ -915,6 +920,8 @@ elif st.session_state.sys_state == "FM_LOG":
                 else:
                     try:
                         op = st.session_state.operator_profile
+                        entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                        
                         row_data = [
                             op.get('name', ''), 
                             op.get('city', ''), 
@@ -929,7 +936,7 @@ elif st.session_state.sys_state == "FM_LOG":
                             target_data.get("state", ""), 
                             target_data.get("country", ""), 
                             "", 
-                            rover_grid, 
+                            target_data.get("grid", ""), 
                             log_date.strftime("%m/%d/%Y"), 
                             log_time, 
                             target_data.get("dist", 0.0), 
@@ -938,7 +945,7 @@ elif st.session_state.sys_state == "FM_LOG":
                             log_pi, 
                             log_prop, 
                             target_data.get("county", ""), 
-                            r_cat, 
+                            entry_cat_val, 
                             "", 
                             ""
                         ]
