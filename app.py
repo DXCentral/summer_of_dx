@@ -11,7 +11,7 @@ from google.oauth2.service_account import Credentials
 from streamlit_javascript import st_javascript
 
 # --- 1. CORE CONFIGURATION ---
-# We use "wide" layout to fix the alignment, but constrain it with columns later
+# We use "wide" layout but constrain it with columns so the UI doesn't stretch too far
 st.set_page_config(
     page_title="SUMMER OF DX: DEFCON 6", 
     layout="wide", 
@@ -26,8 +26,8 @@ crt_css = """
 html, body, [class*="st-"] {
     background-color: #050505 !important;
     font-family: 'VT323', monospace !important;
-    color: #1bd2d4 !important; /* Lighter cyan for readability */
-    text-shadow: 0px 0px 5px rgba(19, 154, 155, 0.8); /* Your #139a9b for the glow */
+    color: #1bd2d4 !important; 
+    text-shadow: 0px 0px 5px rgba(19, 154, 155, 0.8);
     letter-spacing: 2px;
 }
 
@@ -38,7 +38,6 @@ footer {
     visibility: hidden;
 }
 
-/* Sidebar styling to match the CRT vibe */
 [data-testid="stSidebar"] {
     background-color: #050505 !important;
     border-right: 1px dashed #139a9b;
@@ -163,13 +162,11 @@ def reverse_geocode(lat, lon):
         
         if location:
             addr = location.raw.get('address', {})
-            
             found_city = ""
             for tag in ['city', 'town', 'village', 'hamlet']:
                 if tag in addr:
                     found_city = addr[tag]
                     break
-                    
             st.session_state.op_city_val = found_city
             st.session_state.op_state_val = addr.get('state', addr.get('province', ''))
             st.session_state.op_country_val = addr.get('country', 'United States')
@@ -266,12 +263,10 @@ def load_mw_intel():
                     
                 df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
                 df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
-                
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 return df
         except Exception:
             continue
-            
     return pd.DataFrame()
 
 @st.cache_data
@@ -305,12 +300,10 @@ def load_fm_intel():
                 
                 df['LAT'] = pd.to_numeric(df.get(lat_col, pd.Series([0.0]*len(df))), errors='coerce')
                 df['LON'] = pd.to_numeric(df.get(lon_col, pd.Series([0.0]*len(df))), errors='coerce')
-                
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 return df
         except Exception:
             continue
-            
     return pd.DataFrame()
 
 @st.cache_data
@@ -326,7 +319,6 @@ def load_countries():
             return country_col
         except Exception:
             continue
-            
     return ["Canada", "Mexico", "United States"]
 
 mw_db = load_mw_intel()
@@ -338,12 +330,9 @@ can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "S
 mex_states = ["AGU", "BCN", "BCS", "CAM", "CHP", "CHH", "CMX", "COA", "COL", "DUR", "GUA", "GRO", "HID", "JAL", "MEX", "MIC", "MOR", "NAY", "NLE", "OAX", "PUE", "QUE", "ROO", "SLP", "SIN", "SON", "TAB", "TAM", "TLA", "VER", "YUC", "ZAC"]
 
 def get_state_list(country):
-    if country == "United States": 
-        return us_states
-    if country == "Canada": 
-        return can_prov
-    if country == "Mexico": 
-        return mex_states
+    if country == "United States": return us_states
+    if country == "Canada": return can_prov
+    if country == "Mexico": return mex_states
     return ["DX"]
 
 # --- 6. SESSION STATE ROUTING & PROFILE ---
@@ -355,19 +344,13 @@ if 'matrix_unlocked' not in st.session_state:
 
 if 'operator_profile' not in st.session_state:
     st.session_state.operator_profile = {
-        "name": "", 
-        "city": "", 
-        "state": "", 
-        "country": "United States", 
-        "lat": 0.0, 
-        "lon": 0.0
+        "name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0
     }
 
 def nav_to(page):
     st.session_state.sys_state = page
 
 # --- 6b. GLOBAL IRONCLAD FAILSAFE ---
-# We check this BEFORE drawing anything to ensure bad data is booted instantly
 if st.session_state.sys_state != "OPERATOR_LOGIN":
     prof = st.session_state.operator_profile
     op_name = prof.get('name')
@@ -378,9 +361,8 @@ if st.session_state.sys_state != "OPERATOR_LOGIN":
         st.session_state.sys_state = "OPERATOR_LOGIN"
         st.rerun()
 
-# --- 7. SIDEBAR & NAVIGATION (OMNIPRESENT) ---
+# --- 7. SIDEBAR NAVIGATION (OMNIPRESENT) ---
 with st.sidebar:
-    # Anchor the Banner Logo to the top of the sidebar
     try:
         st.image("Summer of DX Banner.png", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
@@ -388,7 +370,6 @@ with st.sidebar:
         pass
         
     if st.session_state.sys_state != "OPERATOR_LOGIN":
-        # Draw the Agent Status directly below the banner
         op_name_display = st.session_state.operator_profile.get('name', 'UNKNOWN').upper()
         st.markdown(f"<div style='text-align: center; font-size: 1.3rem; color: #1bd2d4;'>AGENT: {op_name_display}<br>STATUS: SECURE</div>", unsafe_allow_html=True)
         st.markdown("<hr>", unsafe_allow_html=True)
@@ -418,12 +399,16 @@ with st.sidebar:
             st.rerun()
 
 # --- 8. CENTRAL COLUMN CONSTRAINT ---
-# This ensures the 'wide' layout doesn't stretch too far, simulating the centered terminal vibe
-spacer_left, main_content, spacer_right = st.columns([1, 10, 1])
+spacer_left, main_content, spacer_right = st.columns([1, 8, 1])
 
 with main_content:
     # --- 8A. OPERATOR LOGIN SCREEN ---
     if st.session_state.sys_state == "OPERATOR_LOGIN":
+        try:
+            st.image("Summer of DX Banner.png", use_container_width=True)
+        except Exception:
+            pass
+
         st.markdown('<div class="typewriter">DX CENTRAL MAINFRAME<br>AUTHENTICATION REQUIRED<span class="blink">_</span></div>', unsafe_allow_html=True)
         
         js_get = "JSON.parse(localStorage.getItem('dx_central_operator'));"
@@ -918,79 +903,79 @@ with main_content:
                     "dist": man_dist
                 }
 
-    st.markdown("#### 3. SUBMIT INTERCEPT")
-    with st.form("fm_submit_form", clear_on_submit=True):
-        col_s1, col_s2, col_s3 = st.columns(3)
-        now = datetime.datetime.now(datetime.timezone.utc)
-        
-        log_date = col_s1.date_input("DATE (UTC)", value=now.date(), key="fm_dt")
-        log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="fm_tm")
-        log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"])
-        
-        c_p1, c_p2 = st.columns(2)
-        log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
-        
-        default_pi = ""
-        if "pi" in target_data:
-            default_pi = target_data["pi"]
+        st.markdown("#### 3. SUBMIT INTERCEPT")
+        with st.form("fm_submit_form", clear_on_submit=True):
+            col_s1, col_s2, col_s3 = st.columns(3)
+            now = datetime.datetime.now(datetime.timezone.utc)
             
-        log_pi = c_p2.text_input("PI CODE", value=default_pi)
-        log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
-        
-        submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
-        if submit_log:
-            if not target_data:
-                st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-            else:
-                sheet = get_gsheet()
-                if sheet is None:
-                    st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured. Cannot write to Google Sheets.")
+            log_date = col_s1.date_input("DATE (UTC)", value=now.date(), key="fm_dt")
+            log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="fm_tm")
+            log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"])
+            
+            c_p1, c_p2 = st.columns(2)
+            log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
+            
+            default_pi = ""
+            if "pi" in target_data:
+                default_pi = target_data["pi"]
+                
+            log_pi = c_p2.text_input("PI CODE", value=default_pi)
+            log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
+            
+            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+            if submit_log:
+                if not target_data:
+                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 else:
-                    try:
-                        op = st.session_state.operator_profile
-                        entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
-                        
-                        row_data = [
-                            op.get('name', ''), 
-                            op.get('city', ''), 
-                            op.get('state', ''), 
-                            op.get('country', ''), 
-                            "FM", 
-                            "", 
-                            target_data.get("freq", ""), 
-                            target_data.get("call", ""), 
-                            "", 
-                            target_data.get("city", ""), 
-                            target_data.get("state", ""), 
-                            target_data.get("country", ""), 
-                            "", 
-                            target_data.get("grid", ""), 
-                            log_date.strftime("%m/%d/%Y"), 
-                            log_time, 
-                            target_data.get("dist", 0.0), 
-                            log_notes, 
-                            log_rds, 
-                            log_pi, 
-                            log_prop, 
-                            target_data.get("county", ""), 
-                            entry_cat_val, 
-                            "", 
-                            ""
-                        ]
-                        
-                        sanitized_row = []
-                        for item in row_data:
-                            if pd.isna(item):
-                                sanitized_row.append("")
-                            elif hasattr(item, 'item'):
-                                sanitized_row.append(item.item())
-                            else:
-                                sanitized_row.append(item)
-                                
-                        sheet.append_row(sanitized_row)
-                        st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
-                    except Exception as e:
-                        st.error(f"TRANSMISSION FAILED: {e}")
+                    sheet = get_gsheet()
+                    if sheet is None:
+                        st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured. Cannot write to Google Sheets.")
+                    else:
+                        try:
+                            op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
+                            row_data = [
+                                op.get('name', ''), 
+                                op.get('city', ''), 
+                                op.get('state', ''), 
+                                op.get('country', ''), 
+                                "FM", 
+                                "", 
+                                target_data.get("freq", ""), 
+                                target_data.get("call", ""), 
+                                "", 
+                                target_data.get("city", ""), 
+                                target_data.get("state", ""), 
+                                target_data.get("country", ""), 
+                                "", 
+                                target_data.get("grid", ""), 
+                                log_date.strftime("%m/%d/%Y"), 
+                                log_time, 
+                                target_data.get("dist", 0.0), 
+                                log_notes, 
+                                log_rds, 
+                                log_pi, 
+                                log_prop, 
+                                target_data.get("county", ""), 
+                                entry_cat_val, 
+                                "", 
+                                ""
+                            ]
+                            
+                            sanitized_row = []
+                            for item in row_data:
+                                if pd.isna(item):
+                                    sanitized_row.append("")
+                                elif hasattr(item, 'item'):
+                                    sanitized_row.append(item.item())
+                                else:
+                                    sanitized_row.append(item)
+                                    
+                            sheet.append_row(sanitized_row)
+                            st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                        except Exception as e:
+                            st.error(f"TRANSMISSION FAILED: {e}")
 
     # --- 8E. THE CLANDESTINE MATRIX (BOUNTY ROOM) ---
     elif st.session_state.sys_state == "BOUNTY_HUNT":
