@@ -44,12 +44,6 @@ footer {
     border-right: 1px dashed #139a9b;
 }
 
-/* LOCK SIDEBAR OPEN - Hide the collapse/expand buttons */
-[data-testid="collapsedControl"],
-[data-testid="stSidebarCollapseButton"] {
-    display: none !important;
-}
-
 div.stButton > button {
     background-color: transparent !important;
     border: 1px solid #139a9b !important;
@@ -1076,6 +1070,7 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -1085,6 +1080,7 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
+                    active_grid_calc = rover_grid.upper()
                 except Exception: 
                     pass
                     
