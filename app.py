@@ -432,15 +432,11 @@ def check_is_logged(freq, call, city, state, country, logged_dict):
                 l_st = simplify_string(l_dict['state'])
                 l_ctry = simplify_string(l_dict['country'])
                 
+                # Dual Track Match
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
-                    # Substring Callsign lock
                     if l_call and c_val and (l_call in c_val or c_val in l_call):
                         return True
-                    # The Ghost Lock: Slogan bailout if City+State match
-                    if l_city and city_val and l_st and st_val and (l_city in city_val or city_val in l_city) and l_st == st_val:
-                        return True
                 else:
-                    # International City/Country Lock
                     if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
                         return True
     except Exception: pass
@@ -919,8 +915,6 @@ with main_content:
                                             if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
                                                 if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
                                                     is_match = True
-                                                elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
-                                                    is_match = True
                                             else:
                                                 if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
                                                     is_match = True
@@ -1187,58 +1181,46 @@ with main_content:
                                         else: dist_val = clean_dist
                                     except Exception: dist_val = 0.0
                                         
-                                rds_val, station_grid = "No", ""
-                                station_county = " - " if clean_country not in ["United States"] else ""
+                                rds_val = "No"
                                 pi_val = str(row[map_pi]).strip().upper() if map_pi != "<Skip>" and not pd.isna(row[map_pi]) else ""
+                                if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
+                                    rds_val = "Yes"
+                                    
+                                station_grid = ""
+                                station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE
-                                if not fm_db.empty:
-                                    # Pass 1: The PI Code Lock
-                                    if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
-                                        rds_val = "Yes"
-                                        match = fm_db[fm_db['PI Code'] == pi_val]
-                                        if not match.empty: 
-                                            station_county = match.iloc[0]['County']
-                                            station_grid = match.iloc[0]['Grid']
-                                            clean_call = match.iloc[0]['Callsign']     # OVERWRITE
-                                            clean_city = match.iloc[0].get('City', '') # OVERWRITE
-                                            clean_state = match.iloc[0].get('State', '') # OVERWRITE
+                                # DUAL-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE)
+                                if not fm_db.empty and raw_freq:
+                                    try:
+                                        f_val = float(str(raw_freq).replace(',', '.'))
+                                        match_df = fm_db[fm_db['Frequency'] == f_val]
+                                        for _, m_row in match_df.iterrows():
+                                            db_call = simplify_string(m_row['Callsign'])
+                                            db_city = simplify_string(m_row.get('City', ''))
+                                            db_state = simplify_string(m_row.get('State', ''))
+                                            db_country = simplify_string(m_row.get('Country', 'United States'))
                                             
-                                    # Pass 2 & 3: The Callsign Lock & The Ghost Lock
-                                    if not station_grid and raw_freq:
-                                        try:
-                                            f_val = float(str(raw_freq).replace(',', '.'))
-                                            match_df = fm_db[fm_db['Frequency'] == f_val]
-                                            for _, m_row in match_df.iterrows():
-                                                db_call = simplify_string(m_row['Callsign'])
-                                                db_city = simplify_string(m_row.get('City', ''))
-                                                db_state = simplify_string(m_row.get('State', ''))
-                                                db_country = simplify_string(m_row.get('Country', 'United States'))
-                                                
-                                                is_match = False
-                                                imp_call = simplify_string(clean_call)
-                                                imp_country = simplify_string(clean_country)
-                                                imp_city = simplify_string(clean_city)
-                                                imp_state = simplify_string(clean_state)
-                                                
-                                                if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
-                                                    if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
-                                                        is_match = True
-                                                    # Ghost Lock (If user imported "K-Love", match strictly on City/State fallback)
-                                                    elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
-                                                        is_match = True
-                                                else:
-                                                    if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
-                                                        is_match = True
-                                                        
-                                                if is_match:
-                                                    station_county = m_row['County']
-                                                    station_grid = m_row['Grid']
-                                                    clean_call = m_row['Callsign']   # OVERWRITE
-                                                    clean_city = m_row['City']       # OVERWRITE
-                                                    clean_state = m_row['State']     # OVERWRITE
-                                                    break
-                                        except Exception: pass
+                                            is_match = False
+                                            imp_call = simplify_string(clean_call)
+                                            imp_country = simplify_string(clean_country)
+                                            imp_city = simplify_string(clean_city)
+                                            imp_state = simplify_string(clean_state)
+                                            
+                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
+                                                if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
+                                                    is_match = True
+                                            else:
+                                                if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
+                                                    is_match = True
+                                                    
+                                            if is_match:
+                                                station_county = m_row['County']
+                                                station_grid = m_row['Grid']
+                                                clean_call = m_row['Callsign']   # OVERWRITE
+                                                clean_city = m_row['City']       # OVERWRITE
+                                                clean_state = m_row['State']     # OVERWRITE
+                                                break
+                                    except Exception: pass
 
                                 r_data = [
                                     op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
