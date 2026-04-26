@@ -44,6 +44,12 @@ footer {
     border-right: 1px dashed #139a9b;
 }
 
+/* LOCK SIDEBAR OPEN - Hide the collapse/expand buttons */
+[data-testid="collapsedControl"],
+[data-testid="stSidebarCollapseButton"] {
+    display: none !important;
+}
+
 div.stButton > button {
     background-color: transparent !important;
     border: 1px solid #139a9b !important;
@@ -133,7 +139,9 @@ def clean_callsign(call):
     
     call = str(call).strip()
     
+    # Target actual Call Letters (starts with K, W, X, C) to scrub FMList meta-data
     if re.match(r'^[KWXC][A-Z0-9]{2,4}', call, re.I):
+        # Strip off -FM, -LP, and radio text like 'r:1234'
         call = re.split(r'[- ]', call)[0]
         call = re.sub(r' r:.*', '', call)
         
@@ -141,12 +149,29 @@ def clean_callsign(call):
 
 def format_date_import(date_str):
     try:
+        # Transforms Euro DD.MM.YY into US MM/DD/YYYY
         date_str = str(date_str).strip()
         if not date_str: return ""
         d = pd.to_datetime(date_str, dayfirst=True)
         return d.strftime("%m/%d/%Y")
     except Exception:
         return date_str
+
+def map_mw_prop(prop_raw):
+    if not prop_raw or pd.isna(prop_raw): 
+        return "Other"
+    
+    p = str(prop_raw).lower()
+    if "day" in p or "ground" in p: 
+        return "Groundwave - Daytime"
+    if "night" in p or "sky" in p or "dx" in p: 
+        return "Skywave - Nighttime"
+    if "sunset" in p or "dusk" in p: 
+        return "Grayline - Sunset"
+    if "sunrise" in p or "dawn" in p: 
+        return "Grayline - Sunrise"
+        
+    return "Other"
 
 def map_fm_prop(prop_raw):
     if not prop_raw or pd.isna(prop_raw): 
@@ -263,6 +288,7 @@ def get_idx(guess_list, cols):
 def handle_file_upload(uploaded_file):
     content = ""
     
+    # Try multiple decodings to handle MWList's Latin-1 accents
     for enc in ['utf-8', 'latin-1', 'cp1252']:
         try:
             uploaded_file.seek(0)
@@ -279,10 +305,12 @@ def handle_file_upload(uploaded_file):
     best_row = 0
     best_sep = ","
     
+    # 1. Keyword Scan to find the true header (Ignores comma-heavy bio paragraphs by checking length)
     keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
     
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
+        # Must contain at least 3 header keywords, and must not be a massive bio paragraph
         if sum(1 for kw in keywords if kw in line_lower) >= 3 and len(line) < 300:
             best_row = i
             c_comma = line.count(",")
@@ -295,6 +323,7 @@ def handle_file_upload(uploaded_file):
             else: best_sep = ","
             break
             
+    # Fallback: if no keywords found, fallback to delimiter density alone
     if best_row == 0:
         max_delims = 0
         for i, line in enumerate(lines[:50]):
@@ -310,6 +339,7 @@ def handle_file_upload(uploaded_file):
                 elif c_tab == current_max: best_sep = "\t"
                 else: best_sep = ","
 
+    # 2. Forgiving Manual Parse Loop (Bypasses Pandas Expected Fields Crash)
     header_line = [h.strip(' \'"') for h in lines[best_row].split(best_sep)]
     num_cols = len(header_line)
     
@@ -321,15 +351,19 @@ def handle_file_upload(uploaded_file):
             
         cols = line.split(best_sep)
         
+        # If there are stray separators in the remarks, merge them into the final column
         if len(cols) > num_cols:
             merged_last = best_sep.join(cols[num_cols-1:])
             cols = cols[:num_cols-1] + [merged_last]
+        # If missing columns, pad them
         elif len(cols) < num_cols:
             cols.extend([""] * (num_cols - len(cols)))
             
+        # Clean quotes and spaces from cells
         cols = [c.strip(' \'"') for c in cols]
         parsed_data.append(cols)
         
+    # Clean up duplicate header names
     unique_headers = []
     for j, h in enumerate(header_line):
         h_str = str(h) if h else f"Unnamed_{j}"
@@ -667,6 +701,7 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -676,6 +711,7 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
+                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
@@ -743,7 +779,6 @@ with main_content:
                 if not results.empty:
                     results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
                     
-                    # Sort closest stations to the top dynamically
                     results = results.sort_values(by='Dist', ascending=True)
                     
                     logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
@@ -864,7 +899,9 @@ with main_content:
                     map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols))
                     map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols))
                     
-                    map_notes = st.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
+                    c_i9, c_i10 = st.columns(2)
+                    map_prop = c_i9.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols))
+                    map_notes = c_i10.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
                     
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="mw_bulk_btn"):
                         sheet = get_gsheet()
@@ -937,7 +974,7 @@ with main_content:
                                     row[map_notes] if map_notes != "<Skip>" else "", 
                                     "", 
                                     "", 
-                                    "", 
+                                    map_mw_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
                                     station_county, 
                                     entry_cat_val, 
                                     "", 
@@ -1114,7 +1151,6 @@ with main_content:
                 if not results.empty:
                     results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
                     
-                    # Sort closest stations to the top dynamically
                     results = results.sort_values(by='Dist', ascending=True)
                     
                     logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "FM")
