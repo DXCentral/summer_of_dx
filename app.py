@@ -306,6 +306,12 @@ def get_idx(guess_list, cols):
             if g.lower() in c.lower(): return idx
     return 0
 
+def find_col(df, possible_names):
+    for n in possible_names:
+        for col in df.columns:
+            if n.lower() in col.lower(): return col
+    return None
+
 # --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
@@ -393,23 +399,38 @@ def get_logged_dict(dxer_name, band):
                 row_name, row_band = str(row[0]).strip().upper(), str(row[4]).strip().upper()
                 if row_name == dxer_name.strip().upper() and row_band == band.upper():
                     call = str(row[7]).strip().upper()
+                    city = str(row[9]).strip().upper()
+                    country = str(row[11]).strip().upper()
+                    
                     if band == "AM": freq_val = float(str(row[5]).replace(',', '.'))
                     else: freq_val = float(str(row[6]).replace(',', '.'))
+                        
                     if freq_val not in logged: logged[freq_val] = []
-                    logged[freq_val].append(call)
+                    logged[freq_val].append({"call": call, "city": city, "country": country})
             except Exception: continue
         return logged
     except Exception: return {}
 
-def check_is_logged(freq, call, logged_dict):
+def check_is_logged(freq, call, city, country, logged_dict):
     try:
         f_val = float(freq)
         c_val = simplify_string(call)
+        city_val = simplify_string(city)
+        ctry_val = simplify_string(country)
+        
         if f_val in logged_dict:
-            for l_call in logged_dict[f_val]:
-                l_simp = simplify_string(l_call)
-                if l_simp and c_val and (l_simp in c_val or c_val in l_simp):
-                    return True
+            for l_dict in logged_dict[f_val]:
+                l_call = simplify_string(l_dict['call'])
+                l_city = simplify_string(l_dict['city'])
+                l_ctry = simplify_string(l_dict['country'])
+                
+                # Dual Track Match
+                if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
+                    if l_call and c_val and (l_call in c_val or c_val in l_call):
+                        return True
+                else:
+                    if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
+                        return True
     except: pass
     return False
 
@@ -437,11 +458,12 @@ def load_mw_intel():
                 break
         except Exception: continue
             
+    # Adaptive Ingestion for the International Databank
     try:
         intl_files = [
             "Summer of DX - International Database - MW - International Station List.csv",
-            "International_Master_Cleaned.csv",
-            "Summer of DX - International Database - MW - International Station List (2).csv"
+            "Summer of DX - International Database - MW - International Station List (2).csv",
+            "International_Master_Cleaned.csv"
         ]
         intl_df = pd.DataFrame()
         for f in intl_files:
@@ -451,24 +473,33 @@ def load_mw_intel():
             except Exception: continue
                 
         if not intl_df.empty:
-            intl_df['Frequency'] = pd.to_numeric(intl_df['Frequency'], errors='coerce')
-            intl_df['Callsign'] = intl_df['Station Call Letters']
-            intl_df['City'] = intl_df['Station City'].fillna("Unknown")
-            intl_df['State'] = intl_df['Station State/Province'].fillna("DX")
-            intl_df['Country'] = intl_df['Station Country'].fillna("Unknown")
-            intl_df['County'] = " - "
-            
-            intl_df['LAT'] = pd.to_numeric(intl_df.get('Station Lat', 0.0), errors='coerce')
-            intl_df['LON'] = pd.to_numeric(intl_df.get('Station Long', 0.0), errors='coerce')
-            intl_df['Grid'] = intl_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
-            
-            intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
-            keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']
-            
-            if not mesa_df.empty:
-                mesa_df = pd.concat([mesa_df[keep_cols], intl_df[keep_cols]], ignore_index=True)
-            else:
-                mesa_df = intl_df[keep_cols]
+            f_col = find_col(intl_df, ['Frequency', 'Freq', 'FREQ'])
+            c_col = find_col(intl_df, ['Station Call Letters', 'Station', 'Call', 'Callsign', 'CALL'])
+            cty_col = find_col(intl_df, ['Station City', 'City', 'CITY'])
+            st_col = find_col(intl_df, ['Station State/Province', 'State', 'Prov', 'STATE'])
+            ctr_col = find_col(intl_df, ['Station Country', 'Country', 'COUNTRY'])
+            lat_col = find_col(intl_df, ['Station Lat', 'Lat', 'LAT'])
+            lon_col = find_col(intl_df, ['Station Long', 'Long', 'Lon', 'LON'])
+
+            if f_col and c_col:
+                intl_df['Frequency'] = pd.to_numeric(intl_df[f_col], errors='coerce')
+                intl_df['Callsign'] = intl_df[c_col]
+                intl_df['City'] = intl_df[cty_col].fillna("Unknown") if cty_col else "Unknown"
+                intl_df['State'] = intl_df[st_col].fillna("DX") if st_col else "DX"
+                intl_df['Country'] = intl_df[ctr_col].fillna("Unknown") if ctr_col else "Unknown"
+                intl_df['County'] = " - "
+                
+                intl_df['LAT'] = pd.to_numeric(intl_df[lat_col], errors='coerce') if lat_col else 0.0
+                intl_df['LON'] = pd.to_numeric(intl_df[lon_col], errors='coerce') if lon_col else 0.0
+                intl_df['Grid'] = intl_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
+                
+                intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
+                
+                keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']
+                if not mesa_df.empty:
+                    mesa_df = pd.concat([mesa_df[keep_cols], intl_df[keep_cols]], ignore_index=True)
+                else:
+                    mesa_df = intl_df[keep_cols]
     except Exception: pass
     return mesa_df
 
@@ -508,8 +539,8 @@ def load_countries():
     for file in files_to_try:
         try:
             df = pd.read_csv(file)
-            if 'Country Name' in df.columns: return df['Country Name'].dropna().sort_values().unique().tolist()
-            if 'Station Country' in df.columns: return df['Station Country'].dropna().sort_values().unique().tolist()
+            c_col = find_col(df, ['Station Country', 'Country', 'Country Name'])
+            if c_col: return df[c_col].dropna().sort_values().unique().tolist()
         except Exception: continue
     return ["Canada", "Mexico", "United States"]
 
@@ -681,7 +712,6 @@ with main_content:
                 results = mw_db.copy()
                 if f_freq != "All": results = results[results['Frequency'] == float(f_freq)]
                 if f_call: 
-                    # Case insensitive substring match with simplification
                     c_simp = simplify_string(f_call)
                     results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
                 if f_city: results = results[results['City'].str.contains(f_city, case=False, na=False)]
@@ -692,7 +722,7 @@ with main_content:
                     
                 if f_status != "All":
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "AM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['Country'], logged_dict), axis=1)
                     if f_status == "Logged Only": results = results[results['Is_Logged']]
                     else: results = results[~results['Is_Logged']]
                         
@@ -711,7 +741,7 @@ with main_content:
                     results = results.sort_values(by='Dist', ascending=True)
                     
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "AM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['Country'], logged_dict), axis=1)
                     results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
                     results.insert(0, 'Log?', False)
                     
@@ -974,7 +1004,7 @@ with main_content:
                     
                 if f_status != "All":
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "FM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['Country'], logged_dict), axis=1)
                     if f_status == "Logged Only": results = results[results['Is_Logged']]
                     else: results = results[~results['Is_Logged']]
                         
@@ -993,7 +1023,7 @@ with main_content:
                     results = results.sort_values(by='Dist', ascending=True)
                     
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "FM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['Country'], logged_dict), axis=1)
                     results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
                     results.insert(0, 'Log?', False)
                     
