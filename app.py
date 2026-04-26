@@ -299,11 +299,13 @@ def handle_file_upload(uploaded_file):
     best_row = 0
     best_sep = ","
     
-    # 1. Keyword Scan to find the true header (Ignores comma-heavy bio paragraphs)
-    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call']
+    # 1. Keyword Scan to find the true header (Ignores comma-heavy bio paragraphs by checking length)
+    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
+    
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
-        if sum(1 for kw in keywords if kw in line_lower) >= 2:
+        # Must contain at least 3 header keywords, and must not be a massive bio paragraph
+        if sum(1 for kw in keywords if kw in line_lower) >= 3 and len(line) < 300:
             best_row = i
             c_comma = line.count(",")
             c_semi = line.count(";")
@@ -315,8 +317,24 @@ def handle_file_upload(uploaded_file):
             else: best_sep = ","
             break
             
+    # Fallback: if no keywords found, fallback to delimiter density alone
+    if best_row == 0:
+        max_delims = 0
+        for i, line in enumerate(lines[:50]):
+            c_comma = line.count(",")
+            c_semi = line.count(";")
+            c_tab = line.count("\t")
+            
+            current_max = max(c_comma, c_semi, c_tab)
+            if current_max > max_delims and len(line) < 300:
+                max_delims = current_max
+                best_row = i
+                if c_semi == current_max: best_sep = ";"
+                elif c_tab == current_max: best_sep = "\t"
+                else: best_sep = ","
+
     # 2. Forgiving Manual Parse Loop (Bypasses Pandas Expected Fields Crash)
-    header_line = [h.strip() for h in lines[best_row].split(best_sep)]
+    header_line = [h.strip(' \'"') for h in lines[best_row].split(best_sep)]
     num_cols = len(header_line)
     
     parsed_data = []
@@ -335,6 +353,8 @@ def handle_file_upload(uploaded_file):
         elif len(cols) < num_cols:
             cols.extend([""] * (num_cols - len(cols)))
             
+        # Clean quotes and spaces from cells
+        cols = [c.strip(' \'"') for c in cols]
         parsed_data.append(cols)
         
     # Clean up duplicate header names
@@ -675,6 +695,7 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -684,6 +705,7 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
+                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
@@ -888,12 +910,12 @@ with main_content:
                                 raw_call = row[map_call] if map_call != "<Skip>" else ""
                                 clean_call = clean_callsign(raw_call)
                                 
-                                # Handle distance conversion
+                                # Handle distance conversion safely (remove commas entirely)
                                 dist_val = 0.0
                                 if map_dist != "<Skip>":
                                     raw_dist = str(row[map_dist]).lower()
                                     try:
-                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '.').strip())
+                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
                                         if "km" in raw_dist or "qrb" in str(map_dist).lower():
                                             dist_val = clean_dist * 0.621371
                                         else:
@@ -1047,6 +1069,7 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -1056,6 +1079,7 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
+                    active_grid_calc = rover_grid.upper()
                 except Exception: 
                     pass
                     
@@ -1270,7 +1294,7 @@ with main_content:
                                 if map_dist != "<Skip>":
                                     raw_dist = str(row[map_dist]).lower()
                                     try:
-                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '.').strip())
+                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
                                         if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
                                             dist_val = clean_dist * 0.621371
                                         else:
