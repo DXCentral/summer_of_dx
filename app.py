@@ -490,7 +490,7 @@ def load_mw_intel():
 
             if f_col and c_col:
                 intl_df['Frequency'] = pd.to_numeric(intl_df[f_col], errors='coerce')
-                intl_df['Callsign'] = intl_df[c_col]
+                intl_df['Callsign'] = intl_df[c_col].fillna("Unknown")
                 intl_df['City'] = intl_df[cty_col].fillna("Unknown") if cty_col else "Unknown"
                 intl_df['State'] = intl_df[st_col].fillna("DX") if st_col else "DX"
                 intl_df['Country'] = intl_df[ctr_col].fillna("Unknown") if ctr_col else "Unknown"
@@ -513,7 +513,7 @@ def load_mw_intel():
 @st.cache_data
 def load_fm_intel():
     files_to_try = [
-        "WTFDA_Enriched.csv", "WTFDA Enriched.csv", 
+        "WTFDA_Enriched.csv", "WTFDA Enriched (1).csv", "WTFDA Enriched.csv", 
         "FM Challenge - Station List and Data - WTFDA Data.csv",
         "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"
     ]
@@ -521,23 +521,52 @@ def load_fm_intel():
         try:
             df = pd.read_csv(file, dtype=str)
             if not df.empty:
-                df['Frequency'] = pd.to_numeric(df['Frequency'], errors='coerce')
-                if 'Call Letters' in df.columns and 'Callsign' not in df.columns:
-                    df['Callsign'] = df['Call Letters']
-                df['Callsign'] = df.get('Callsign', pd.Series(["Unknown"] * len(df))).fillna("Unknown")
-                df['State'] = df.get('S/P', pd.Series(["XX"] * len(df))).fillna("XX")
-                df['County'] = df['County'].fillna("Unknown") if 'County' in df.columns else "Unknown"
-                lat_col, lon_col = ('LAT' if 'LAT' in df.columns else 'Lat_N'), ('LON' if 'LON' in df.columns else 'Long_W')
-                df['LAT'] = pd.to_numeric(df.get(lat_col, pd.Series([0.0]*len(df))), errors='coerce')
-                df['LON'] = pd.to_numeric(df.get(lon_col, pd.Series([0.0]*len(df))), errors='coerce')
+                # Upgraded Adaptive Header Scanning for WTFDA
+                f_col = find_col(df, ['Frequency', 'Freq', 'FREQ', 'MHz'])
+                c_col = find_col(df, ['Callsign', 'Call Letters', 'Call', 'CALL'])
+                cty_col = find_col(df, ['City', 'CITY'])
+                st_col = find_col(df, ['S_P', 'S/P', 'State', 'Prov', 'STATE'])
+                pi_col = find_col(df, ['PI Code', 'PI', 'PI_Code'])
+                co_col = find_col(df, ['County', 'COUNTY'])
+                lat_col = find_col(df, ['Decimal_Lat', 'Lat', 'LAT', 'Lat_N', 'Lat-N'])
+                lon_col = find_col(df, ['Decimal_Lon', 'Long', 'Lon', 'LON', 'Long_W', 'Long-W'])
+                ctr_col = find_col(df, ['Country', 'COUNTRY'])
+
+                df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce') if f_col else 0.0
+                df['Callsign'] = df[c_col].fillna("Unknown") if c_col else "Unknown"
+                df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
+                df['State'] = df[st_col].fillna("XX") if st_col else "XX"
+                df['PI Code'] = df[pi_col].fillna("") if pi_col else ""
+                df['County'] = df[co_col].fillna("Unknown") if co_col else "Unknown"
+                
+                df['LAT'] = pd.to_numeric(df[lat_col], errors='coerce') if lat_col else 0.0
+                df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
-                df['Country'] = "United States"
+                
+                df['Country'] = df[ctr_col].fillna("United States") if ctr_col else "United States"
+                
                 return df
         except Exception: continue
     return pd.DataFrame()
 
+@st.cache_data
+def load_countries():
+    files_to_try = [
+        "Summer of DX - International Database - MW - International Station List.csv",
+        "Summer of DX - International Database - MW - International Station List (2).csv",
+        "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"
+    ]
+    for file in files_to_try:
+        try:
+            df = pd.read_csv(file)
+            c_col = find_col(df, ['Station Country', 'Country', 'Country Name'])
+            if c_col: return df[c_col].dropna().sort_values().unique().tolist()
+        except Exception: continue
+    return ["Canada", "Mexico", "United States"]
+
 mw_db = load_mw_intel()
 fm_db = load_fm_intel()
+country_list = load_countries()
 
 us_states = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
 can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]
@@ -679,7 +708,7 @@ with main_content:
                 if 'mw_filter_key' not in st.session_state: st.session_state.mw_filter_key = 0
                 def reset_mw_filters(): st.session_state.mw_filter_key += 1
                 
-                c_btn1, c_btn2 = st.columns(2)
+                c_btn1, c_btn2 = st.columns([1.5, 3.5])
                 c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_mw_filters)
                 if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_mw"):
                     get_logged_dict.clear()
@@ -959,7 +988,7 @@ with main_content:
                 if 'fm_filter_key' not in st.session_state: st.session_state.fm_filter_key = 0
                 def reset_fm_filters(): st.session_state.fm_filter_key += 1
                 
-                c_btn1, c_btn2 = st.columns(2)
+                c_btn1, c_btn2 = st.columns([1.5, 3.5])
                 c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_fm_filters, key="fm_reset")
                 if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_fm"):
                     get_logged_dict.clear()
