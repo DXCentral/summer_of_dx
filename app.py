@@ -7,6 +7,7 @@ import gspread
 import maidenhead as mh
 import io
 import re
+import os
 import unicodedata
 import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
@@ -310,11 +311,11 @@ def find_col(df, possible_names):
     # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
-            if n.lower() == col.lower().strip(): return col
+            if str(n).lower() == str(col).lower().strip(): return col
     # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
-            if n.lower() in col.lower(): return col
+            if str(n).lower() in str(col).lower(): return col
     return None
 
 # --- THE BULLETPROOF CSV PARSER ---
@@ -434,9 +435,14 @@ def check_is_logged(freq, call, city, state, country, logged_dict):
                 
                 # Dual Track Match
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
+                    # Substring Callsign lock
                     if l_call and c_val and (l_call in c_val or c_val in l_call):
                         return True
+                    # The Ghost Lock: Slogan bailout if City+State match
+                    if l_city and city_val and l_st and st_val and (l_city in city_val or city_val in l_city) and l_st == st_val:
+                        return True
                 else:
+                    # International City/Country Lock
                     if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
                         return True
     except Exception: pass
@@ -450,7 +456,19 @@ def load_mw_intel():
         "Mesa Mike Enriched.csv", "Mesa Mike US Station Data - Sheet1.csv"
     ]
     
-    for file in files_to_try:
+    # Case-insensitive File Hunter
+    actual_file = None
+    try:
+        files_in_dir = os.listdir('.')
+        lower_files = {f.lower(): f for f in files_in_dir}
+        for name in files_to_try:
+            if name.lower() in lower_files:
+                actual_file = lower_files[name.lower()]
+                break
+    except Exception: pass
+    actual_files = [actual_file] if actual_file else files_to_try
+
+    for file in actual_files:
         try:
             mesa_df = pd.read_csv(file, dtype=str)
             if not mesa_df.empty:
@@ -473,8 +491,20 @@ def load_mw_intel():
             "Summer of DX - International Database - MW - International Station List (2).csv",
             "International_Master_Cleaned.csv"
         ]
+        
+        actual_intl_file = None
+        try:
+            files_in_dir = os.listdir('.')
+            lower_files = {f.lower(): f for f in files_in_dir}
+            for name in intl_files:
+                if name.lower() in lower_files:
+                    actual_intl_file = lower_files[name.lower()]
+                    break
+        except Exception: pass
+        actual_intl_files = [actual_intl_file] if actual_intl_file else intl_files
+
         intl_df = pd.DataFrame()
-        for f in intl_files:
+        for f in actual_intl_files:
             try:
                 temp_df = pd.read_csv(f, dtype=str)
                 if not temp_df.empty:
@@ -516,11 +546,24 @@ def load_mw_intel():
 @st.cache_data
 def load_fm_intel():
     files_to_try = [
-        "WTFDA_Enriched.csv", "WTFDA Enriched (1).csv", 
+        "WTFDA_Enriched.csv", "WTFDA Enriched (1).csv", "WTFDA Enriched.CSV",
         "FM Challenge - Station List and Data - WTFDA Data.csv",
         "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"
     ]
-    for file in files_to_try:
+    
+    # Case-insensitive File Hunter
+    actual_file = None
+    try:
+        files_in_dir = os.listdir('.')
+        lower_files = {f.lower(): f for f in files_in_dir}
+        for name in files_to_try:
+            if name.lower() in lower_files:
+                actual_file = lower_files[name.lower()]
+                break
+    except Exception: pass
+    actual_files = [actual_file] if actual_file else files_to_try
+
+    for file in actual_files:
         try:
             df = pd.read_csv(file, dtype=str)
             if not df.empty:
@@ -539,7 +582,6 @@ def load_fm_intel():
                 df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
                 df['State'] = df[st_col].fillna("XX") if st_col else "XX"
                 
-                # Sanitize PI Codes
                 df['PI Code'] = df[pi_col].fillna("").apply(lambda x: str(x).strip().upper()) if pi_col else ""
                 df['PI Code'] = df['PI Code'].apply(lambda x: "" if x in ["NONE", "0", "0000", ""] else x)
                 
@@ -548,7 +590,6 @@ def load_fm_intel():
                 df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 
-                # Standardize Country Strings natively
                 if ctr_col:
                     df['Country'] = df[ctr_col].fillna("United States").apply(lambda x: "United States" if str(x).strip().upper() == "USA" else ("Canada" if str(x).strip().upper() == "CAN" else ("Mexico" if str(x).strip().upper() == "MEX" else str(x).strip().title())))
                 else:
@@ -563,9 +604,22 @@ def load_countries():
     files_to_try = [
         "Summer of DX - International Database - MW - International Station List.csv",
         "Summer of DX - International Database - MW - International Station List (2).csv",
+        "International_Master_Cleaned.csv",
         "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"
     ]
-    for file in files_to_try:
+    
+    actual_file = None
+    try:
+        files_in_dir = os.listdir('.')
+        lower_files = {f.lower(): f for f in files_in_dir}
+        for name in files_to_try:
+            if name.lower() in lower_files:
+                actual_file = lower_files[name.lower()]
+                break
+    except Exception: pass
+    actual_files = [actual_file] if actual_file else files_to_try
+
+    for file in actual_files:
         try:
             df = pd.read_csv(file)
             c_col = find_col(df, ['Station Country', 'Country', 'Country Name'])
@@ -913,11 +967,9 @@ with main_content:
                                             imp_state = simplify_string(clean_state)
                                             
                                             if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
-                                                if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
-                                                    is_match = True
+                                                if imp_call and db_call and (imp_call in db_call or db_call in imp_call): is_match = True
                                             else:
-                                                if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
-                                                    is_match = True
+                                                if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): is_match = True
                                                     
                                             if is_match:
                                                 station_grid = m_row['Grid']
@@ -1181,15 +1233,14 @@ with main_content:
                                         else: dist_val = clean_dist
                                     except Exception: dist_val = 0.0
                                         
-                                rds_val = "No"
+                                rds_val, station_grid = "No", ""
+                                station_county = " - " if clean_country not in ["United States"] else ""
                                 pi_val = str(row[map_pi]).strip().upper() if map_pi != "<Skip>" and not pd.isna(row[map_pi]) else ""
+                                
                                 if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
                                     rds_val = "Yes"
-                                    
-                                station_grid = ""
-                                station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # DUAL-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE)
+                                # TRIPLE-TRACK MATCHING ENGINE (NO PI CODE LOCK)
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1201,15 +1252,21 @@ with main_content:
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
                                             
                                             is_match = False
+                                            
                                             imp_call = simplify_string(clean_call)
                                             imp_country = simplify_string(clean_country)
                                             imp_city = simplify_string(clean_city)
                                             imp_state = simplify_string(clean_state)
                                             
                                             if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
+                                                # Standard Callsign Match
                                                 if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
                                                     is_match = True
+                                                # The Ghost Lock (If user imported a slogan, match strictly on City/State fallback)
+                                                elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
+                                                    is_match = True
                                             else:
+                                                # International Rule
                                                 if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
                                                     is_match = True
                                                     
