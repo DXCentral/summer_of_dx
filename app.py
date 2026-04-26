@@ -343,7 +343,7 @@ def get_idx(guess_list, cols):
     return 0
 
 def handle_file_upload(uploaded_file):
-    # Try multiple decodings to avoid byte errors with accents
+    # Try multiple decodings to handle MWList's Latin-1 accents
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
         try:
@@ -354,12 +354,12 @@ def handle_file_upload(uploaded_file):
             continue
             
     if not content:
-        raise ValueError("Unable to decode file. Please ensure it is a standard CSV or Text format.")
+        raise ValueError("Unable to decode file. Encoding failure.")
         
     lines = content.splitlines()
     header_idx = 0
     
-    # Auto-detect real header by looking for common DX keywords
+    # Keyword detection to skip bio/equipment headers
     keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date']
     for i, line in enumerate(lines[:25]):
         line_lower = line.lower()
@@ -367,13 +367,15 @@ def handle_file_upload(uploaded_file):
             header_idx = i
             break
             
-    # Auto-detect separator
-    sample = lines[header_idx]
-    sep = ","
-    if ";" in sample: sep = ";"
-    elif "\t" in sample: sep = "\t"
+    # CRITICAL: Semicolon Prioritization logic
+    sample_line = lines[header_idx]
+    sep = "," # Default
+    if ";" in sample_line:
+        sep = ";"
+    elif "\t" in sample_line:
+        sep = "\t"
     
-    # Read as dataframe starting from the header row
+    # Read the data, skipping the top descriptive junk
     df = pd.read_csv(io.StringIO("\n".join(lines[header_idx:])), sep=sep, dtype=str)
     return df
 
@@ -677,7 +679,7 @@ with main_content:
                             for _, row in df_import.iterrows():
                                 try:
                                     d_v = row[map_dist] if map_dist != "<Skip>" else 0.0
-                                    d_v = float(str(d_v).replace('km', '').replace('mi', '').strip())
+                                    d_v = float(str(d_v).replace('km', '').replace('mi', '').replace(',', '.').strip())
                                 except: d_v = 0.0
                                 r = [op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
                                     "AM", row[map_freq] if map_freq != "<Skip>" else "", "", row[map_call] if map_call != "<Skip>" else "", "",
@@ -870,7 +872,7 @@ with main_content:
         numeric_key = col2.selectbox("NUMERIC KEY", ["1", "2", "3", "4", "5"])
         if alpha_key == ACTIVE_ALPHA and numeric_key == ACTIVE_NUMERIC:
             st.success("MATRIX ALIGNMENT LOCKED.")
-            st.markdown('<div class="classified-box"><strong>DECRYPTION CIPHER ACTIVE:</strong><br>19=S | 16=P | 15=O | 18=R | 01=A | 04=D | 09=I | 03=C</div>', unsafe_allow_html=True)
+            st.markdown('<div class="classified-box"><strong>DECRYPTION CIPHER ACTIVE:</strong><br>19=S | 16=P | 15 =O | 18=R | 01=A | 04=D | 09=I | 03=C</div>', unsafe_allow_html=True)
             payload = st.text_input("ENTER DECRYPTED PAYLOAD:")
             if payload.upper() == SECRET_PAYLOAD:
                 st.markdown("### [ ACCESS GRANTED ]")
