@@ -14,53 +14,123 @@ from google.oauth2.service_account import Credentials
 from streamlit_javascript import st_javascript
 
 # --- 1. CORE CONFIGURATION ---
-st.set_page_config(page_title="SUMMER OF DX: DEFCON 6", layout="wide", initial_sidebar_state="expanded")
+st.set_page_config(
+    page_title="SUMMER OF DX: DEFCON 6", 
+    layout="wide", 
+    initial_sidebar_state="expanded"
+)
 
+# --- 2. WARGAMES CRT CSS (CYAN ESPIONAGE EDITION) ---
 crt_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+
 html, body, [class*="st-"] {
-    background-color: #050505 !important; font-family: 'VT323', monospace !important;
-    color: #1bd2d4 !important; text-shadow: 0px 0px 5px rgba(19, 154, 155, 0.8); letter-spacing: 2px;
+    background-color: #050505 !important;
+    font-family: 'VT323', monospace !important;
+    color: #1bd2d4 !important; 
+    text-shadow: 0px 0px 5px rgba(19, 154, 155, 0.8); 
+    letter-spacing: 2px;
 }
-header, footer { visibility: hidden; }
-[data-testid="stSidebar"] { background-color: #050505 !important; border-right: 1px dashed #139a9b; }
+
+header {
+    visibility: hidden;
+}
+footer {
+    visibility: hidden;
+}
+
+[data-testid="stSidebar"] {
+    background-color: #050505 !important;
+    border-right: 1px dashed #139a9b;
+}
+
 div.stButton > button {
-    background-color: transparent !important; border: 1px solid #139a9b !important; color: #1bd2d4 !important;
-    font-size: 1.5rem !important; font-family: 'VT323', monospace !important; justify-content: flex-start !important;
-    padding-left: 20px !important; box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1); width: 100%; transition: all 0.2s ease-in-out;
+    background-color: transparent !important;
+    border: 1px solid #139a9b !important;
+    color: #1bd2d4 !important;
+    font-size: 1.5rem !important;
+    font-family: 'VT323', monospace !important;
+    justify-content: flex-start !important;
+    padding-left: 20px !important;
+    box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1);
+    width: 100%;
+    transition: all 0.2s ease-in-out;
 }
-div.stButton > button:hover { background-color: #139a9b !important; color: #050505 !important; text-shadow: none !important; box-shadow: 0px 0px 15px #1bd2d4; }
+
+div.stButton > button:hover {
+    background-color: #139a9b !important;
+    color: #050505 !important;
+    text-shadow: none !important;
+    box-shadow: 0px 0px 15px #1bd2d4;
+}
+
 input, textarea, div[data-baseweb="select"] > div {
-    background-color: #0a0a0a !important; border: 1px solid #139a9b !important; color: #1bd2d4 !important; font-family: 'VT323', monospace !important; font-size: 1.2rem !important;
+    background-color: #0a0a0a !important;
+    border: 1px solid #139a9b !important;
+    color: #1bd2d4 !important;
+    font-family: 'VT323', monospace !important;
+    font-size: 1.2rem !important;
 }
-.stDataFrame { font-family: 'VT323', monospace !important; }
-.typewriter { font-size: 2.2rem; text-align: center; margin-bottom: 40px; line-height: 1.2; }
-.blink { animation: blinker 1s linear infinite; }
-@keyframes blinker { 50% { opacity: 0; } }
-.classified-box { border: 2px dashed #139a9b; padding: 20px; margin-top: 20px; background-color: rgba(19, 154, 155, 0.05); }
-hr { border-color: #139a9b !important; opacity: 0.3; }
+
+.stDataFrame {
+    font-family: 'VT323', monospace !important;
+}
+
+.typewriter {
+    font-size: 2.2rem;
+    text-align: center;
+    margin-bottom: 40px;
+    line-height: 1.2;
+}
+
+.blink {
+    animation: blinker 1s linear infinite;
+}
+
+@keyframes blinker {
+    50% { opacity: 0; }
+}
+
+.classified-box {
+    border: 2px dashed #139a9b;
+    padding: 20px;
+    margin-top: 20px;
+    background-color: rgba(19, 154, 155, 0.05);
+}
+
+hr {
+    border-color: #139a9b !important;
+    opacity: 0.3;
+}
 </style>
 """
 st.markdown(crt_css, unsafe_allow_html=True)
 
-# --- LOCAL STORAGE INJECTION ---
+# --- 3. BACKGROUND TASKS (LOCAL STORAGE INJECTION) ---
 if "profile_to_save" in st.session_state:
     js_string = json.dumps(st.session_state.profile_to_save)
-    components.html(f"<script>window.parent.localStorage.setItem('dx_central_operator', JSON.stringify({js_string}));</script>", height=0, width=0)
+    components.html(
+        f"<script>window.parent.localStorage.setItem('dx_central_operator', JSON.stringify({js_string}));</script>",
+        height=0, 
+        width=0
+    )
     del st.session_state.profile_to_save
 
-# --- TRANSLATORS & HELPERS ---
+# --- 4. HELPERS & TRANSLATORS ---
 itu_map = {
-    "USA": "United States", "CAN": "Canada", "MEX": "Mexico", "CUB": "Cuba", "CLM": "Colombia", "DOM": "Dominican Republic", 
-    "PRU": "Peru", "BHS": "Bahamas", "BAH": "Bahamas", "GTM": "Guatemala", "HND": "Honduras", "NIC": "Nicaragua", "NCG": "Nicaragua", 
-    "CRI": "Costa Rica", "CTR": "Costa Rica", "PAN": "Panama", "PNR": "Panama", "VEN": "Venezuela", "ECU": "Ecuador", "EQA": "Ecuador", 
-    "BRA": "Brazil", "BOL": "Bolivia", "CHL": "Chile", "ARG": "Argentina", "URY": "Uruguay", "URG": "Uruguay", "PRY": "Paraguay", 
-    "PRG": "Paraguay", "JAM": "Jamaica", "JMC": "Jamaica", "HTI": "Haiti", "BEL": "Belize", "BLZ": "Belize", "SLV": "El Salvador", 
-    "PUR": "Puerto Rico", "PTR": "Puerto Rico", "BER": "Bermuda", "BVI": "British Virgin Islands", "VGB": "British Virgin Islands", 
-    "VRG": "British Virgin Islands", "BRITISH VIRGIN ISLANDS": "British Virgin Islands", "VIR": "US Virgin Islands", "ALG": "Algeria", 
-    "ATG": "Antigua", "KNA": "St. Kitts & Nevis", "LCA": "St. Lucia", "VCT": "St. Vincent", "GRD": "Grenada", "TCA": "Turks & Caicos",
-    "AIA": "Anguilla", "CYM": "Cayman Islands", "MSR": "Montserrat", "GLP": "Guadeloupe", "MTQ": "Martinique", "SPM": "St. Pierre & Miquelon",
+    "USA": "United States", "CAN": "Canada", "MEX": "Mexico", "CUB": "Cuba", 
+    "CLM": "Colombia", "DOM": "Dominican Republic", "PRU": "Peru", "BHS": "Bahamas", "BAH": "Bahamas",
+    "GTM": "Guatemala", "HND": "Honduras", "NIC": "Nicaragua", "NCG": "Nicaragua", "CRI": "Costa Rica", "CTR": "Costa Rica",
+    "PAN": "Panama", "PNR": "Panama", "VEN": "Venezuela", "ECU": "Ecuador", "EQA": "Ecuador", "BRA": "Brazil",
+    "BOL": "Bolivia", "CHL": "Chile", "ARG": "Argentina", "URY": "Uruguay", "URG": "Uruguay",
+    "PRY": "Paraguay", "PRG": "Paraguay", "JAM": "Jamaica", "JMC": "Jamaica", "HTI": "Haiti", "BEL": "Belize", "BLZ": "Belize",
+    "SLV": "El Salvador", "PUR": "Puerto Rico", "PTR": "Puerto Rico", "BER": "Bermuda",
+    "BVI": "British Virgin Islands", "VGB": "British Virgin Islands", "VRG": "British Virgin Islands", "BRITISH VIRGIN ISLANDS": "British Virgin Islands",
+    "VIR": "US Virgin Islands", "ALG": "Algeria", "ATG": "Antigua", "KNA": "St. Kitts & Nevis",
+    "LCA": "St. Lucia", "VCT": "St. Vincent", "GRD": "Grenada", "TCA": "Turks & Caicos",
+    "AIA": "Anguilla", "CYM": "Cayman Islands", "MSR": "Montserrat", "GLP": "Guadeloupe",
+    "MTQ": "Martinique", "SPM": "St. Pierre & Miquelon",
     "BON": "Bonaire", "BES": "Bonaire", "ATN": "Bonaire", "ANT": "Bonaire", "BONAIRE": "Bonaire"
 }
 
@@ -80,16 +150,27 @@ def simplify_string(s):
     return re.sub(r'[^A-Z0-9]', '', s)
 
 def standardize_cuban_station(call, freq, country):
-    if str(country).strip() != "Cuba" or not call or pd.isna(call): return call
+    if str(country).strip() != "Cuba" or not call or pd.isna(call):
+        return call
+        
     call_lower = str(call).lower()
-    try: freq_str = str(int(float(str(freq).replace(',', '.'))))
-    except: freq_str = str(freq).strip()
+    
+    try: 
+        freq_str = str(int(float(str(freq).replace(',', '.'))))
+    except Exception: 
+        freq_str = str(freq).strip()
         
     cuban_networks = {
-        r'reloj': 'Radio Reloj', r'rebelde': 'Radio Rebelde', r'progres[s]*o': 'Radio Progreso',
-        r'enc[iy]clopedia': 'Radio Enciclopedia', r'music[al]*\s*nacional|cmbf': 'Radio Musical Nacional',
-        r'ciudad\s*de\s*h[ab|av]ana': 'Radio Ciudad de Habana', r'guam[aá]': 'Radio Guamá',
-        r'mart[ií]': 'Radio Martí', r'victori[a]': 'Radio Victoria', r'cadena\s*agramonte': 'Radio Cadena Agramonte'
+        r'reloj': 'Radio Reloj',
+        r'rebelde': 'Radio Rebelde',
+        r'progres[s]*o': 'Radio Progreso',
+        r'enc[iy]clopedia': 'Radio Enciclopedia',
+        r'music[al]*\s*nacional|cmbf': 'Radio Musical Nacional',
+        r'ciudad\s*de\s*h[ab|av]ana': 'Radio Ciudad de Habana',
+        r'guam[aá]': 'Radio Guamá',
+        r'mart[ií]': 'Radio Martí',
+        r'victori[a]': 'Radio Victoria',
+        r'cadena\s*agramonte': 'Radio Cadena Agramonte'
     }
     
     std_name = None
@@ -100,10 +181,14 @@ def standardize_cuban_station(call, freq, country):
             
     if not std_name:
         std_name = re.sub(r'^r\.\s*', 'Radio ', str(call), flags=re.IGNORECASE)
-        if re.match(r'^CM[A-Z]{2}$', std_name.upper()): std_name = std_name.upper()
-        else: std_name = std_name.title()
+        if re.match(r'^CM[A-Z]{2}$', std_name.upper()):
+            std_name = std_name.upper()
+        else:
+            std_name = std_name.title()
             
-    if freq_str and f"({freq_str})" not in std_name: return f"{std_name} ({freq_str})"
+    if freq_str and f"({freq_str})" not in std_name:
+        return f"{std_name} ({freq_str})"
+        
     return std_name
 
 def format_date_import(date_str):
@@ -112,7 +197,8 @@ def format_date_import(date_str):
         if not date_str: return ""
         d = pd.to_datetime(date_str, dayfirst=True)
         return d.strftime("%m/%d/%Y")
-    except: return date_str
+    except Exception:
+        return date_str
 
 def map_mw_prop(prop_raw):
     if not prop_raw or pd.isna(prop_raw): return "Other"
@@ -134,16 +220,24 @@ def map_fm_prop(prop_raw):
     return "Other"
 
 def calculate_distance(lat1, lon1, lat2, lon2):
-    if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2): return 0.0
+    if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
+        return 0.0
     try:
         lat1, lon1, lat2, lon2 = float(lat1), float(lon1), float(lat2), float(lon2)
-        if (lat1 == 0.0 and lon1 == 0.0) or (lat2 == 0.0 and lon2 == 0.0): return 0.0
+        if (lat1 == 0.0 and lon1 == 0.0) or (lat2 == 0.0 and lon2 == 0.0):
+            return 0.0
+            
         R = 3958.8 
-        phi1, phi2 = math.radians(lat1), math.radians(lat2)
-        dphi, dlambda = math.radians(lat2 - lat1), math.radians(lon2 - lon1)
+        phi1 = math.radians(lat1)
+        phi2 = math.radians(lat2)
+        dphi = math.radians(lat2 - lat1)
+        dlambda = math.radians(lon2 - lon1)
+        
         a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-        return round(2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a)), 1)
-    except: return 0.0
+        dist = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
+        return round(dist, 1)
+    except Exception:
+        return 0.0
 
 @st.cache_data(ttl=86400)
 def get_lat_lon_from_city(city, country):
@@ -151,9 +245,12 @@ def get_lat_lon_from_city(city, country):
         geolocator = Nominatim(user_agent="dx_central_logger_v7", timeout=5)
         query = f"{city}, {country}" if city and city != "Unknown" and not pd.isna(city) else country
         loc = geolocator.geocode(query)
-        if not loc and city and city != "Unknown": loc = geolocator.geocode(country)
-        if loc: return float(loc.latitude), float(loc.longitude)
-    except: pass
+        if not loc and city and city != "Unknown":
+            loc = geolocator.geocode(country)
+        if loc:
+            return float(loc.latitude), float(loc.longitude)
+    except Exception:
+        pass
     return 0.0, 0.0
 
 def get_grid(lat, lon):
@@ -162,7 +259,7 @@ def get_grid(lat, lon):
         lat, lon = float(lat), float(lon)
         if lat == 0.0 and lon == 0.0: return ""
         return mh.to_maiden(lat, lon)
-    except: return ""
+    except Exception: return ""
 
 def reverse_geocode(lat, lon):
     try:
@@ -178,7 +275,8 @@ def reverse_geocode(lat, lon):
             st.session_state.op_city_val = found_city
             st.session_state.op_state_val = addr.get('state', addr.get('province', ''))
             st.session_state.op_country_val = addr.get('country', 'United States')
-    except: pass
+    except Exception:
+        pass
 
 def update_from_grid():
     grid = st.session_state.grid_input.strip()
@@ -188,7 +286,7 @@ def update_from_grid():
             st.session_state.op_lat_val = float(lat)
             st.session_state.op_lon_val = float(lon)
             reverse_geocode(lat, lon)
-        except: pass
+        except Exception: pass
 
 def update_from_search():
     query = st.session_state.search_query.strip()
@@ -200,7 +298,7 @@ def update_from_search():
                 st.session_state.op_lat_val = float(loc.latitude)
                 st.session_state.op_lon_val = float(loc.longitude)
                 reverse_geocode(loc.latitude, loc.longitude)
-        except: pass
+        except Exception: pass
 
 def get_idx(guess_list, cols):
     for g in guess_list:
@@ -208,6 +306,13 @@ def get_idx(guess_list, cols):
             if g.lower() in c.lower(): return idx
     return 0
 
+def find_col(df, possible_names):
+    for n in possible_names:
+        for col in df.columns:
+            if n.lower() in col.lower(): return col
+    return None
+
+# --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -215,7 +320,7 @@ def handle_file_upload(uploaded_file):
             uploaded_file.seek(0)
             content = uploaded_file.read().decode(enc)
             break
-        except: continue
+        except Exception: continue
             
     if not content: raise ValueError("Unable to decode file. Encoding failure.")
     lines = content.splitlines()
@@ -224,7 +329,8 @@ def handle_file_upload(uploaded_file):
     keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
     
     for i, line in enumerate(lines[:50]):
-        if sum(1 for kw in keywords if kw in line.lower()) >= 3 and len(line) < 300:
+        line_lower = line.lower()
+        if sum(1 for kw in keywords if kw in line_lower) >= 3 and len(line) < 300:
             best_row = i
             c_comma, c_semi, c_tab = line.count(","), line.count(";"), line.count("\t")
             max_d = max(c_comma, c_semi, c_tab)
@@ -239,7 +345,8 @@ def handle_file_upload(uploaded_file):
             c_comma, c_semi, c_tab = line.count(","), line.count(";"), line.count("\t")
             current_max = max(c_comma, c_semi, c_tab)
             if current_max > max_delims and len(line) < 300:
-                max_delims, best_row = current_max, i
+                max_delims = current_max
+                best_row = i
                 if c_semi == current_max: best_sep = ";"
                 elif c_tab == current_max: best_sep = "\t"
                 else: best_sep = ","
@@ -252,10 +359,12 @@ def handle_file_upload(uploaded_file):
         if not line.strip(): continue
         cols = line.split(best_sep)
         if len(cols) > num_cols:
-            cols = cols[:num_cols-1] + [best_sep.join(cols[num_cols-1:])]
+            merged_last = best_sep.join(cols[num_cols-1:])
+            cols = cols[:num_cols-1] + [merged_last]
         elif len(cols) < num_cols:
             cols.extend([""] * (num_cols - len(cols)))
-        parsed_data.append([c.strip(' \'"') for c in cols])
+        cols = [c.strip(' \'"') for c in cols]
+        parsed_data.append(cols)
         
     unique_headers = []
     for j, h in enumerate(header_line):
@@ -273,7 +382,7 @@ def get_gsheet():
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
         return client.open_by_key("11_4lKQRCrV2Q0YZM1syECgoSINmnGIG3k6UJH0m_u3Y").worksheet("Form Entries")
-    except: return None
+    except Exception: return None
 
 @st.cache_data(ttl=60)
 def get_logged_dict(dxer_name, band):
@@ -292,12 +401,15 @@ def get_logged_dict(dxer_name, band):
                     call = str(row[7]).strip().upper()
                     city = str(row[9]).strip().upper()
                     country = str(row[11]).strip().upper()
-                    freq_val = float(str(row[5]).replace(',', '.')) if band == "AM" else float(str(row[6]).replace(',', '.'))
+                    
+                    if band == "AM": freq_val = float(str(row[5]).replace(',', '.'))
+                    else: freq_val = float(str(row[6]).replace(',', '.'))
+                        
                     if freq_val not in logged: logged[freq_val] = []
                     logged[freq_val].append({"call": call, "city": city, "country": country})
-            except: continue
+            except Exception: continue
         return logged
-    except: return {}
+    except Exception: return {}
 
 def check_is_logged(freq, call, city, country, logged_dict):
     try:
@@ -312,17 +424,24 @@ def check_is_logged(freq, call, city, country, logged_dict):
                 l_city = simplify_string(l_dict['city'])
                 l_ctry = simplify_string(l_dict['country'])
                 
+                # Dual Track Match
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
-                    if l_call and c_val and (l_call in c_val or c_val in l_call): return True
+                    if l_call and c_val and (l_call in c_val or c_val in l_call):
+                        return True
                 else:
-                    if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city): return True
+                    if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
+                        return True
     except: pass
     return False
 
 @st.cache_data
 def load_mw_intel():
     mesa_df = pd.DataFrame()
-    files_to_try = ["Mesa_Mike_Enriched.csv", "Mesa_Mike_Enriched (1).csv", "Mesa Mike Enriched.csv"]
+    files_to_try = [
+        "Mesa_Mike_Enriched.csv", "Mesa_Mike_Enriched (1).csv",
+        "Mesa Mike Enriched.csv", "Mesa Mike US Station Data - Sheet1.csv"
+    ]
+    
     for file in files_to_try:
         try:
             mesa_df = pd.read_csv(file, dtype=str)
@@ -331,72 +450,103 @@ def load_mw_intel():
                 mesa_df['Callsign'] = mesa_df['CALL'].fillna("Unknown")
                 mesa_df['State'] = mesa_df['STATE'].fillna("XX")
                 mesa_df['City'] = mesa_df['CITY'].fillna("Unknown")
-                mesa_df['County'] = mesa_df.get('County', pd.Series(["Unknown"]*len(mesa_df))).fillna("Unknown")
+                mesa_df['County'] = mesa_df['County'].fillna("Unknown") if 'County' in mesa_df.columns else "Unknown"
                 mesa_df['LAT'] = pd.to_numeric(mesa_df['LAT'], errors='coerce')
                 mesa_df['LON'] = pd.to_numeric(mesa_df['LON'], errors='coerce')
                 mesa_df['Grid'] = mesa_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 mesa_df['Country'] = "United States"
-                mesa_df = mesa_df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']]
                 break
-        except: continue
+        except Exception: continue
             
-    intl_files = ["Summer of DX - International Database - MW - International Station List.csv", "Summer of DX - International Database - MW - International Station List (2).csv", "International_Master_Cleaned.csv"]
-    intl_df = pd.DataFrame()
-    for f in intl_files:
-        try:
-            temp_df = pd.read_csv(f, dtype=str)
-            if not temp_df.empty: 
-                intl_df = temp_df
-                break
-        except: continue
-            
-    if not intl_df.empty:
-        try:
-            intl_df['Frequency'] = pd.to_numeric(intl_df['Frequency'], errors='coerce')
-            intl_df['Callsign'] = intl_df['Station Call Letters'].fillna("Unknown")
-            intl_df['City'] = intl_df['Station City'].fillna("Unknown")
-            intl_df['State'] = intl_df['Station State/Province'].fillna("DX")
-            intl_df['Country'] = intl_df['Station Country'].fillna("Unknown")
-            intl_df['County'] = " - "
-            intl_df['LAT'] = pd.to_numeric(intl_df.get('Station Lat', 0.0), errors='coerce')
-            intl_df['LON'] = pd.to_numeric(intl_df.get('Station Long', 0.0), errors='coerce')
-            intl_df['Grid'] = intl_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
-            intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
-            
-            intl_df = intl_df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']]
-            mesa_df = pd.concat([mesa_df, intl_df], ignore_index=True) if not mesa_df.empty else intl_df
-        except: pass
-        
+    # Adaptive Ingestion for the International Databank
+    try:
+        intl_files = [
+            "Summer of DX - International Database - MW - International Station List.csv",
+            "Summer of DX - International Database - MW - International Station List (2).csv",
+            "International_Master_Cleaned.csv"
+        ]
+        intl_df = pd.DataFrame()
+        for f in intl_files:
+            try:
+                intl_df = pd.read_csv(f, dtype=str)
+                if not intl_df.empty: break
+            except Exception: continue
+                
+        if not intl_df.empty:
+            f_col = find_col(intl_df, ['Frequency', 'Freq', 'FREQ'])
+            c_col = find_col(intl_df, ['Station Call Letters', 'Station', 'Call', 'Callsign', 'CALL'])
+            cty_col = find_col(intl_df, ['Station City', 'City', 'CITY'])
+            st_col = find_col(intl_df, ['Station State/Province', 'State', 'Prov', 'STATE'])
+            ctr_col = find_col(intl_df, ['Station Country', 'Country', 'COUNTRY'])
+            lat_col = find_col(intl_df, ['Station Lat', 'Lat', 'LAT'])
+            lon_col = find_col(intl_df, ['Station Long', 'Long', 'Lon', 'LON'])
+
+            if f_col and c_col:
+                intl_df['Frequency'] = pd.to_numeric(intl_df[f_col], errors='coerce')
+                intl_df['Callsign'] = intl_df[c_col]
+                intl_df['City'] = intl_df[cty_col].fillna("Unknown") if cty_col else "Unknown"
+                intl_df['State'] = intl_df[st_col].fillna("DX") if st_col else "DX"
+                intl_df['Country'] = intl_df[ctr_col].fillna("Unknown") if ctr_col else "Unknown"
+                intl_df['County'] = " - "
+                
+                intl_df['LAT'] = pd.to_numeric(intl_df[lat_col], errors='coerce') if lat_col else 0.0
+                intl_df['LON'] = pd.to_numeric(intl_df[lon_col], errors='coerce') if lon_col else 0.0
+                intl_df['Grid'] = intl_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
+                
+                intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
+                
+                keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']
+                if not mesa_df.empty:
+                    mesa_df = pd.concat([mesa_df[keep_cols], intl_df[keep_cols]], ignore_index=True)
+                else:
+                    mesa_df = intl_df[keep_cols]
+    except Exception: pass
     return mesa_df
 
 @st.cache_data
 def load_fm_intel():
-    files_to_try = ["WTFDA_Enriched.csv", "WTFDA Enriched.csv", "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"]
+    files_to_try = [
+        "WTFDA_Enriched.csv", "WTFDA Enriched.csv", 
+        "FM Challenge - Station List and Data - WTFDA Data.csv",
+        "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"
+    ]
     for file in files_to_try:
         try:
             df = pd.read_csv(file, dtype=str)
             if not df.empty:
                 df['Frequency'] = pd.to_numeric(df['Frequency'], errors='coerce')
-                if 'Call Letters' in df.columns and 'Callsign' not in df.columns: df['Callsign'] = df['Call Letters']
+                if 'Call Letters' in df.columns and 'Callsign' not in df.columns:
+                    df['Callsign'] = df['Call Letters']
                 df['Callsign'] = df.get('Callsign', pd.Series(["Unknown"] * len(df))).fillna("Unknown")
                 df['State'] = df.get('S/P', pd.Series(["XX"] * len(df))).fillna("XX")
-                df['County'] = df.get('County', pd.Series(["Unknown"] * len(df))).fillna("Unknown")
-                lat_col = 'LAT' if 'LAT' in df.columns else 'Lat_N'
-                lon_col = 'LON' if 'LON' in df.columns else 'Long_W'
+                df['County'] = df['County'].fillna("Unknown") if 'County' in df.columns else "Unknown"
+                lat_col, lon_col = ('LAT' if 'LAT' in df.columns else 'Lat_N'), ('LON' if 'LON' in df.columns else 'Long_W')
                 df['LAT'] = pd.to_numeric(df.get(lat_col, pd.Series([0.0]*len(df))), errors='coerce')
                 df['LON'] = pd.to_numeric(df.get(lon_col, pd.Series([0.0]*len(df))), errors='coerce')
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 df['Country'] = "United States"
                 return df
-        except: continue
+        except Exception: continue
     return pd.DataFrame()
 
 @st.cache_data
 def load_countries():
+    files_to_try = [
+        "Summer of DX - International Database - MW - International Station List.csv",
+        "Summer of DX - International Database - MW - International Station List (2).csv",
+        "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"
+    ]
+    for file in files_to_try:
+        try:
+            df = pd.read_csv(file)
+            c_col = find_col(df, ['Station Country', 'Country', 'Country Name'])
+            if c_col: return df[c_col].dropna().sort_values().unique().tolist()
+        except Exception: continue
     return ["Canada", "Mexico", "United States"]
 
 mw_db = load_mw_intel()
 fm_db = load_fm_intel()
+country_list = load_countries()
 
 us_states = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
 can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]
@@ -411,7 +561,8 @@ def get_state_list(country):
 # --- 6. SESSION STATE ROUTING & PROFILE ---
 if 'sys_state' not in st.session_state: st.session_state.sys_state = "OPERATOR_LOGIN"
 if 'matrix_unlocked' not in st.session_state: st.session_state.matrix_unlocked = False
-if 'operator_profile' not in st.session_state: st.session_state.operator_profile = { "name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0 }
+if 'operator_profile' not in st.session_state:
+    st.session_state.operator_profile = { "name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0 }
 
 def nav_to(page): st.session_state.sys_state = page
 
@@ -426,7 +577,7 @@ with st.sidebar:
     try:
         st.image("Summer of DX Banner.png", use_container_width=True)
         st.markdown("<br>", unsafe_allow_html=True)
-    except: pass
+    except Exception: pass
         
     if st.session_state.sys_state != "OPERATOR_LOGIN":
         op_name_display = st.session_state.operator_profile.get('name', 'UNKNOWN').upper()
@@ -452,9 +603,10 @@ with main_content:
     # --- 8A. OPERATOR LOGIN SCREEN ---
     if st.session_state.sys_state == "OPERATOR_LOGIN":
         try: st.image("Summer of DX Banner.png", use_container_width=True)
-        except: pass
+        except Exception: pass
 
         st.markdown('<div class="typewriter">DX CENTRAL MAINFRAME<br>AUTHENTICATION REQUIRED<span class="blink">_</span></div>', unsafe_allow_html=True)
+        
         js_get = "JSON.parse(localStorage.getItem('dx_central_operator'));"
         saved_data = st_javascript(js_get)
         
@@ -465,7 +617,8 @@ with main_content:
             st.session_state.op_lat_val = float(saved_data.get("lat", 0.0))
             st.session_state.op_lon_val = float(saved_data.get("lon", 0.0))
             st.session_state.ls_loaded = True
-            if st.session_state.op_name_val: st.success(f"LOCAL PROFILE DETECTED: {st.session_state.op_name_val.upper()}")
+            if st.session_state.op_name_val:
+                st.success(f"LOCAL PROFILE DETECTED: {st.session_state.op_name_val.upper()}")
             
         for key in ['op_name_val', 'op_city_val', 'op_state_val', 'op_lat_val', 'op_lon_val']:
             if key not in st.session_state: st.session_state[key] = 0.0 if "lat" in key or "lon" in key else ""
@@ -475,7 +628,8 @@ with main_content:
 
         st.markdown("#### 1. CALIBRATE LOCATION")
         loc_method = st.radio("CALIBRATION METHOD", ["GRID SQUARE", "CITY SEARCH", "MANUAL COORDINATES"], horizontal=True)
-        if loc_method == "GRID SQUARE": st.text_input("ENTER 4 OR 6 CHAR GRID", key="grid_input", on_change=update_from_grid)
+        if loc_method == "GRID SQUARE":
+            st.text_input("ENTER 4 OR 6 CHAR GRID", key="grid_input", on_change=update_from_grid)
         elif loc_method == "CITY SEARCH":
             col_s1, col_s2 = st.columns([3, 1])
             col_s1.text_input("ENTER CITY & STATE", key="search_query")
@@ -496,20 +650,29 @@ with main_content:
             
             if st.form_submit_button("> AUTHENTICATE"):
                 if op_name and st.session_state.op_lat_val != 0.0 and st.session_state.op_lon_val != 0.0:
-                    st.session_state.operator_profile = { "name": op_name, "city": op_city, "state": op_state, "country": "United States", "lat": st.session_state.op_lat_val, "lon": st.session_state.op_lon_val }
-                    if remember_me: st.session_state.profile_to_save = st.session_state.operator_profile.copy()
+                    st.session_state.operator_profile = {
+                        "name": op_name, "city": op_city, "state": op_state, 
+                        "country": "United States", "lat": st.session_state.op_lat_val, "lon": st.session_state.op_lon_val
+                    }
+                    if remember_me:
+                        st.session_state.profile_to_save = {
+                            "name": op_name, "city": op_city, "state": op_state, 
+                            "lat": st.session_state.op_lat_val, "lon": st.session_state.op_lon_val
+                        }
                     nav_to("TERMINAL_HOME"); st.rerun()
                 else: st.error("ACCESS DENIED. AGENT IDENTITY AND NON-ZERO LOCATION REQUIRED.")
 
     # --- 8B. THE HOME TERMINAL ---
     elif st.session_state.sys_state == "TERMINAL_HOME":
         st.markdown('<div class="typewriter">GREETINGS, FELLOW SIGNAL TRAVELER.<br>WOULD YOU LIKE TO PLAY A GAME?<span class="blink">_</span></div>', unsafe_allow_html=True)
-        if "gcp_service_account" not in st.secrets: st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
+        if "gcp_service_account" not in st.secrets:
+            st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
         st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
 
     # --- 8C. MW INTERCEPT ROOM ---
     elif st.session_state.sys_state == "MW_LOG":
         st.markdown("### [ MW INTERCEPT CONSOLE ACTIVE ]")
+        
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
         entry_cat_val = "HOME QTH"
@@ -525,10 +688,11 @@ with main_content:
                 if 'mw_filter_key' not in st.session_state: st.session_state.mw_filter_key = 0
                 def reset_mw_filters(): st.session_state.mw_filter_key += 1
                 
-                c_btn1, c_btn2 = st.columns([1, 4])
+                c_btn1, c_btn2 = st.columns([2, 3])
                 c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_mw_filters)
-                if c_btn2.button("[ 🔄 SYNC DATALINK ]", key="sync_mw"):
-                    get_logged_dict.clear(); st.rerun()
+                if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_mw"):
+                    get_logged_dict.clear()
+                    st.rerun()
                 
                 fk = st.session_state.mw_filter_key
                 c1, c2, c3, c4 = st.columns(4)
@@ -539,7 +703,6 @@ with main_content:
                 f_state = c4.selectbox("STATE", ["All"] + sorted(mw_db['State'].dropna().unique().tolist()), key=f"mw_f4_{fk}")
                 
                 c5, c6, c7, c8 = st.columns(4)
-                # Pull ALL countries natively loaded into the MW DB
                 all_countries = sorted(mw_db['Country'].dropna().unique().tolist()) if 'Country' in mw_db.columns else ["United States"]
                 f_ctry = c5.selectbox("COUNTRY", ["All"] + all_countries, key=f"mw_f5_{fk}")
                 f_county = c6.text_input("COUNTY", key=f"mw_f6_{fk}")
@@ -666,11 +829,12 @@ with main_content:
                             
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
+                                
                                 if raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.').strip())
                                         if f_val < 530.0 or f_val > 1710.0: continue 
-                                    except: pass
+                                    except Exception: pass
                                         
                                 raw_country = row[map_ctry] if map_ctry != "<Skip>" else "USA"
                                 clean_country = itu_map.get(str(raw_country).upper(), str(raw_country).title())
@@ -687,7 +851,7 @@ with main_content:
                                         clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
                                         if "km" in raw_dist or "qrb" in str(map_dist).lower(): dist_val = clean_dist * 0.621371
                                         else: dist_val = clean_dist
-                                    except: dist_val = 0.0
+                                    except Exception: dist_val = 0.0
                                         
                                 clean_state = row[map_state] if map_state != "<Skip>" else ""
                                 if clean_country not in ["United States", "Canada", "Mexico"]: clean_state = "DX"
@@ -723,7 +887,7 @@ with main_content:
                                                 clean_city = m_row['City']       # OVERWRITE
                                                 clean_state = m_row['State']     # OVERWRITE
                                                 break
-                                    except: pass
+                                    except Exception: pass
 
                                 r_data = [
                                     op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
@@ -790,7 +954,7 @@ with main_content:
                 try:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat, active_lon = float(r_lat), float(r_lon)
-                except: pass
+                except Exception: pass
                     
         st.markdown("#### 2. TARGET ACQUISITION")
         tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
@@ -803,10 +967,11 @@ with main_content:
                 if 'fm_filter_key' not in st.session_state: st.session_state.fm_filter_key = 0
                 def reset_fm_filters(): st.session_state.fm_filter_key += 1
                 
-                c_btn1, c_btn2 = st.columns([1, 4])
+                c_btn1, c_btn2 = st.columns([2, 3])
                 c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_fm_filters, key="fm_reset")
-                if c_btn2.button("[ 🔄 SYNC DATALINK ]", key="sync_fm"):
-                    get_logged_dict.clear(); st.rerun()
+                if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_fm"):
+                    get_logged_dict.clear()
+                    st.rerun()
                 
                 fk = st.session_state.fm_filter_key
                 c1, c2, c3, c4 = st.columns(4)
@@ -969,12 +1134,13 @@ with main_content:
                                         clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
                                         if "km" in raw_dist or "qrb" in str(map_dist).lower(): dist_val = clean_dist * 0.621371
                                         else: dist_val = clean_dist
-                                    except: dist_val = 0.0
+                                    except Exception: dist_val = 0.0
                                         
                                 rds_val, station_grid = "No", ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 pi_val = row[map_pi] if map_pi != "<Skip>" else ""
                                 
+                                # DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                 if not fm_db.empty:
                                     if not pd.isna(pi_val) and str(pi_val).strip() != "":
                                         rds_val = "Yes"
@@ -996,6 +1162,7 @@ with main_content:
                                                 db_country = simplify_string(m_row.get('Country', 'United States'))
                                                 
                                                 is_match = False
+                                                
                                                 imp_call = simplify_string(clean_call)
                                                 imp_country = simplify_string(clean_country)
                                                 imp_city = simplify_string(clean_city)
@@ -1012,7 +1179,7 @@ with main_content:
                                                     clean_city = m_row['City']       # OVERWRITE
                                                     clean_state = m_row['State']     # OVERWRITE
                                                     break
-                                        except: pass
+                                        except Exception: pass
 
                                 r_data = [
                                     op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
