@@ -11,13 +11,14 @@ from google.oauth2.service_account import Credentials
 from streamlit_javascript import st_javascript
 
 # --- 1. CORE CONFIGURATION ---
+# We use "wide" layout to fix the alignment, but constrain it with columns later
 st.set_page_config(
     page_title="SUMMER OF DX: DEFCON 6", 
-    layout="centered", 
+    layout="wide", 
     initial_sidebar_state="expanded"
 )
 
-# --- 2. WARGAMES CRT CSS (CYAN EDITION) ---
+# --- 2. WARGAMES CRT CSS (CYAN ESPIONAGE EDITION) ---
 crt_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -25,8 +26,8 @@ crt_css = """
 html, body, [class*="st-"] {
     background-color: #050505 !important;
     font-family: 'VT323', monospace !important;
-    color: #00e5ff !important;
-    text-shadow: 0px 0px 4px rgba(0, 229, 255, 0.7);
+    color: #1bd2d4 !important; /* Lighter cyan for readability */
+    text-shadow: 0px 0px 5px rgba(19, 154, 155, 0.8); /* Your #139a9b for the glow */
     letter-spacing: 2px;
 }
 
@@ -40,33 +41,33 @@ footer {
 /* Sidebar styling to match the CRT vibe */
 [data-testid="stSidebar"] {
     background-color: #050505 !important;
-    border-right: 1px dashed #00e5ff;
+    border-right: 1px dashed #139a9b;
 }
 
 div.stButton > button {
     background-color: transparent !important;
-    border: 1px solid #00e5ff !important;
-    color: #00e5ff !important;
+    border: 1px solid #139a9b !important;
+    color: #1bd2d4 !important;
     font-size: 1.5rem !important;
     font-family: 'VT323', monospace !important;
     justify-content: flex-start !important;
     padding-left: 20px !important;
-    box-shadow: inset 0px 0px 10px rgba(0, 229, 255, 0.1);
+    box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1);
     width: 100%;
     transition: all 0.2s ease-in-out;
 }
 
 div.stButton > button:hover {
-    background-color: #00e5ff !important;
+    background-color: #139a9b !important;
     color: #050505 !important;
     text-shadow: none !important;
-    box-shadow: 0px 0px 15px #00e5ff;
+    box-shadow: 0px 0px 15px #1bd2d4;
 }
 
 input, textarea, div[data-baseweb="select"] > div {
     background-color: #0a0a0a !important;
-    border: 1px solid #00e5ff !important;
-    color: #00e5ff !important;
+    border: 1px solid #139a9b !important;
+    color: #1bd2d4 !important;
     font-family: 'VT323', monospace !important;
     font-size: 1.2rem !important;
 }
@@ -91,14 +92,14 @@ input, textarea, div[data-baseweb="select"] > div {
 }
 
 .classified-box {
-    border: 2px dashed #00e5ff;
+    border: 2px dashed #139a9b;
     padding: 20px;
     margin-top: 20px;
-    background-color: rgba(0, 229, 255, 0.05);
+    background-color: rgba(19, 154, 155, 0.05);
 }
 
 hr {
-    border-color: #00e5ff !important;
+    border-color: #139a9b !important;
     opacity: 0.3;
 }
 </style>
@@ -365,7 +366,8 @@ if 'operator_profile' not in st.session_state:
 def nav_to(page):
     st.session_state.sys_state = page
 
-# --- 6b. GLOBAL IRONCLAD FAILSAFE & SIDEBAR NAVIGATION ---
+# --- 6b. GLOBAL IRONCLAD FAILSAFE ---
+# We check this BEFORE drawing anything to ensure bad data is booted instantly
 if st.session_state.sys_state != "OPERATOR_LOGIN":
     prof = st.session_state.operator_profile
     op_name = prof.get('name')
@@ -375,549 +377,546 @@ if st.session_state.sys_state != "OPERATOR_LOGIN":
     if not op_name or op_lat == 0.0 or op_lon == 0.0:
         st.session_state.sys_state = "OPERATOR_LOGIN"
         st.rerun()
-    else:
-        # Load the Banner Image directly at the top of the interface
-        try:
-            st.image("Summer of DX Banner.png", use_container_width=True)
-        except Exception:
-            pass # Failsafe in case the image file is renamed or missing
-            
-        op_name_display = op_name.upper()
-        st.markdown(f"<div style='text-align: right; font-size: 1.2rem;'>AGENT: {op_name_display} | STATUS: SECURE</div>", unsafe_allow_html=True)
-        st.markdown("<hr style='margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
-        # --- SIDEBAR NAVIGATION (OMNIPRESENT) ---
-        with st.sidebar:
-            st.markdown("### [ SYSTEM COMMAND MENU ]")
-            
-            with st.expander("> INTELLIGENCE GATHERING", expanded=True):
-                if st.button("MW INTERCEPT REPORT", key="nav_mw"): 
-                    nav_to("MW_LOG")
-                    st.rerun()
-                if st.button("FM INTERCEPT REPORT", key="nav_fm"): 
-                    nav_to("FM_LOG")
-                    st.rerun()
-                if st.button("ENCRYPTION PROTOCOL", key="nav_bounty"): 
-                    nav_to("BOUNTY_HUNT")
-                    st.rerun()
-                    
-            with st.expander("> INTERCEPT DEBRIEFING", expanded=True):
-                if st.button("GLOBAL DASHBOARD", key="nav_dash"): 
-                    nav_to("DASHBOARD")
-                    st.rerun()
-                    
-            st.write("---")
-            if st.button("LOGOUT / PURGE CACHE", key="nav_logout"):
-                components.html("<script>window.parent.localStorage.removeItem('dx_central_operator');</script>", height=0, width=0)
-                st.session_state.clear()
-                st.rerun()
-
-# --- 7. OPERATOR LOGIN SCREEN ---
-if st.session_state.sys_state == "OPERATOR_LOGIN":
-    # Failsafe banner load for the login screen as well
+# --- 7. SIDEBAR & NAVIGATION (OMNIPRESENT) ---
+with st.sidebar:
+    # Anchor the Banner Logo to the top of the sidebar
     try:
         st.image("Summer of DX Banner.png", use_container_width=True)
+        st.markdown("<br>", unsafe_allow_html=True)
     except Exception:
         pass
-
-    st.markdown('<div class="typewriter">DX CENTRAL MAINFRAME<br>AUTHENTICATION REQUIRED<span class="blink">_</span></div>', unsafe_allow_html=True)
-    
-    js_get = "JSON.parse(localStorage.getItem('dx_central_operator'));"
-    saved_data = st_javascript(js_get)
-    
-    if saved_data and isinstance(saved_data, dict) and not st.session_state.get('ls_loaded'):
-        st.session_state.op_name_val = saved_data.get("name", "")
-        st.session_state.op_city_val = saved_data.get("city", "")
-        st.session_state.op_state_val = saved_data.get("state", "")
-        st.session_state.op_lat_val = float(saved_data.get("lat", 0.0))
-        st.session_state.op_lon_val = float(saved_data.get("lon", 0.0))
-        st.session_state.ls_loaded = True
         
-        if st.session_state.op_name_val:
-            st.success(f"LOCAL PROFILE DETECTED: {st.session_state.op_name_val.upper()}")
-        
-    state_keys = ['op_name_val', 'op_city_val', 'op_state_val', 'op_lat_val', 'op_lon_val']
-    for key in state_keys:
-        if key not in st.session_state: 
-            if "lat" in key or "lon" in key:
-                st.session_state[key] = 0.0
-            else:
-                st.session_state[key] = ""
+    if st.session_state.sys_state != "OPERATOR_LOGIN":
+        # Draw the Agent Status directly below the banner
+        op_name_display = st.session_state.operator_profile.get('name', 'UNKNOWN').upper()
+        st.markdown(f"<div style='text-align: center; font-size: 1.3rem; color: #1bd2d4;'>AGENT: {op_name_display}<br>STATUS: SECURE</div>", unsafe_allow_html=True)
+        st.markdown("<hr>", unsafe_allow_html=True)
 
-    if st.session_state.op_lat_val == 0.0 or st.session_state.op_lon_val == 0.0:
-        st.error("🛑 ACTION REQUIRED: CALIBRATE TERMINAL LOCATION. A valid Latitude and Longitude are required to calculate intercept distances.")
-
-    st.markdown("#### 1. CALIBRATE LOCATION")
-    loc_method = st.radio("CALIBRATION METHOD", ["GRID SQUARE", "CITY SEARCH", "MANUAL COORDINATES"], horizontal=True)
-    
-    if loc_method == "GRID SQUARE":
-        st.text_input("ENTER 4 OR 6 CHAR GRID", key="grid_input", on_change=update_from_grid)
-    elif loc_method == "CITY SEARCH":
-        col_s1, col_s2 = st.columns([3, 1])
-        col_s1.text_input("ENTER CITY & STATE", key="search_query")
-        col_s2.markdown("<br>", unsafe_allow_html=True)
-        col_s2.button("EXECUTE SEARCH", on_click=update_from_search, use_container_width=True)
-
-    c_lat, c_lon = st.columns(2)
-    c_lat.number_input("LATITUDE", key="op_lat_val", format="%.4f")
-    c_lon.number_input("LONGITUDE", key="op_lon_val", format="%.4f")
-
-    st.markdown("#### 2. AGENT IDENTITY")
-    with st.form("login_form"):
-        op_name = st.text_input("AGENT IDENTITY (CALLSIGN/HANDLE)", value=st.session_state.get("op_name_val", ""))
+        st.markdown("### [ SYSTEM COMMAND MENU ]")
         
-        c1, c2 = st.columns(2)
-        op_city = c1.text_input("HOME QTH: CITY", value=st.session_state.get("op_city_val", ""))
-        op_state = c2.text_input("HOME QTH: STATE/PROV", value=st.session_state.get("op_state_val", ""))
-        
-        remember_me = st.checkbox("[ SAVE CREDENTIALS TO LOCAL TERMINAL ]", value=True)
-        
-        if st.form_submit_button("> AUTHENTICATE"):
-            if op_name and st.session_state.op_lat_val != 0.0 and st.session_state.op_lon_val != 0.0:
+        with st.expander("> INTELLIGENCE GATHERING", expanded=True):
+            if st.button("MW INTERCEPT REPORT", key="nav_mw"): 
+                nav_to("MW_LOG")
+                st.rerun()
+            if st.button("FM INTERCEPT REPORT", key="nav_fm"): 
+                nav_to("FM_LOG")
+                st.rerun()
+            if st.button("ENCRYPTION PROTOCOL", key="nav_bounty"): 
+                nav_to("BOUNTY_HUNT")
+                st.rerun()
                 
-                st.session_state.operator_profile = {
-                    "name": op_name, 
-                    "city": op_city, 
-                    "state": op_state, 
-                    "country": "United States", 
-                    "lat": st.session_state.op_lat_val, 
-                    "lon": st.session_state.op_lon_val
-                }
+        with st.expander("> INTERCEPT DEBRIEFING", expanded=True):
+            if st.button("GLOBAL DASHBOARD", key="nav_dash"): 
+                nav_to("DASHBOARD")
+                st.rerun()
                 
-                if remember_me:
-                    st.session_state.profile_to_save = {
+        st.write("---")
+        if st.button("LOGOUT / PURGE CACHE", key="nav_logout"):
+            components.html("<script>window.parent.localStorage.removeItem('dx_central_operator');</script>", height=0, width=0)
+            st.session_state.clear()
+            st.rerun()
+
+# --- 8. CENTRAL COLUMN CONSTRAINT ---
+# This ensures the 'wide' layout doesn't stretch too far, simulating the centered terminal vibe
+spacer_left, main_content, spacer_right = st.columns([1, 10, 1])
+
+with main_content:
+    # --- 8A. OPERATOR LOGIN SCREEN ---
+    if st.session_state.sys_state == "OPERATOR_LOGIN":
+        st.markdown('<div class="typewriter">DX CENTRAL MAINFRAME<br>AUTHENTICATION REQUIRED<span class="blink">_</span></div>', unsafe_allow_html=True)
+        
+        js_get = "JSON.parse(localStorage.getItem('dx_central_operator'));"
+        saved_data = st_javascript(js_get)
+        
+        if saved_data and isinstance(saved_data, dict) and not st.session_state.get('ls_loaded'):
+            st.session_state.op_name_val = saved_data.get("name", "")
+            st.session_state.op_city_val = saved_data.get("city", "")
+            st.session_state.op_state_val = saved_data.get("state", "")
+            st.session_state.op_lat_val = float(saved_data.get("lat", 0.0))
+            st.session_state.op_lon_val = float(saved_data.get("lon", 0.0))
+            st.session_state.ls_loaded = True
+            
+            if st.session_state.op_name_val:
+                st.success(f"LOCAL PROFILE DETECTED: {st.session_state.op_name_val.upper()}")
+            
+        state_keys = ['op_name_val', 'op_city_val', 'op_state_val', 'op_lat_val', 'op_lon_val']
+        for key in state_keys:
+            if key not in st.session_state: 
+                if "lat" in key or "lon" in key:
+                    st.session_state[key] = 0.0
+                else:
+                    st.session_state[key] = ""
+
+        if st.session_state.op_lat_val == 0.0 or st.session_state.op_lon_val == 0.0:
+            st.error("🛑 ACTION REQUIRED: CALIBRATE TERMINAL LOCATION. A valid Latitude and Longitude are required to calculate intercept distances.")
+
+        st.markdown("#### 1. CALIBRATE LOCATION")
+        loc_method = st.radio("CALIBRATION METHOD", ["GRID SQUARE", "CITY SEARCH", "MANUAL COORDINATES"], horizontal=True)
+        
+        if loc_method == "GRID SQUARE":
+            st.text_input("ENTER 4 OR 6 CHAR GRID", key="grid_input", on_change=update_from_grid)
+        elif loc_method == "CITY SEARCH":
+            col_s1, col_s2 = st.columns([3, 1])
+            col_s1.text_input("ENTER CITY & STATE", key="search_query")
+            col_s2.markdown("<br>", unsafe_allow_html=True)
+            col_s2.button("EXECUTE SEARCH", on_click=update_from_search, use_container_width=True)
+
+        c_lat, c_lon = st.columns(2)
+        c_lat.number_input("LATITUDE", key="op_lat_val", format="%.4f")
+        c_lon.number_input("LONGITUDE", key="op_lon_val", format="%.4f")
+
+        st.markdown("#### 2. AGENT IDENTITY")
+        with st.form("login_form"):
+            op_name = st.text_input("AGENT IDENTITY (CALLSIGN/HANDLE)", value=st.session_state.get("op_name_val", ""))
+            
+            c1, c2 = st.columns(2)
+            op_city = c1.text_input("HOME QTH: CITY", value=st.session_state.get("op_city_val", ""))
+            op_state = c2.text_input("HOME QTH: STATE/PROV", value=st.session_state.get("op_state_val", ""))
+            
+            remember_me = st.checkbox("[ SAVE CREDENTIALS TO LOCAL TERMINAL ]", value=True)
+            
+            if st.form_submit_button("> AUTHENTICATE"):
+                if op_name and st.session_state.op_lat_val != 0.0 and st.session_state.op_lon_val != 0.0:
+                    
+                    st.session_state.operator_profile = {
                         "name": op_name, 
                         "city": op_city, 
                         "state": op_state, 
+                        "country": "United States", 
                         "lat": st.session_state.op_lat_val, 
                         "lon": st.session_state.op_lon_val
                     }
                     
-                nav_to("TERMINAL_HOME")
-                st.rerun()
-            else:
-                st.error("ACCESS DENIED. AGENT IDENTITY AND NON-ZERO LOCATION REQUIRED.")
-
-# --- 8. THE HOME TERMINAL ---
-elif st.session_state.sys_state == "TERMINAL_HOME":
-    st.markdown('<div class="typewriter">GREETINGS, FELLOW SIGNAL TRAVELER.<br>WOULD YOU LIKE TO PLAY A GAME?<span class="blink">_</span></div>', unsafe_allow_html=True)
-    
-    if "gcp_service_account" not in st.secrets:
-        st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
-    
-    st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
-
-# --- 9. MW INTERCEPT ROOM ---
-elif st.session_state.sys_state == "MW_LOG":
-    st.markdown("### [ MW INTERCEPT CONSOLE ACTIVE ]")
-    
-    st.markdown("#### 1. OPERATING PARAMETERS")
-    r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed")
-    rover_grid = ""
-    
-    active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
-    active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-    
-    if r_cat == "ROVER":
-        st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
-        rover_grid = st.text_input("ROVER GRID (e.g., EM40)")
-        if len(rover_grid) >= 4:
-            try:
-                r_lat, r_lon = mh.to_location(rover_grid)
-                active_lat = float(r_lat)
-                active_lon = float(r_lon)
-            except Exception:
-                pass
-            
-    st.markdown("#### 2. TARGET ACQUISITION")
-    tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
-    
-    target_data = {}
-    is_manual = False
-    
-    with tab_search:
-        st.write("ACCESSING DOMESTIC AM DATABANKS...")
-        
-        if mw_db.empty:
-            st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: Mesa Mike database not found in repository.")
-        else:
-            if 'mw_filter_key' not in st.session_state:
-                st.session_state.mw_filter_key = 0
-                
-            def reset_mw_filters():
-                st.session_state.mw_filter_key += 1
-                
-            st.button("[ RESET SEARCH FILTERS ]", on_click=reset_mw_filters)
-            
-            fk = st.session_state.mw_filter_key
-            c1, c2, c3, c4 = st.columns(4)
-            
-            all_freqs = sorted(mw_db['Frequency'].dropna().unique().tolist())
-            f_freq = c1.selectbox("FREQ (kHz)", ["All"] + all_freqs, key=f"mw_f1_{fk}")
-            f_call = c2.text_input("CALLSIGN", key=f"mw_f2_{fk}")
-            f_city = c3.text_input("CITY", key=f"mw_f3_{fk}")
-            
-            all_states = sorted(mw_db['State'].dropna().unique().tolist())
-            f_state = c4.selectbox("STATE", ["All"] + all_states, key=f"mw_f4_{fk}")
-            
-            c5, c6, c7 = st.columns(3)
-            f_county = c5.text_input("COUNTY", key=f"mw_f5_{fk}")
-            f_grid = c6.text_input("GRID", key=f"mw_f6_{fk}")
-            f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"mw_f7_{fk}")
-            
-            results = mw_db.copy()
-            
-            if f_freq != "All":
-                results = results[results['Frequency'] == float(f_freq)]
-            if f_call:
-                results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
-            if f_city:
-                results = results[results['City'].str.contains(f_city, case=False, na=False)]
-            if f_state != "All":
-                results = results[results['State'] == f_state]
-            if f_county:
-                results = results[results['County'].str.contains(f_county, case=False, na=False)]
-            if f_grid:
-                results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
-                
-            if f_status != "All":
-                logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
-                results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                if f_status == "Logged Only":
-                    results = results[results['Check'].isin(logged_set)]
-                else:
-                    results = results[~results['Check'].isin(logged_set)]
-                    
-            st.write(f"> {len(results)} TARGETS FOUND:")
-            
-            if not results.empty:
-                results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
-                
-                logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
-                results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Check'] in logged_set else r['Callsign'], axis=1)
-                
-                results.insert(0, 'Log?', False)
-                
-                view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign']]
-                
-                edited_df = st.data_editor(
-                    view_df, 
-                    hide_index=True, 
-                    use_container_width=True,
-                    column_config={
-                        "Log?": st.column_config.CheckboxColumn("Log?"), 
-                        "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
-                        "Callsign": None 
-                    },
-                    disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign'],
-                    key=f"mw_db_editor_{fk}"
-                )
-                
-                selected_rows = edited_df[edited_df['Log?'] == True]
-                if not selected_rows.empty:
-                    target = selected_rows.iloc[0]
-                    st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
-                    
-                    target_data = {
-                        "freq": target['Frequency'], 
-                        "call": target['Callsign'], 
-                        "city": target['City'], 
-                        "state": target['State'], 
-                        "county": target['County'], 
-                        "country": "United States", 
-                        "grid": target['Grid'],
-                        "dist": target['Dist']
-                    }
-
-    with tab_manual:
-        st.write("INITIATE UNLISTED / INTERNATIONAL PROTOCOL...")
-        spacing = st.radio("CHANNEL SPACING", ["10 kHz (Region 2)", "9 kHz (Regions 1 & 3)"], horizontal=True)
-        
-        step_val = 10
-        if "9" in spacing:
-            step_val = 9
-            
-        c_m1, c_m2, c_m3 = st.columns(3)
-        man_freq = c_m1.number_input("MANUAL FREQ (kHz)", min_value=531, max_value=1710, value=540, step=step_val, key="man_mw")
-        man_call = c_m2.text_input("STATION ID")
-        
-        full_countries = country_list.copy()
-        if "Other" not in full_countries:
-            full_countries.append("Other")
-            
-        def_idx = 0
-        if "United States" in full_countries:
-            def_idx = full_countries.index("United States")
-            
-        man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx)
-        
-        man_other = ""
-        if man_ctry == "Other":
-            man_other = st.text_input("SPECIFY COUNTRY:")
-            
-        c_m4, c_m5, c_m6 = st.columns(3)
-        man_city = c_m4.text_input("STATION CITY")
-        
-        state_opts = get_state_list(man_ctry)
-        man_sp = c_m5.selectbox("STATION STATE/PROV", state_opts)
-        
-        man_dist = c_m6.number_input("EST. DISTANCE (MILES)", min_value=0.0, step=1.0)
-        
-        if man_call:
-            is_manual = True
-            selected_country = man_ctry
-            if man_ctry == "Other":
-                selected_country = man_other
-                
-            target_data = {
-                "freq": man_freq, 
-                "call": man_call, 
-                "city": man_city, 
-                "state": man_sp, 
-                "county": "Unknown", 
-                "country": selected_country, 
-                "grid": "",
-                "dist": man_dist
-            }
-
-    st.markdown("#### 3. SUBMIT INTERCEPT")
-    with st.form("mw_submit_form", clear_on_submit=True):
-        col_s1, col_s2, col_s3 = st.columns(3)
-        now = datetime.datetime.now(datetime.timezone.utc)
-        
-        log_date = col_s1.date_input("DATE (UTC)", value=now.date())
-        log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"))
-        log_prop = col_s3.selectbox("PROPAGATION MODE", ["Groundwave - Daytime", "Grayline - Sunset", "Grayline - Sunrise", "Skywave - Nighttime", "Other"])
-        
-        log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
-        
-        submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
-        if submit_log:
-            if not target_data:
-                st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-            else:
-                sheet = get_gsheet()
-                if sheet is None:
-                    st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured. Cannot write to Google Sheets.")
-                else:
-                    try:
-                        op = st.session_state.operator_profile
-                        entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                    if remember_me:
+                        st.session_state.profile_to_save = {
+                            "name": op_name, 
+                            "city": op_city, 
+                            "state": op_state, 
+                            "lat": st.session_state.op_lat_val, 
+                            "lon": st.session_state.op_lon_val
+                        }
                         
-                        row_data = [
-                            op.get('name', ''), 
-                            op.get('city', ''), 
-                            op.get('state', ''), 
-                            op.get('country', ''), 
-                            "AM", 
-                            target_data.get("freq", ""), 
-                            "", 
-                            target_data.get("call", ""), 
-                            "", 
-                            target_data.get("city", ""), 
-                            target_data.get("state", ""), 
-                            target_data.get("country", ""), 
-                            "", 
-                            target_data.get("grid", ""), 
-                            log_date.strftime("%m/%d/%Y"), 
-                            log_time, 
-                            target_data.get("dist", 0.0), 
-                            log_notes, 
-                            "", 
-                            "", 
-                            log_prop, 
-                            target_data.get("county", ""), 
-                            entry_cat_val, 
-                            "", 
-                            ""
-                        ]
-                        
-                        sanitized_row = []
-                        for item in row_data:
-                            if pd.isna(item):
-                                sanitized_row.append("")
-                            elif hasattr(item, 'item'):
-                                sanitized_row.append(item.item())
-                            else:
-                                sanitized_row.append(item)
-                                
-                        sheet.append_row(sanitized_row)
-                        st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
-                    except Exception as e:
-                        st.error(f"TRANSMISSION FAILED: {e}")
-            
-    st.write("---")
-    if st.button("< RETURN TO HOME"):
-        nav_to("TERMINAL_HOME")
-        st.rerun()
-
-# --- 10. FM INTERCEPT ROOM ---
-elif st.session_state.sys_state == "FM_LOG":
-    st.markdown("### [ FM INTERCEPT CONSOLE ACTIVE ]")
-    
-    st.markdown("#### 1. OPERATING PARAMETERS")
-    r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="fm_cat")
-    rover_grid = ""
-    
-    active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
-    active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-    
-    if r_cat == "ROVER":
-        st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
-        rover_grid = st.text_input("ROVER GRID (e.g., EM40)", key="fm_rov")
-        if len(rover_grid) >= 4:
-            try:
-                r_lat, r_lon = mh.to_location(rover_grid)
-                active_lat = float(r_lat)
-                active_lon = float(r_lon)
-            except Exception:
-                pass
-            
-    st.markdown("#### 2. TARGET ACQUISITION")
-    tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
-    target_data = {}
-    
-    with tab_search:
-        st.write("ACCESSING WTFDA DATABANKS...")
-        
-        if fm_db.empty:
-            st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: WTFDA database not found in repository.")
-        else:
-            if 'fm_filter_key' not in st.session_state:
-                st.session_state.fm_filter_key = 0
-                
-            def reset_fm_filters():
-                st.session_state.fm_filter_key += 1
-                
-            st.button("[ RESET SEARCH FILTERS ]", on_click=reset_fm_filters)
-            
-            fk = st.session_state.fm_filter_key
-            c1, c2, c3, c4 = st.columns(4)
-            
-            all_freqs = sorted(fm_db['Frequency'].dropna().unique().tolist())
-            f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"fm_f1_{fk}")
-            f_call = c2.text_input("CALLSIGN", key=f"fm_f2_{fk}")
-            f_city = c3.text_input("CITY", key=f"fm_f3_{fk}")
-            
-            all_states = sorted(fm_db['State'].dropna().unique().tolist())
-            f_state = c4.selectbox("STATE", ["All"] + all_states, key=f"fm_f4_{fk}")
-            
-            c5, c6, c7 = st.columns(3)
-            f_county = c5.text_input("COUNTY", key=f"fm_f5_{fk}")
-            f_grid = c6.text_input("GRID", key=f"fm_f6_{fk}")
-            f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"fm_f7_{fk}")
-            
-            results = fm_db.copy()
-            
-            if f_freq != "All":
-                results = results[results['Frequency'] == float(f_freq)]
-            if f_call:
-                results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
-            if f_city:
-                results = results[results['City'].str.contains(f_city, case=False, na=False)]
-            if f_state != "All":
-                results = results[results['State'] == f_state]
-            if f_county:
-                results = results[results['County'].str.contains(f_county, case=False, na=False)]
-            if f_grid:
-                results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
-                
-            if f_status != "All":
-                logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "FM")
-                results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                if f_status == "Logged Only":
-                    results = results[results['Check'].isin(logged_set)]
+                    nav_to("TERMINAL_HOME")
+                    st.rerun()
                 else:
-                    results = results[~results['Check'].isin(logged_set)]
-                    
-            st.write(f"> {len(results)} TARGETS FOUND:")
-            
-            if not results.empty:
-                results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
-                
-                logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "FM")
-                results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Check'] in logged_set else r['Callsign'], axis=1)
-                
-                results.insert(0, 'Log?', False)
-                
-                view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign']]
-                
-                edited_df = st.data_editor(
-                    view_df, 
-                    hide_index=True, 
-                    use_container_width=True,
-                    column_config={
-                        "Log?": st.column_config.CheckboxColumn("Log?"), 
-                        "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
-                        "Callsign": None
-                    },
-                    disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign'],
-                    key=f"fm_db_editor_{fk}"
-                )
-                
-                selected_rows = edited_df[edited_df['Log?'] == True]
-                if not selected_rows.empty:
-                    target = selected_rows.iloc[0]
-                    st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
-                    
-                    target_data = {
-                        "freq": target['Frequency'], 
-                        "call": target['Callsign'], 
-                        "city": target['City'], 
-                        "state": target['State'], 
-                        "county": target['County'], 
-                        "country": "United States", 
-                        "grid": target['Grid'],
-                        "pi": target.get('PI Code', ''), 
-                        "dist": target['Dist']
-                    }
+                    st.error("ACCESS DENIED. AGENT IDENTITY AND NON-ZERO LOCATION REQUIRED.")
 
-    with tab_manual:
-        st.write("INITIATE UNLISTED PROTOCOL...")
-        c_m1, c_m2, c_m3 = st.columns(3)
-        man_freq = c_m1.number_input("MANUAL FREQ (MHz)", min_value=87.7, max_value=107.9, value=88.1, step=0.1, key="man_fm")
-        man_call = c_m2.text_input("STATION ID", key="man_fm_call")
+    # --- 8B. THE HOME TERMINAL ---
+    elif st.session_state.sys_state == "TERMINAL_HOME":
+        st.markdown('<div class="typewriter">GREETINGS, FELLOW SIGNAL TRAVELER.<br>WOULD YOU LIKE TO PLAY A GAME?<span class="blink">_</span></div>', unsafe_allow_html=True)
         
-        full_countries = country_list.copy()
-        if "Other" not in full_countries:
-            full_countries.append("Other")
-            
-        def_idx = 0
-        if "United States" in full_countries:
-            def_idx = full_countries.index("United States")
-            
-        man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx, key="fm_man_ctry")
+        if "gcp_service_account" not in st.secrets:
+            st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
         
-        man_other = ""
-        if man_ctry == "Other":
-            man_other = st.text_input("SPECIFY COUNTRY:")
-            
-        c_m4, c_m5, c_m6 = st.columns(3)
-        man_city = c_m4.text_input("STATION CITY", key="fm_man_cty")
-        
-        state_opts = get_state_list(man_ctry)
-        man_sp = c_m5.selectbox("STATION STATE/PROV", state_opts, key="fm_man_sp")
-        
-        man_dist = c_m6.number_input("EST. DISTANCE (MILES)", min_value=0.0, step=1.0, key="fm_man_dst")
+        st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
 
-        if man_call:
-            selected_country = man_ctry
+    # --- 8C. MW INTERCEPT ROOM ---
+    elif st.session_state.sys_state == "MW_LOG":
+        st.markdown("### [ MW INTERCEPT CONSOLE ACTIVE ]")
+        
+        st.markdown("#### 1. OPERATING PARAMETERS")
+        r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed")
+        rover_grid = ""
+        
+        active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
+        active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        
+        if r_cat == "ROVER":
+            st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
+            rover_grid = st.text_input("ROVER GRID (e.g., EM40)")
+            if len(rover_grid) >= 4:
+                try:
+                    r_lat, r_lon = mh.to_location(rover_grid)
+                    active_lat = float(r_lat)
+                    active_lon = float(r_lon)
+                except Exception:
+                    pass
+                
+        st.markdown("#### 2. TARGET ACQUISITION")
+        tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
+        
+        target_data = {}
+        is_manual = False
+        
+        with tab_search:
+            st.write("ACCESSING DOMESTIC AM DATABANKS...")
+            
+            if mw_db.empty:
+                st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: Mesa Mike database not found in repository.")
+            else:
+                if 'mw_filter_key' not in st.session_state:
+                    st.session_state.mw_filter_key = 0
+                    
+                def reset_mw_filters():
+                    st.session_state.mw_filter_key += 1
+                    
+                st.button("[ RESET SEARCH FILTERS ]", on_click=reset_mw_filters)
+                
+                fk = st.session_state.mw_filter_key
+                c1, c2, c3, c4 = st.columns(4)
+                
+                all_freqs = sorted(mw_db['Frequency'].dropna().unique().tolist())
+                f_freq = c1.selectbox("FREQ (kHz)", ["All"] + all_freqs, key=f"mw_f1_{fk}")
+                f_call = c2.text_input("CALLSIGN", key=f"mw_f2_{fk}")
+                f_city = c3.text_input("CITY", key=f"mw_f3_{fk}")
+                
+                all_states = sorted(mw_db['State'].dropna().unique().tolist())
+                f_state = c4.selectbox("STATE", ["All"] + all_states, key=f"mw_f4_{fk}")
+                
+                c5, c6, c7 = st.columns(3)
+                f_county = c5.text_input("COUNTY", key=f"mw_f5_{fk}")
+                f_grid = c6.text_input("GRID", key=f"mw_f6_{fk}")
+                f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"mw_f7_{fk}")
+                
+                results = mw_db.copy()
+                
+                if f_freq != "All":
+                    results = results[results['Frequency'] == float(f_freq)]
+                if f_call:
+                    results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
+                if f_city:
+                    results = results[results['City'].str.contains(f_city, case=False, na=False)]
+                if f_state != "All":
+                    results = results[results['State'] == f_state]
+                if f_county:
+                    results = results[results['County'].str.contains(f_county, case=False, na=False)]
+                if f_grid:
+                    results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
+                    
+                if f_status != "All":
+                    logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
+                    results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
+                    if f_status == "Logged Only":
+                        results = results[results['Check'].isin(logged_set)]
+                    else:
+                        results = results[~results['Check'].isin(logged_set)]
+                        
+                st.write(f"> {len(results)} TARGETS FOUND:")
+                
+                if not results.empty:
+                    results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+                    
+                    logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
+                    results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
+                    results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Check'] in logged_set else r['Callsign'], axis=1)
+                    
+                    results.insert(0, 'Log?', False)
+                    
+                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign']]
+                    
+                    edited_df = st.data_editor(
+                        view_df, 
+                        hide_index=True, 
+                        use_container_width=True,
+                        column_config={
+                            "Log?": st.column_config.CheckboxColumn("Log?"), 
+                            "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
+                            "Callsign": None 
+                        },
+                        disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign'],
+                        key=f"mw_db_editor_{fk}"
+                    )
+                    
+                    selected_rows = edited_df[edited_df['Log?'] == True]
+                    if not selected_rows.empty:
+                        target = selected_rows.iloc[0]
+                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
+                        
+                        target_data = {
+                            "freq": target['Frequency'], 
+                            "call": target['Callsign'], 
+                            "city": target['City'], 
+                            "state": target['State'], 
+                            "county": target['County'], 
+                            "country": "United States", 
+                            "grid": target['Grid'],
+                            "dist": target['Dist']
+                        }
+
+        with tab_manual:
+            st.write("INITIATE UNLISTED / INTERNATIONAL PROTOCOL...")
+            spacing = st.radio("CHANNEL SPACING", ["10 kHz (Region 2)", "9 kHz (Regions 1 & 3)"], horizontal=True)
+            
+            step_val = 10
+            if "9" in spacing:
+                step_val = 9
+                
+            c_m1, c_m2, c_m3 = st.columns(3)
+            man_freq = c_m1.number_input("MANUAL FREQ (kHz)", min_value=531, max_value=1710, value=540, step=step_val, key="man_mw")
+            man_call = c_m2.text_input("STATION ID")
+            
+            full_countries = country_list.copy()
+            if "Other" not in full_countries:
+                full_countries.append("Other")
+                
+            def_idx = 0
+            if "United States" in full_countries:
+                def_idx = full_countries.index("United States")
+                
+            man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx)
+            
+            man_other = ""
             if man_ctry == "Other":
-                selected_country = man_other
+                man_other = st.text_input("SPECIFY COUNTRY:")
                 
-            target_data = {
-                "freq": man_freq, 
-                "call": man_call, 
-                "city": man_city, 
-                "state": man_sp, 
-                "county": "Unknown", 
-                "country": selected_country, 
-                "grid": "",
-                "pi": "", 
-                "dist": man_dist
-            }
+            c_m4, c_m5, c_m6 = st.columns(3)
+            man_city = c_m4.text_input("STATION CITY")
+            
+            state_opts = get_state_list(man_ctry)
+            man_sp = c_m5.selectbox("STATION STATE/PROV", state_opts)
+            
+            man_dist = c_m6.number_input("EST. DISTANCE (MILES)", min_value=0.0, step=1.0)
+            
+            if man_call:
+                is_manual = True
+                selected_country = man_ctry
+                if man_ctry == "Other":
+                    selected_country = man_other
+                    
+                target_data = {
+                    "freq": man_freq, 
+                    "call": man_call, 
+                    "city": man_city, 
+                    "state": man_sp, 
+                    "county": "Unknown", 
+                    "country": selected_country, 
+                    "grid": "",
+                    "dist": man_dist
+                }
+
+        st.markdown("#### 3. SUBMIT INTERCEPT")
+        with st.form("mw_submit_form", clear_on_submit=True):
+            col_s1, col_s2, col_s3 = st.columns(3)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            
+            log_date = col_s1.date_input("DATE (UTC)", value=now.date())
+            log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"))
+            log_prop = col_s3.selectbox("PROPAGATION MODE", ["Groundwave - Daytime", "Grayline - Sunset", "Grayline - Sunrise", "Skywave - Nighttime", "Other"])
+            
+            log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
+            
+            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+            if submit_log:
+                if not target_data:
+                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                else:
+                    sheet = get_gsheet()
+                    if sheet is None:
+                        st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured. Cannot write to Google Sheets.")
+                    else:
+                        try:
+                            op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
+                            row_data = [
+                                op.get('name', ''), 
+                                op.get('city', ''), 
+                                op.get('state', ''), 
+                                op.get('country', ''), 
+                                "AM", 
+                                target_data.get("freq", ""), 
+                                "", 
+                                target_data.get("call", ""), 
+                                "", 
+                                target_data.get("city", ""), 
+                                target_data.get("state", ""), 
+                                target_data.get("country", ""), 
+                                "", 
+                                target_data.get("grid", ""), 
+                                log_date.strftime("%m/%d/%Y"), 
+                                log_time, 
+                                target_data.get("dist", 0.0), 
+                                log_notes, 
+                                "", 
+                                "", 
+                                log_prop, 
+                                target_data.get("county", ""), 
+                                entry_cat_val, 
+                                "", 
+                                ""
+                            ]
+                            
+                            sanitized_row = []
+                            for item in row_data:
+                                if pd.isna(item):
+                                    sanitized_row.append("")
+                                elif hasattr(item, 'item'):
+                                    sanitized_row.append(item.item())
+                                else:
+                                    sanitized_row.append(item)
+                                    
+                            sheet.append_row(sanitized_row)
+                            st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                        except Exception as e:
+                            st.error(f"TRANSMISSION FAILED: {e}")
+
+    # --- 8D. FM INTERCEPT ROOM ---
+    elif st.session_state.sys_state == "FM_LOG":
+        st.markdown("### [ FM INTERCEPT CONSOLE ACTIVE ]")
+        
+        st.markdown("#### 1. OPERATING PARAMETERS")
+        r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="fm_cat")
+        rover_grid = ""
+        
+        active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
+        active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        
+        if r_cat == "ROVER":
+            st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
+            rover_grid = st.text_input("ROVER GRID (e.g., EM40)", key="fm_rov")
+            if len(rover_grid) >= 4:
+                try:
+                    r_lat, r_lon = mh.to_location(rover_grid)
+                    active_lat = float(r_lat)
+                    active_lon = float(r_lon)
+                except Exception:
+                    pass
+                
+        st.markdown("#### 2. TARGET ACQUISITION")
+        tab_search, tab_manual = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"])
+        target_data = {}
+        
+        with tab_search:
+            st.write("ACCESSING WTFDA DATABANKS...")
+            
+            if fm_db.empty:
+                st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: WTFDA database not found in repository.")
+            else:
+                if 'fm_filter_key' not in st.session_state:
+                    st.session_state.fm_filter_key = 0
+                    
+                def reset_fm_filters():
+                    st.session_state.fm_filter_key += 1
+                    
+                st.button("[ RESET SEARCH FILTERS ]", on_click=reset_fm_filters)
+                
+                fk = st.session_state.fm_filter_key
+                c1, c2, c3, c4 = st.columns(4)
+                
+                all_freqs = sorted(fm_db['Frequency'].dropna().unique().tolist())
+                f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"fm_f1_{fk}")
+                f_call = c2.text_input("CALLSIGN", key=f"fm_f2_{fk}")
+                f_city = c3.text_input("CITY", key=f"fm_f3_{fk}")
+                
+                all_states = sorted(fm_db['State'].dropna().unique().tolist())
+                f_state = c4.selectbox("STATE", ["All"] + all_states, key=f"fm_f4_{fk}")
+                
+                c5, c6, c7 = st.columns(3)
+                f_county = c5.text_input("COUNTY", key=f"fm_f5_{fk}")
+                f_grid = c6.text_input("GRID", key=f"fm_f6_{fk}")
+                f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"fm_f7_{fk}")
+                
+                results = fm_db.copy()
+                
+                if f_freq != "All":
+                    results = results[results['Frequency'] == float(f_freq)]
+                if f_call:
+                    results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
+                if f_city:
+                    results = results[results['City'].str.contains(f_city, case=False, na=False)]
+                if f_state != "All":
+                    results = results[results['State'] == f_state]
+                if f_county:
+                    results = results[results['County'].str.contains(f_county, case=False, na=False)]
+                if f_grid:
+                    results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
+                    
+                if f_status != "All":
+                    logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "FM")
+                    results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
+                    if f_status == "Logged Only":
+                        results = results[results['Check'].isin(logged_set)]
+                    else:
+                        results = results[~results['Check'].isin(logged_set)]
+                        
+                st.write(f"> {len(results)} TARGETS FOUND:")
+                
+                if not results.empty:
+                    results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+                    
+                    logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "FM")
+                    results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
+                    results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Check'] in logged_set else r['Callsign'], axis=1)
+                    
+                    results.insert(0, 'Log?', False)
+                    
+                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign']]
+                    
+                    edited_df = st.data_editor(
+                        view_df, 
+                        hide_index=True, 
+                        use_container_width=True,
+                        column_config={
+                            "Log?": st.column_config.CheckboxColumn("Log?"), 
+                            "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
+                            "Callsign": None
+                        },
+                        disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign'],
+                        key=f"fm_db_editor_{fk}"
+                    )
+                    
+                    selected_rows = edited_df[edited_df['Log?'] == True]
+                    if not selected_rows.empty:
+                        target = selected_rows.iloc[0]
+                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
+                        
+                        target_data = {
+                            "freq": target['Frequency'], 
+                            "call": target['Callsign'], 
+                            "city": target['City'], 
+                            "state": target['State'], 
+                            "county": target['County'], 
+                            "country": "United States", 
+                            "grid": target['Grid'],
+                            "pi": target.get('PI Code', ''), 
+                            "dist": target['Dist']
+                        }
+
+        with tab_manual:
+            st.write("INITIATE UNLISTED PROTOCOL...")
+            c_m1, c_m2, c_m3 = st.columns(3)
+            man_freq = c_m1.number_input("MANUAL FREQ (MHz)", min_value=87.7, max_value=107.9, value=88.1, step=0.1, key="man_fm")
+            man_call = c_m2.text_input("STATION ID", key="man_fm_call")
+            
+            full_countries = country_list.copy()
+            if "Other" not in full_countries:
+                full_countries.append("Other")
+                
+            def_idx = 0
+            if "United States" in full_countries:
+                def_idx = full_countries.index("United States")
+                
+            man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx, key="fm_man_ctry")
+            
+            man_other = ""
+            if man_ctry == "Other":
+                man_other = st.text_input("SPECIFY COUNTRY:")
+                
+            c_m4, c_m5, c_m6 = st.columns(3)
+            man_city = c_m4.text_input("STATION CITY", key="fm_man_cty")
+            
+            state_opts = get_state_list(man_ctry)
+            man_sp = c_m5.selectbox("STATION STATE/PROV", state_opts, key="fm_man_sp")
+            
+            man_dist = c_m6.number_input("EST. DISTANCE (MILES)", min_value=0.0, step=1.0, key="fm_man_dst")
+
+            if man_call:
+                selected_country = man_ctry
+                if man_ctry == "Other":
+                    selected_country = man_other
+                    
+                target_data = {
+                    "freq": man_freq, 
+                    "call": man_call, 
+                    "city": man_city, 
+                    "state": man_sp, 
+                    "county": "Unknown", 
+                    "country": selected_country, 
+                    "grid": "",
+                    "pi": "", 
+                    "dist": man_dist
+                }
 
     st.markdown("#### 3. SUBMIT INTERCEPT")
     with st.form("fm_submit_form", clear_on_submit=True):
@@ -993,71 +992,55 @@ elif st.session_state.sys_state == "FM_LOG":
                     except Exception as e:
                         st.error(f"TRANSMISSION FAILED: {e}")
 
-    st.write("---")
-    if st.button("< RETURN TO HOME"):
-        nav_to("TERMINAL_HOME")
-        st.rerun()
+    # --- 8E. THE CLANDESTINE MATRIX (BOUNTY ROOM) ---
+    elif st.session_state.sys_state == "BOUNTY_HUNT":
+        st.markdown("### --- SECURE UPLINK ESTABLISHED ---")
+        st.markdown("AWAITING MATRIX ALIGNMENT PARAMETERS<span class='blink'>_</span>", unsafe_allow_html=True)
+        
+        ACTIVE_ALPHA = "D"
+        ACTIVE_NUMERIC = "4"
+        SECRET_PAYLOAD = "SPORADIC"
+        
+        col1, col2 = st.columns(2)
+        alpha_key = col1.selectbox("ALPHA KEY", ["A", "B", "C", "D", "E"])
+        numeric_key = col2.selectbox("NUMERIC KEY", ["1", "2", "3", "4", "5"])
+        
+        if alpha_key == ACTIVE_ALPHA and numeric_key == ACTIVE_NUMERIC:
+            st.success("MATRIX ALIGNMENT LOCKED.")
+            st.session_state.matrix_unlocked = True
+        else:
+            st.warning("MATRIX MISALIGNED. DECRYPTION UNAVAILABLE.")
+            st.session_state.matrix_unlocked = False
 
-# --- 11. THE CLANDESTINE MATRIX (BOUNTY ROOM) ---
-elif st.session_state.sys_state == "BOUNTY_HUNT":
-    st.markdown("### --- SECURE UPLINK ESTABLISHED ---")
-    st.markdown("AWAITING MATRIX ALIGNMENT PARAMETERS<span class='blink'>_</span>", unsafe_allow_html=True)
-    
-    ACTIVE_ALPHA = "D"
-    ACTIVE_NUMERIC = "4"
-    SECRET_PAYLOAD = "SPORADIC"
-    
-    col1, col2 = st.columns(2)
-    alpha_key = col1.selectbox("ALPHA KEY", ["A", "B", "C", "D", "E"])
-    numeric_key = col2.selectbox("NUMERIC KEY", ["1", "2", "3", "4", "5"])
-    
-    if alpha_key == ACTIVE_ALPHA and numeric_key == ACTIVE_NUMERIC:
-        st.success("MATRIX ALIGNMENT LOCKED.")
-        st.session_state.matrix_unlocked = True
-    else:
-        st.warning("MATRIX MISALIGNED. DECRYPTION UNAVAILABLE.")
-        st.session_state.matrix_unlocked = False
+        if st.session_state.matrix_unlocked:
+            st.markdown("""
+            <div class="classified-box">
+            <strong>DECRYPTION CIPHER ACTIVE:</strong><br>
+            19 = S | 16 = P | 15 = O | 18 = R | 01 = A | 04 = D | 09 = I | 03 = C
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.write("ENTER DECRYPTED PAYLOAD TO ACCESS DOSSIER:")
+            payload = st.text_input(">", key="payload_input")
+            
+            if payload.upper() == SECRET_PAYLOAD:
+                st.markdown("### [ ACCESS GRANTED ]")
+                st.error("### TOP SECRET DOSSIER: ACTIVE")
+                st.markdown("""
+                **TARGET SPECIFICATIONS:**
+                * Log any Class C AM Graveyard station.
+                * Distance must exceed 400 miles.
+                * Acquisition window closes in 14 days.
+                """)
+                st.button("> ACKNOWLEDGE & ACCEPT MISSION")
 
-    if st.session_state.matrix_unlocked:
+    # --- 8F. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
+    elif st.session_state.sys_state == "DASHBOARD":
+        st.markdown("### [ GLOBAL INTELLIGENCE DATABANKS ]")
+        st.write("ESTABLISHING CONNECTION TO PLOTLY SERVERS...")
         st.markdown("""
         <div class="classified-box">
-        <strong>DECRYPTION CIPHER ACTIVE:</strong><br>
-        19 = S | 16 = P | 15 = O | 18 = R | 01 = A | 04 = D | 09 = I | 03 = C
+        <strong>SYSTEM STATUS:</strong> DATA VISUALIZATION MODULES COMPILING.<br>
+        STANDBY FOR CHOROPLETH MAPS, VOLUME TIMELINES, AND OPERATOR LEADERBOARDS.
         </div>
         """, unsafe_allow_html=True)
-        
-        st.write("ENTER DECRYPTED PAYLOAD TO ACCESS DOSSIER:")
-        payload = st.text_input(">", key="payload_input")
-        
-        if payload.upper() == SECRET_PAYLOAD:
-            st.markdown("### [ ACCESS GRANTED ]")
-            st.error("### TOP SECRET DOSSIER: ACTIVE")
-            st.markdown("""
-            **TARGET SPECIFICATIONS:**
-            * Log any Class C AM Graveyard station.
-            * Distance must exceed 400 miles.
-            * Acquisition window closes in 14 days.
-            """)
-            st.button("> ACKNOWLEDGE & ACCEPT MISSION")
-
-    st.write("---")
-    if st.button("< ABORT PROTOCOL / RETURN"):
-        st.session_state.matrix_unlocked = False
-        nav_to("TERMINAL_HOME")
-        st.rerun()
-
-# --- 12. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
-elif st.session_state.sys_state == "DASHBOARD":
-    st.markdown("### [ GLOBAL INTELLIGENCE DATABANKS ]")
-    st.write("ESTABLISHING CONNECTION TO PLOTLY SERVERS...")
-    st.markdown("""
-    <div class="classified-box">
-    <strong>SYSTEM STATUS:</strong> DATA VISUALIZATION MODULES COMPILING.<br>
-    STANDBY FOR CHOROPLETH MAPS, VOLUME TIMELINES, AND OPERATOR LEADERBOARDS.
-    </div>
-    """, unsafe_allow_html=True)
-    
-    st.write("---")
-    if st.button("< RETURN TO HOME"):
-        nav_to("TERMINAL_HOME")
-        st.rerun()
