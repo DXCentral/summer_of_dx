@@ -260,7 +260,6 @@ def load_mw_intel():
                 df['LAT'] = pd.to_numeric(df['LAT'], errors='coerce')
                 df['LON'] = pd.to_numeric(df['LON'], errors='coerce')
                 
-                # Pre-calculate Grid Square for the entire database
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 return df
         except Exception:
@@ -300,7 +299,6 @@ def load_fm_intel():
                 df['LAT'] = pd.to_numeric(df.get(lat_col, pd.Series([0.0]*len(df))), errors='coerce')
                 df['LON'] = pd.to_numeric(df.get(lon_col, pd.Series([0.0]*len(df))), errors='coerce')
                 
-                # Pre-calculate Grid Square for the entire database
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 return df
         except Exception:
@@ -566,7 +564,6 @@ elif st.session_state.sys_state == "MW_LOG":
             if not results.empty:
                 results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
                 
-                # Check cross-reference again to visually add a green dot for logged items
                 logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
                 results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
                 results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Check'] in logged_set else r['Callsign'], axis=1)
@@ -582,7 +579,7 @@ elif st.session_state.sys_state == "MW_LOG":
                     column_config={
                         "Log?": st.column_config.CheckboxColumn("Log?"), 
                         "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
-                        "Callsign": None # Hides the internal clean callsign column
+                        "Callsign": None 
                     },
                     disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign'],
                     key=f"mw_db_editor_{fk}"
@@ -702,7 +699,18 @@ elif st.session_state.sys_state == "MW_LOG":
                             "", 
                             ""
                         ]
-                        sheet.append_row(row_data)
+                        
+                        # Data Sanitizer for Google Sheets JSON Serialization
+                        sanitized_row = []
+                        for item in row_data:
+                            if pd.isna(item):
+                                sanitized_row.append("")
+                            elif hasattr(item, 'item'):
+                                sanitized_row.append(item.item())
+                            else:
+                                sanitized_row.append(item)
+                                
+                        sheet.append_row(sanitized_row)
                         st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                     except Exception as e:
                         st.error(f"TRANSMISSION FAILED: {e}")
@@ -934,7 +942,17 @@ elif st.session_state.sys_state == "FM_LOG":
                             "", 
                             ""
                         ]
-                        sheet.append_row(row_data)
+                        
+                        sanitized_row = []
+                        for item in row_data:
+                            if pd.isna(item):
+                                sanitized_row.append("")
+                            elif hasattr(item, 'item'):
+                                sanitized_row.append(item.item())
+                            else:
+                                sanitized_row.append(item)
+                                
+                        sheet.append_row(sanitized_row)
                         st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                     except Exception as e:
                         st.error(f"TRANSMISSION FAILED: {e}")
