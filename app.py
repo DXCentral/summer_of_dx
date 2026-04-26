@@ -139,9 +139,7 @@ def clean_callsign(call):
     
     call = str(call).strip()
     
-    # Target actual Call Letters (starts with K, W, X, C) to scrub FMList meta-data
     if re.match(r'^[KWXC][A-Z0-9]{2,4}', call, re.I):
-        # Strip off -FM, -LP, and radio text like 'r:1234'
         call = re.split(r'[- ]', call)[0]
         call = re.sub(r' r:.*', '', call)
         
@@ -166,7 +164,9 @@ def standardize_cuban_station(call, freq, country):
         r'music[al]*\s*nacional|cmbf': 'Radio Musical Nacional',
         r'ciudad\s*de\s*h[ab|av]ana': 'Radio Ciudad de Habana',
         r'guam[aá]': 'Radio Guamá',
-        r'mart[ií]': 'Radio Martí'
+        r'mart[ií]': 'Radio Martí',
+        r'victori[a]': 'Radio Victoria',
+        r'cadena\s*agramonte': 'Radio Cadena Agramonte'
     }
     
     std_name = None
@@ -176,15 +176,12 @@ def standardize_cuban_station(call, freq, country):
             break
             
     if not std_name:
-        # Standardize "R. " to "Radio "
         std_name = re.sub(r'^r\.\s*', 'Radio ', str(call), flags=re.IGNORECASE)
-        # Protect CM callsigns, otherwise Title Case it
         if re.match(r'^CM[A-Z]{2}$', std_name.upper()):
             std_name = std_name.upper()
         else:
             std_name = std_name.title()
             
-    # Append Frequency if not already present
     if freq_str and f"({freq_str})" not in std_name:
         return f"{std_name} ({freq_str})"
         
@@ -192,7 +189,6 @@ def standardize_cuban_station(call, freq, country):
 
 def format_date_import(date_str):
     try:
-        # Transforms Euro DD.MM.YY into US MM/DD/YYYY
         date_str = str(date_str).strip()
         if not date_str: return ""
         d = pd.to_datetime(date_str, dayfirst=True)
@@ -265,13 +261,10 @@ def get_grid(lat, lon):
     try:
         if pd.isna(lat) or pd.isna(lon):
             return ""
-        
         lat = float(lat)
         lon = float(lon)
-        
         if lat == 0.0 and lon == 0.0:
             return ""
-            
         return mh.to_maiden(lat, lon)
     except Exception:
         return ""
@@ -280,16 +273,13 @@ def reverse_geocode(lat, lon):
     try:
         geolocator = Nominatim(user_agent="dx_central_logger_v6")
         location = geolocator.reverse(f"{lat}, {lon}", language='en')
-        
         if location:
             addr = location.raw.get('address', {})
-            
             found_city = ""
             for tag in ['city', 'town', 'village', 'hamlet']:
                 if tag in addr:
                     found_city = addr[tag]
                     break
-                    
             st.session_state.op_city_val = found_city
             st.session_state.op_state_val = addr.get('state', addr.get('province', ''))
             st.session_state.op_country_val = addr.get('country', 'United States')
@@ -320,6 +310,19 @@ def update_from_search():
         except Exception:
             pass
 
+@st.cache_data(ttl=86400)
+def get_lat_lon_from_city(city, country):
+    if not city or city == "Unknown" or pd.isna(city):
+        return 0.0, 0.0
+    try:
+        geolocator = Nominatim(user_agent="dx_central_logger_v6")
+        loc = geolocator.geocode(f"{city}, {country}")
+        if loc:
+            return float(loc.latitude), float(loc.longitude)
+    except Exception:
+        pass
+    return 0.0, 0.0
+
 def get_idx(guess_list, cols):
     for g in guess_list:
         for idx, c in enumerate(cols):
@@ -330,8 +333,6 @@ def get_idx(guess_list, cols):
 # --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
-    
-    # Try multiple decodings to handle MWList's Latin-1 accents
     for enc in ['utf-8', 'latin-1', 'cp1252']:
         try:
             uploaded_file.seek(0)
@@ -344,16 +345,13 @@ def handle_file_upload(uploaded_file):
         raise ValueError("Unable to decode file. Encoding failure.")
         
     lines = content.splitlines()
-    
     best_row = 0
     best_sep = ","
     
-    # 1. Keyword Scan to find the true header (Ignores comma-heavy bio paragraphs by checking length)
     keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
     
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
-        # Must contain at least 3 header keywords, and must not be a massive bio paragraph
         if sum(1 for kw in keywords if kw in line_lower) >= 3 and len(line) < 300:
             best_row = i
             c_comma = line.count(",")
@@ -366,7 +364,6 @@ def handle_file_upload(uploaded_file):
             else: best_sep = ","
             break
             
-    # Fallback: if no keywords found, fallback to delimiter density alone
     if best_row == 0:
         max_delims = 0
         for i, line in enumerate(lines[:50]):
@@ -382,7 +379,6 @@ def handle_file_upload(uploaded_file):
                 elif c_tab == current_max: best_sep = "\t"
                 else: best_sep = ","
 
-    # 2. Forgiving Manual Parse Loop (Bypasses Pandas Expected Fields Crash)
     header_line = [h.strip(' \'"') for h in lines[best_row].split(best_sep)]
     num_cols = len(header_line)
     
@@ -394,19 +390,15 @@ def handle_file_upload(uploaded_file):
             
         cols = line.split(best_sep)
         
-        # If there are stray separators in the remarks, merge them into the final column
         if len(cols) > num_cols:
             merged_last = best_sep.join(cols[num_cols-1:])
             cols = cols[:num_cols-1] + [merged_last]
-        # If missing columns, pad them
         elif len(cols) < num_cols:
             cols.extend([""] * (num_cols - len(cols)))
             
-        # Clean quotes and spaces from cells
         cols = [c.strip(' \'"') for c in cols]
         parsed_data.append(cols)
         
-    # Clean up duplicate header names
     unique_headers = []
     for j, h in enumerate(header_line):
         h_str = str(h) if h else f"Unnamed_{j}"
@@ -422,7 +414,6 @@ def get_gsheet():
     try:
         if "gcp_service_account" not in st.secrets:
             return None
-            
         scope = ["https://www.googleapis.com/auth/spreadsheets"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
@@ -436,11 +427,9 @@ def get_logged_set(dxer_name, band):
     try:
         if not dxer_name:
             return set()
-            
         sheet = get_gsheet()
         if sheet is None:
             return set()
-            
         vals = sheet.get_all_values()
         if len(vals) < 2:
             return set()
@@ -452,15 +441,11 @@ def get_logged_set(dxer_name, band):
                 row_band = str(row[4]).strip().upper()
                 if row_name == dxer_name.strip().upper() and row_band == band.upper():
                     call = str(row[7]).strip().upper()
-                    if band == "AM":
-                        freq = str(row[5]).strip()
-                    else:
-                        freq = str(row[6]).strip()
-                        
+                    if band == "AM": freq = str(row[5]).strip()
+                    else: freq = str(row[6]).strip()
                     logged.add(f"{call}-{freq}")
             except Exception:
                 continue
-                
         return logged
     except Exception:
         return set()
@@ -483,12 +468,10 @@ def load_mw_intel():
                 mesa_df['Callsign'] = mesa_df['CALL'].fillna("Unknown")
                 mesa_df['State'] = mesa_df['STATE'].fillna("XX")
                 mesa_df['City'] = mesa_df['CITY'].fillna("Unknown")
-                
                 if 'County' in mesa_df.columns:
                     mesa_df['County'] = mesa_df['County'].fillna("Unknown")
                 else:
                     mesa_df['County'] = "Unknown"
-                    
                 mesa_df['LAT'] = pd.to_numeric(mesa_df['LAT'], errors='coerce')
                 mesa_df['LON'] = pd.to_numeric(mesa_df['LON'], errors='coerce')
                 mesa_df['Grid'] = mesa_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
@@ -499,33 +482,48 @@ def load_mw_intel():
             
     # Load International Fallback from the Historical Logbook
     try:
-        hist_df = pd.read_csv("DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Logging Entries.csv", dtype=str)
-        intl_df = hist_df[~hist_df['Station Country'].isin(['United States', 'USA', 'United States ', 'USA '])].copy()
-        intl_df = intl_df[['Frequency', 'Station Call Letters', 'Station City', 'Station State/Province', 'Station Country']].drop_duplicates()
-        intl_df = intl_df.dropna(subset=['Frequency', 'Station Call Letters'])
-        
-        intl_df['Frequency'] = pd.to_numeric(intl_df['Frequency'], errors='coerce')
-        intl_df['Callsign'] = intl_df['Station Call Letters']
-        intl_df['City'] = intl_df['Station City'].fillna("Unknown")
-        intl_df['State'] = intl_df['Station State/Province'].fillna("DX")
-        intl_df['Country'] = intl_df['Station Country'].fillna("Unknown")
-        intl_df['County'] = "Unknown"
-        intl_df['LAT'] = 0.0
-        intl_df['LON'] = 0.0
-        intl_df['Grid'] = ""
-        
-        # Scrub Cuban Stations in the historical fallback DB
-        intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
-        
-        keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']
-        
-        if not mesa_df.empty:
-            mesa_df = mesa_df[keep_cols]
-            intl_df = intl_df[keep_cols]
-            mesa_df = pd.concat([mesa_df, intl_df], ignore_index=True)
-        else:
-            mesa_df = intl_df[keep_cols]
+        files_to_try_hist = [
+            "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Logging Entries.csv",
+            "DX_Central___MW_Frequency_Challenge_-All_Seasons_Master_Logbook_-_Logging_Entries.csv",
+            "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"
+        ]
+        hist_df = pd.DataFrame()
+        for f in files_to_try_hist:
+            try:
+                hist_df = pd.read_csv(f, dtype=str)
+                if not hist_df.empty: break
+            except Exception:
+                continue
+                
+        if not hist_df.empty and 'Station Country' in hist_df.columns:
+            intl_df = hist_df[~hist_df['Station Country'].isin(['United States', 'USA', 'United States ', 'USA '])].copy()
             
+            if 'Frequency' in intl_df.columns and 'Station Call Letters' in intl_df.columns:
+                intl_df = intl_df[['Frequency', 'Station Call Letters', 'Station City', 'Station State/Province', 'Station Country']].drop_duplicates()
+                intl_df = intl_df.dropna(subset=['Frequency', 'Station Call Letters'])
+                
+                intl_df['Frequency'] = pd.to_numeric(intl_df['Frequency'], errors='coerce')
+                intl_df['Callsign'] = intl_df['Station Call Letters']
+                intl_df['City'] = intl_df['Station City'].fillna("Unknown")
+                intl_df['State'] = intl_df['Station State/Province'].fillna("DX")
+                intl_df['Country'] = intl_df['Station Country'].fillna("Unknown")
+                intl_df['County'] = "Unknown"
+                intl_df['LAT'] = 0.0
+                intl_df['LON'] = 0.0
+                intl_df['Grid'] = ""
+                
+                # Scrub Cuban Stations in the historical fallback DB
+                intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
+                
+                keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']
+                
+                if not mesa_df.empty:
+                    mesa_df = mesa_df[keep_cols]
+                    intl_df = intl_df[keep_cols]
+                    mesa_df = pd.concat([mesa_df, intl_df], ignore_index=True)
+                else:
+                    mesa_df = intl_df[keep_cols]
+                    
     except Exception:
         pass
         
@@ -545,10 +543,8 @@ def load_fm_intel():
             df = pd.read_csv(file, dtype=str)
             if not df.empty:
                 df['Frequency'] = pd.to_numeric(df['Frequency'], errors='coerce')
-                
                 if 'Call Letters' in df.columns and 'Callsign' not in df.columns:
                     df['Callsign'] = df['Call Letters']
-                    
                 df['Callsign'] = df.get('Callsign', pd.Series(["Unknown"] * len(df))).fillna("Unknown")
                 df['State'] = df.get('S/P', pd.Series(["XX"] * len(df))).fillna("XX")
                 
@@ -595,12 +591,9 @@ can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "S
 mex_states = ["AGU", "BCN", "BCS", "CAM", "CHP", "CHH", "CMX", "COA", "COL", "DUR", "GUA", "GRO", "HID", "JAL", "MEX", "MIC", "MOR", "NAY", "NLE", "OAX", "PUE", "QUE", "ROO", "SLP", "SIN", "SON", "TAB", "TAM", "TLA", "VER", "YUC", "ZAC"]
 
 def get_state_list(country):
-    if country == "United States": 
-        return us_states
-    if country == "Canada": 
-        return can_prov
-    if country == "Mexico": 
-        return mex_states
+    if country == "United States": return us_states
+    if country == "Canada": return can_prov
+    if country == "Mexico": return mex_states
     return ["DX"]
 
 # --- 6. SESSION STATE ROUTING & PROFILE ---
@@ -612,12 +605,7 @@ if 'matrix_unlocked' not in st.session_state:
 
 if 'operator_profile' not in st.session_state:
     st.session_state.operator_profile = {
-        "name": "", 
-        "city": "", 
-        "state": "", 
-        "country": "United States", 
-        "lat": 0.0, 
-        "lon": 0.0
+        "name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0
     }
 
 def nav_to(page):
@@ -779,7 +767,6 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -789,7 +776,6 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
-                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
@@ -823,10 +809,13 @@ with main_content:
                 all_states = sorted(mw_db['State'].dropna().unique().tolist())
                 f_state = c4.selectbox("STATE", ["All"] + all_states, key=f"mw_f4_{fk}")
                 
-                c5, c6, c7 = st.columns(3)
-                f_county = c5.text_input("COUNTY", key=f"mw_f5_{fk}")
-                f_grid = c6.text_input("GRID", key=f"mw_f6_{fk}")
-                f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"mw_f7_{fk}")
+                c5, c6, c7, c8 = st.columns(4)
+                
+                all_countries = sorted(mw_db['Country'].dropna().unique().tolist()) if 'Country' in mw_db.columns else ["United States"]
+                f_ctry = c5.selectbox("COUNTRY", ["All"] + all_countries, key=f"mw_f5_{fk}")
+                f_county = c6.text_input("COUNTY", key=f"mw_f6_{fk}")
+                f_grid = c7.text_input("GRID", key=f"mw_f7_{fk}")
+                f_status = c8.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"mw_f8_{fk}")
                 
                 results = mw_db.copy()
                 
@@ -838,6 +827,8 @@ with main_content:
                     results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All":
                     results = results[results['State'] == f_state]
+                if f_ctry != "All":
+                    results = results[results['Country'] == f_ctry]
                 if f_county:
                     results = results[results['County'].str.contains(f_county, case=False, na=False)]
                 if f_grid:
@@ -853,9 +844,18 @@ with main_content:
                         results = results[~results['Check'].isin(logged_set)]
                         
                 st.write(f"> {len(results)} TARGETS FOUND:")
-                st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Sources: Mesa Mike's AM DB (mesamike.org) & DX Central International Logs*</div>", unsafe_allow_html=True)
+                st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Sources: Mesa Mike's AM DB (http://mesamike.org/radio/amdb/amdb.mvc) & DX Central MW Frequency Challenge Data*</div>", unsafe_allow_html=True)
                 
                 if not results.empty:
+                    # Dynamic On-The-Fly Geocoding to handle International Distances
+                    # Capped at 100 rows to prevent massive API spam on open searches
+                    if len(results) <= 100:
+                        for idx, r in results.iterrows():
+                            if float(r.get('LAT', 0.0)) == 0.0 and float(r.get('LON', 0.0)) == 0.0:
+                                lat, lon = get_lat_lon_from_city(r['City'], r['Country'])
+                                results.at[idx, 'LAT'] = lat
+                                results.at[idx, 'LON'] = lon
+                                
                     results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
                     
                     results = results.sort_values(by='Dist', ascending=True)
@@ -872,7 +872,7 @@ with main_content:
                     
                     results.insert(0, 'Log?', False)
                     
-                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Callsign', 'Grid', 'County']]
+                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign']]
                     
                     edited_df = st.data_editor(
                         view_df, 
@@ -881,11 +881,9 @@ with main_content:
                         column_config={
                             "Log?": st.column_config.CheckboxColumn("Log?"), 
                             "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
-                            "Callsign": None,
-                            "Grid": None,
-                            "County": None
+                            "Callsign": None 
                         },
-                        disabled=['Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Callsign', 'Grid', 'County'],
+                        disabled=['Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign'],
                         key=f"mw_db_editor_{fk}"
                     )
                     
@@ -1007,7 +1005,7 @@ with main_content:
                                             continue 
                                     except Exception:
                                         pass
-                                
+                                        
                                 # Handle Country translation
                                 raw_country = row[map_ctry] if map_ctry != "<Skip>" else "USA"
                                 clean_country = itu_map.get(str(raw_country).upper(), str(raw_country).title())
@@ -1029,7 +1027,7 @@ with main_content:
                                             dist_val = clean_dist
                                     except Exception:
                                         dist_val = 0.0
-                                        
+                                
                                 # Handle DX states
                                 clean_state = row[map_state] if map_state != "<Skip>" else ""
                                 if clean_country not in ["United States", "Canada", "Mexico"]:
@@ -1171,7 +1169,6 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -1181,7 +1178,6 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
-                    active_grid_calc = rover_grid.upper()
                 except Exception: 
                     pass
                     
@@ -1215,10 +1211,12 @@ with main_content:
                 all_states = sorted(fm_db['State'].dropna().unique().tolist())
                 f_state = c4.selectbox("STATE", ["All"] + all_states, key=f"fm_f4_{fk}")
                 
-                c5, c6, c7 = st.columns(3)
-                f_county = c5.text_input("COUNTY", key=f"fm_f5_{fk}")
-                f_grid = c6.text_input("GRID", key=f"fm_f6_{fk}")
-                f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"fm_f7_{fk}")
+                c5, c6, c7, c8 = st.columns(4)
+                all_countries = sorted(fm_db['Country'].dropna().unique().tolist()) if 'Country' in fm_db.columns else ["United States"]
+                f_ctry = c5.selectbox("COUNTRY", ["All"] + all_countries, key=f"fm_f5_{fk}")
+                f_county = c6.text_input("COUNTY", key=f"fm_f6_{fk}")
+                f_grid = c7.text_input("GRID", key=f"fm_f7_{fk}")
+                f_status = c8.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"fm_f8_{fk}")
                 
                 results = fm_db.copy()
                 
@@ -1230,6 +1228,8 @@ with main_content:
                     results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All": 
                     results = results[results['State'] == f_state]
+                if f_ctry != "All":
+                    results = results[results['Country'] == f_ctry]
                 if f_county: 
                     results = results[results['County'].str.contains(f_county, case=False, na=False)]
                 if f_grid: 
@@ -1244,8 +1244,17 @@ with main_content:
                         results = results[~results['Check'].isin(logged_set)]
                         
                 st.write(f"> {len(results)} TARGETS FOUND:")
+                st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: WTFDA FM Database*</div>", unsafe_allow_html=True)
                 
                 if not results.empty:
+                    # Dynamic On-The-Fly Geocoding to handle International Distances
+                    if len(results) <= 100:
+                        for idx, r in results.iterrows():
+                            if float(r.get('LAT', 0.0)) == 0.0 and float(r.get('LON', 0.0)) == 0.0:
+                                lat, lon = get_lat_lon_from_city(r['City'], r.get('Country', 'United States'))
+                                results.at[idx, 'LAT'] = lat
+                                results.at[idx, 'LON'] = lon
+                                
                     results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
                     
                     results = results.sort_values(by='Dist', ascending=True)
@@ -1262,7 +1271,7 @@ with main_content:
                     
                     results.insert(0, 'Log?', False)
                     
-                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign']]
+                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'Callsign']]
                     
                     edited_df = st.data_editor(
                         view_df, 
@@ -1273,22 +1282,24 @@ with main_content:
                             "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"), 
                             "Callsign": None
                         },
-                        disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign'], 
+                        disabled=['Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'Callsign'], 
                         key=f"fm_db_editor_{fk}"
                     )
                     
                     selected_rows = edited_df[edited_df['Log?'] == True]
                     if not selected_rows.empty:
                         target = selected_rows.iloc[0]
-                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
+                        grid_str = f" | Grid: {target['Grid']}" if target['Grid'] else ""
+                        dist_str = f" | {target['Dist']} mi" if target['Dist'] > 0 else ""
+                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
                         
                         target_data = {
                             "freq": target['Frequency'], 
                             "call": target['Callsign'], 
                             "city": target['City'], 
                             "state": target['State'], 
-                            "county": target['County'], 
-                            "country": "United States", 
+                            "county": target.get('County', 'Unknown'), 
+                            "country": target.get('Country', 'United States'), 
                             "grid": target['Grid'], 
                             "pi": target.get('PI Code', ''), 
                             "dist": target['Dist']
