@@ -6,6 +6,7 @@ import json
 import gspread
 import maidenhead as mh
 import io
+import re
 import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
 from google.oauth2.service_account import Credentials
@@ -115,7 +116,60 @@ if "profile_to_save" in st.session_state:
     )
     del st.session_state.profile_to_save
 
-# --- 4. GEOSPATIAL & MATH HELPERS ---
+# --- 4. HELPERS & TRANSLATORS ---
+itu_map = {
+    "USA": "United States", 
+    "CAN": "Canada", 
+    "MEX": "Mexico", 
+    "CUB": "Cuba", 
+    "CLM": "Colombia", 
+    "DOM": "Dominican Republic", 
+    "PRU": "Peru", 
+    "BHS": "Bahamas",
+    "GTM": "Guatemala", 
+    "HND": "Honduras", 
+    "NIC": "Nicaragua", 
+    "CRI": "Costa Rica",
+    "PAN": "Panama", 
+    "VEN": "Venezuela", 
+    "ECU": "Ecuador", 
+    "BRA": "Brazil",
+    "BOL": "Bolivia", 
+    "CHL": "Chile", 
+    "ARG": "Argentina", 
+    "URY": "Uruguay",
+    "PRY": "Paraguay", 
+    "JAM": "Jamaica", 
+    "HTI": "Haiti", 
+    "BEL": "Belize",
+    "SLV": "El Salvador", 
+    "PUR": "Puerto Rico", 
+    "BER": "Bermuda"
+}
+
+def clean_callsign(call):
+    if not call or pd.isna(call):
+        return ""
+    
+    call = str(call).strip()
+    
+    # If it looks like a standard North American callsign (K, W, X, C) followed by 2-4 letters
+    if re.match(r'^[KWXC][A-Z0-9]{2,4}', call, re.I):
+        # Strip out -FM, -LP, or anything after a space
+        call = re.split(r'[- ]', call)[0]
+        # Strip out radio text metadata like "r:1234"
+        call = re.sub(r' r:.*', '', call)
+        
+    return call.upper()
+
+def format_date_import(date_str):
+    try:
+        # Handles European format DD.MM.YY and converts to US standard MM/DD/YYYY
+        d = pd.to_datetime(date_str, dayfirst=True)
+        return d.strftime("%m/%d/%Y")
+    except Exception:
+        return date_str
+
 def calculate_distance(lat1, lon1, lat2, lon2):
     if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
         return 0.0
@@ -147,10 +201,13 @@ def get_grid(lat, lon):
     try:
         if pd.isna(lat) or pd.isna(lon):
             return ""
+        
         lat = float(lat)
         lon = float(lon)
+        
         if lat == 0.0 and lon == 0.0:
             return ""
+            
         return mh.to_maiden(lat, lon)
     except Exception:
         return ""
@@ -162,11 +219,13 @@ def reverse_geocode(lat, lon):
         
         if location:
             addr = location.raw.get('address', {})
+            
             found_city = ""
             for tag in ['city', 'town', 'village', 'hamlet']:
                 if tag in addr:
                     found_city = addr[tag]
                     break
+                    
             st.session_state.op_city_val = found_city
             st.session_state.op_state_val = addr.get('state', addr.get('province', ''))
             st.session_state.op_country_val = addr.get('country', 'United States')
@@ -197,11 +256,68 @@ def update_from_search():
         except Exception:
             pass
 
-# --- 5. DATABANK CONNECTIONS & GOOGLE SHEETS ---
+def handle_file_upload(uploaded_file):
+    content = ""
+    
+    # Attempt multiple decodings
+    for enc in ['utf-8', 'latin-1', 'cp1252']:
+        try:
+            uploaded_file.seek(0)
+            content = uploaded_file.read().decode(enc)
+            break
+        except Exception:
+            continue
+            
+    if not content:
+        raise ValueError("Unable to decode file. Encoding failure.")
+        
+    lines = content.splitlines()
+    
+    best_row = 0
+    max_delims = 0
+    best_sep = ","
+    
+    # Analyze delimiter density to find the true header
+    for i, line in enumerate(lines[:50]):
+        c_comma = line.count(",")
+        c_semi = line.count(";")
+        c_tab = line.count("\t")
+        
+        current_max = max(c_comma, c_semi, c_tab)
+        if current_max > max_delims:
+            max_delims = current_max
+            best_row = i
+            
+            if c_semi == current_max:
+                best_sep = ";"
+            elif c_tab == current_max:
+                best_sep = "\t"
+            else:
+                best_sep = ","
+    
+    # on_bad_lines='warn' prevents crashes from mid-string semicolons
+    df = pd.read_csv(
+        io.StringIO("\n".join(lines[best_row:])), 
+        sep=best_sep, 
+        dtype=str, 
+        on_bad_lines='warn'
+    )
+    
+    return df
+
+def get_idx(guess_list, cols):
+    for g in guess_list:
+        for idx, c in enumerate(cols):
+            if g.lower() in c.lower(): 
+                return idx
+    return 0
+
+# --- 5. DATABANK CONNECTIONS ---
 def get_gsheet():
     try:
         if "gcp_service_account" not in st.secrets:
             return None
+            
         scope = ["https://www.googleapis.com/auth/spreadsheets"]
         creds = Credentials.from_service_account_info(st.secrets["gcp_service_account"], scopes=scope)
         client = gspread.authorize(creds)
@@ -215,6 +331,7 @@ def get_logged_set(dxer_name, band):
     try:
         if not dxer_name:
             return set()
+            
         sheet = get_gsheet()
         if sheet is None:
             return set()
@@ -230,10 +347,15 @@ def get_logged_set(dxer_name, band):
                 row_band = str(row[4]).strip().upper()
                 if row_name == dxer_name.strip().upper() and row_band == band.upper():
                     call = str(row[7]).strip().upper()
-                    freq = str(row[5]).strip() if band == "AM" else str(row[6]).strip()
+                    if band == "AM":
+                        freq = str(row[5]).strip()
+                    else:
+                        freq = str(row[6]).strip()
+                        
                     logged.add(f"{call}-{freq}")
             except Exception:
                 continue
+                
         return logged
     except Exception:
         return set()
@@ -267,6 +389,7 @@ def load_mw_intel():
                 return df
         except Exception:
             continue
+            
     return pd.DataFrame()
 
 @st.cache_data
@@ -304,6 +427,7 @@ def load_fm_intel():
                 return df
         except Exception:
             continue
+            
     return pd.DataFrame()
 
 @st.cache_data
@@ -319,6 +443,7 @@ def load_countries():
             return country_col
         except Exception:
             continue
+            
     return ["Canada", "Mexico", "United States"]
 
 mw_db = load_mw_intel()
@@ -330,55 +455,14 @@ can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "S
 mex_states = ["AGU", "BCN", "BCS", "CAM", "CHP", "CHH", "CMX", "COA", "COL", "DUR", "GUA", "GRO", "HID", "JAL", "MEX", "MIC", "MOR", "NAY", "NLE", "OAX", "PUE", "QUE", "ROO", "SLP", "SIN", "SON", "TAB", "TAM", "TLA", "VER", "YUC", "ZAC"]
 
 def get_state_list(country):
-    if country == "United States": return us_states
-    if country == "Canada": return can_prov
-    if country == "Mexico": return mex_states
+    if country == "United States": 
+        return us_states
+    if country == "Canada": 
+        return can_prov
+    if country == "Mexico": 
+        return mex_states
     return ["DX"]
 
-def get_idx(guess_list, cols):
-    for g in guess_list:
-        for idx, c in enumerate(cols):
-            if g.lower() in c.lower(): 
-                return idx
-    return 0
-
-def handle_file_upload(uploaded_file):
-    # Try multiple decodings to handle MWList's Latin-1 accents
-    content = ""
-    for enc in ['utf-8', 'latin-1', 'cp1252']:
-        try:
-            uploaded_file.seek(0)
-            content = uploaded_file.read().decode(enc)
-            break
-        except:
-            continue
-            
-    if not content:
-        raise ValueError("Unable to decode file. Encoding failure.")
-        
-    lines = content.splitlines()
-    
-    # NEW: Delimiter Density Analysis to skip metadata headers correctly
-    best_row = 0
-    max_delims = 0
-    best_sep = ","
-    
-    for i, line in enumerate(lines[:50]):
-        c_comma = line.count(",")
-        c_semi = line.count(";")
-        c_tab = line.count("\t")
-        
-        current_max = max(c_comma, c_semi, c_tab)
-        if current_max > max_delims:
-            max_delims = current_max
-            best_row = i
-            if c_semi == current_max: best_sep = ";"
-            elif c_tab == current_max: best_sep = "\t"
-            else: best_sep = ","
-    
-    # Read the data starting from the line with the highest delimiter density
-    df = pd.read_csv(io.StringIO("\n".join(lines[best_row:])), sep=best_sep, dtype=str)
-    return df
 
 # --- 6. SESSION STATE ROUTING & PROFILE ---
 if 'sys_state' not in st.session_state: 
@@ -389,7 +473,12 @@ if 'matrix_unlocked' not in st.session_state:
 
 if 'operator_profile' not in st.session_state:
     st.session_state.operator_profile = {
-        "name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0
+        "name": "", 
+        "city": "", 
+        "state": "", 
+        "country": "United States", 
+        "lat": 0.0, 
+        "lon": 0.0
     }
 
 def nav_to(page):
@@ -578,8 +667,10 @@ with main_content:
             else:
                 if 'mw_filter_key' not in st.session_state:
                     st.session_state.mw_filter_key = 0
+                    
                 def reset_mw_filters():
                     st.session_state.mw_filter_key += 1
+                    
                 st.button("[ RESET SEARCH FILTERS ]", on_click=reset_mw_filters)
                 
                 fk = st.session_state.mw_filter_key
@@ -599,57 +690,132 @@ with main_content:
                 f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"mw_f7_{fk}")
                 
                 results = mw_db.copy()
-                if f_freq != "All": results = results[results['Frequency'] == float(f_freq)]
-                if f_call: results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
-                if f_city: results = results[results['City'].str.contains(f_city, case=False, na=False)]
-                if f_state != "All": results = results[results['State'] == f_state]
-                if f_county: results = results[results['County'].str.contains(f_county, case=False, na=False)]
-                if f_grid: results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
                 
+                if f_freq != "All":
+                    results = results[results['Frequency'] == float(f_freq)]
+                if f_call:
+                    results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
+                if f_city:
+                    results = results[results['City'].str.contains(f_city, case=False, na=False)]
+                if f_state != "All":
+                    results = results[results['State'] == f_state]
+                if f_county:
+                    results = results[results['County'].str.contains(f_county, case=False, na=False)]
+                if f_grid:
+                    results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
+                    
                 if f_status != "All":
                     logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
                     results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                    if f_status == "Logged Only": results = results[results['Check'].isin(logged_set)]
-                    else: results = results[~results['Check'].isin(logged_set)]
+                    
+                    if f_status == "Logged Only":
+                        results = results[results['Check'].isin(logged_set)]
+                    else:
+                        results = results[~results['Check'].isin(logged_set)]
                         
                 st.write(f"> {len(results)} TARGETS FOUND:")
+                
                 if not results.empty:
                     results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+                    
                     logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "AM")
                     results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                    results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Check'] in logged_set else r['Callsign'], axis=1)
+                    
+                    def add_dot(r):
+                        if r['Check'] in logged_set:
+                            return f"🟢 {r['Callsign']}"
+                        return r['Callsign']
+                        
+                    results['Display Call'] = results.apply(add_dot, axis=1)
+                    
                     results.insert(0, 'Log?', False)
+                    
                     view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign']]
-                    edited_df = st.data_editor(view_df, hide_index=True, use_container_width=True,
-                        column_config={"Log?": st.column_config.CheckboxColumn("Log?"), "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"), "Callsign": None},
-                        disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign'], key=f"mw_db_editor_{fk}")
+                    
+                    edited_df = st.data_editor(
+                        view_df, 
+                        hide_index=True, 
+                        use_container_width=True,
+                        column_config={
+                            "Log?": st.column_config.CheckboxColumn("Log?"), 
+                            "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
+                            "Callsign": None 
+                        },
+                        disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'Dist', 'Callsign'],
+                        key=f"mw_db_editor_{fk}"
+                    )
+                    
                     selected_rows = edited_df[edited_df['Log?'] == True]
                     if not selected_rows.empty:
                         target = selected_rows.iloc[0]
                         st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
-                        target_data = {"freq": target['Frequency'], "call": target['Callsign'], "city": target['City'], "state": target['State'], "county": target['County'], "country": "United States", "grid": target['Grid'], "dist": target['Dist']}
+                        
+                        target_data = {
+                            "freq": target['Frequency'], 
+                            "call": target['Callsign'], 
+                            "city": target['City'], 
+                            "state": target['State'], 
+                            "county": target['County'], 
+                            "country": "United States", 
+                            "grid": target['Grid'],
+                            "dist": target['Dist']
+                        }
 
         with tab_manual:
             st.write("INITIATE UNLISTED / INTERNATIONAL PROTOCOL...")
             spacing = st.radio("CHANNEL SPACING", ["10 kHz (Region 2)", "9 kHz (Regions 1 & 3)"], horizontal=True)
-            step_val = 10 if "10" in spacing else 9
+            
+            step_val = 10
+            if "9" in spacing:
+                step_val = 9
+                
             c_m1, c_m2, c_m3 = st.columns(3)
             man_freq = c_m1.number_input("MANUAL FREQ (kHz)", min_value=531, max_value=1710, value=540, step=step_val, key="man_mw")
             man_call = c_m2.text_input("STATION ID")
+            
             full_countries = country_list.copy()
-            if "Other" not in full_countries: full_countries.append("Other")
-            def_idx = full_countries.index("United States") if "United States" in full_countries else 0
+            if "Other" not in full_countries:
+                full_countries.append("Other")
+                
+            def_idx = 0
+            if "United States" in full_countries:
+                def_idx = full_countries.index("United States")
+                
             man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx)
-            man_other = st.text_input("SPECIFY COUNTRY:") if man_ctry == "Other" else ""
+            
+            man_other = ""
+            if man_ctry == "Other":
+                man_other = st.text_input("SPECIFY COUNTRY:")
+                
             c_m4, c_m5, c_m6 = st.columns(3)
             man_city = c_m4.text_input("STATION CITY")
-            man_sp = c_m5.selectbox("STATION STATE/PROV", get_state_list(man_ctry))
+            
+            state_opts = get_state_list(man_ctry)
+            man_sp = c_m5.selectbox("STATION STATE/PROV", state_opts)
+            
             man_dist = c_m6.number_input("EST. DISTANCE (MILES)", min_value=0.0, step=1.0)
+            
             if man_call:
-                target_data = {"freq": man_freq, "call": man_call, "city": man_city, "state": man_sp, "county": "Unknown", "country": man_other if man_ctry == "Other" else man_ctry, "grid": "", "dist": man_dist}
+                selected_country = man_ctry
+                if man_ctry == "Other":
+                    selected_country = man_other
+                    
+                target_data = {
+                    "freq": man_freq, 
+                    "call": man_call, 
+                    "city": man_city, 
+                    "state": man_sp, 
+                    "county": "Unknown", 
+                    "country": selected_country, 
+                    "grid": "",
+                    "dist": man_dist
+                }
 
         with tab_import:
             st.write("INITIATE BULK INGESTION PROTOCOL (MWLIST / WLOGGER)...")
+            
+            mode_import = st.radio("IMPORT SOURCE", ["MWList Export", "WLogger Export"], horizontal=True)
+            
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="mw_bulk")
             if uploaded_file is not None:
                 try:
@@ -657,6 +823,7 @@ with main_content:
                     st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
+                    
                     cols = ["<Skip>"] + df_import.columns.tolist()
                     
                     c_i1, c_i2, c_i3 = st.columns(3)
@@ -665,7 +832,7 @@ with main_content:
                     map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols))
                     
                     c_i4, c_i5, c_i6 = st.columns(3)
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc"], cols))
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time"], cols))
                     map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols))
                     map_state = c_i6.selectbox("STATION STATE", cols, index=get_idx(["reg", "state", "prov"], cols))
                     
@@ -676,218 +843,574 @@ with main_content:
                     
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD"):
                         sheet = get_gsheet()
-                        if sheet is None: st.error("🚨 DATALINK OFFLINE.")
+                        if sheet is None: 
+                            st.error("🚨 DATALINK OFFLINE. Streamlit Secrets not configured.")
                         else:
                             bulk_rows = []
                             op = st.session_state.operator_profile
-                            cat = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
                             for _, row in df_import.iterrows():
-                                try:
-                                    d_v = row[map_dist] if map_dist != "<Skip>" else 0.0
-                                    d_v = float(str(d_v).replace('km', '').replace('mi', '').replace(',', '.').strip())
-                                except: d_v = 0.0
-                                r = [op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
-                                    "AM", row[map_freq] if map_freq != "<Skip>" else "", "", row[map_call] if map_call != "<Skip>" else "", "",
-                                    row[map_city] if map_city != "<Skip>" else "", row[map_state] if map_state != "<Skip>" else "",
-                                    row[map_ctry] if map_ctry != "<Skip>" else "USA", "", active_grid_calc,
-                                    row[map_date] if map_date != "<Skip>" else "", row[map_time] if map_time != "<Skip>" else "",
-                                    d_v, row[map_notes] if map_notes != "<Skip>" else "", "", "", "Other", "", cat, "", ""]
-                                bulk_rows.append(["" if pd.isna(x) else (x.item() if hasattr(x, 'item') else x) for x in r])
+                                # Handle distance conversion
+                                dist_val = 0.0
+                                if map_dist != "<Skip>":
+                                    raw_dist = str(row[map_dist]).lower()
+                                    try:
+                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '.').strip())
+                                        # MWList defaults to QRB/KM. Convert to miles.
+                                        if "km" in raw_dist or "qrb" in str(map_dist).lower():
+                                            dist_val = clean_dist * 0.621371
+                                        else:
+                                            dist_val = clean_dist
+                                    except Exception:
+                                        dist_val = 0.0
+                                        
+                                # Handle Country translation
+                                raw_country = row[map_ctry] if map_ctry != "<Skip>" else "USA"
+                                clean_country = itu_map.get(str(raw_country).upper(), "Other")
+                                
+                                # Handle DX states
+                                clean_state = row[map_state] if map_state != "<Skip>" else ""
+                                if clean_country not in ["United States", "Canada", "Mexico"]:
+                                    clean_state = "DX"
+
+                                r_data = [
+                                    op.get('name', ''), 
+                                    op.get('city', ''), 
+                                    op.get('state', ''), 
+                                    op.get('country', ''),
+                                    "AM", 
+                                    row[map_freq] if map_freq != "<Skip>" else "", 
+                                    "", 
+                                    clean_callsign(row[map_call]) if map_call != "<Skip>" else "", 
+                                    "",
+                                    row[map_city] if map_city != "<Skip>" else "", 
+                                    clean_state,
+                                    clean_country, 
+                                    "", 
+                                    active_grid_calc,
+                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
+                                    row[map_time] if map_time != "<Skip>" else "",
+                                    round(dist_val, 1), 
+                                    row[map_notes] if map_notes != "<Skip>" else "", 
+                                    "", 
+                                    "", 
+                                    "Other", 
+                                    "", 
+                                    entry_cat_val, 
+                                    "", 
+                                    ""
+                                ]
+                                
+                                sanitized_row = []
+                                for item in r_data:
+                                    if pd.isna(item):
+                                        sanitized_row.append("")
+                                    elif hasattr(item, 'item'):
+                                        sanitized_row.append(item.item())
+                                    else:
+                                        sanitized_row.append(item)
+                                        
+                                bulk_rows.append(sanitized_row)
+                                
                             try:
                                 sheet.append_rows(bulk_rows)
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
                                 st.balloons()
-                            except Exception as e: st.error(f"BULK FAILED: {e}")
-                except Exception as e: st.error(f"FILE PARSING ERROR: {e}")
+                            except Exception as e: 
+                                st.error(f"BULK FAILED: {e}")
+                except Exception as e: 
+                    st.error(f"FILE PARSING ERROR: {e}")
 
         st.markdown("#### 3. SUBMIT INTERCEPT")
         with st.form("mw_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns(3)
             now = datetime.datetime.now(datetime.timezone.utc)
+            
             log_date = col_s1.date_input("DATE (UTC)", value=now.date())
             log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"))
             log_prop = col_s3.selectbox("PROPAGATION MODE", ["Groundwave - Daytime", "Grayline - Sunset", "Grayline - Sunrise", "Skywave - Nighttime", "Other"])
+            
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
-            if st.form_submit_button("> TRANSMIT REPORT TO SERVER"):
-                if not target_data: st.error("TARGET NOT ACQUIRED.")
+            
+            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+            if submit_log:
+                if not target_data: 
+                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 else:
                     sheet = get_gsheet()
-                    if sheet is None: st.error("🚨 DATALINK OFFLINE.")
+                    if sheet is None: 
+                        st.error("🚨 DATALINK OFFLINE. Streamlit Secrets are not configured.")
                     else:
                         try:
                             op = st.session_state.operator_profile
-                            cat = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
-                            r = [op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
-                                "AM", target_data.get("freq", ""), "", target_data.get("call", ""), "", target_data.get("city", ""),
-                                target_data.get("state", ""), target_data.get("country", ""), "", target_data.get("grid", ""),
-                                log_date.strftime("%m/%d/%Y"), log_time, target_data.get("dist", 0.0), log_notes, "", "",
-                                log_prop, target_data.get("county", ""), cat, "", ""]
-                            sheet.append_row(["" if pd.isna(x) else (x.item() if hasattr(x, 'item') else x) for x in r])
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
+                            row_data = [
+                                op.get('name', ''), 
+                                op.get('city', ''), 
+                                op.get('state', ''), 
+                                op.get('country', ''),
+                                "AM", 
+                                target_data.get("freq", ""), 
+                                "", 
+                                target_data.get("call", ""), 
+                                "", 
+                                target_data.get("city", ""),
+                                target_data.get("state", ""), 
+                                target_data.get("country", ""), 
+                                "", 
+                                target_data.get("grid", ""),
+                                log_date.strftime("%m/%d/%Y"), 
+                                log_time, 
+                                target_data.get("dist", 0.0), 
+                                log_notes, 
+                                "", 
+                                "",
+                                log_prop, 
+                                target_data.get("county", ""), 
+                                entry_cat_val, 
+                                "", 
+                                ""
+                            ]
+                            
+                            sanitized_row = []
+                            for item in row_data:
+                                if pd.isna(item):
+                                    sanitized_row.append("")
+                                elif hasattr(item, 'item'):
+                                    sanitized_row.append(item.item())
+                                else:
+                                    sanitized_row.append(item)
+                                    
+                            sheet.append_row(sanitized_row)
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
-                        except Exception as e: st.error(f"TRANSMISSION FAILED: {e}")
+                        except Exception as e: 
+                            st.error(f"TRANSMISSION FAILED: {e}")
 
     # --- 8D. FM INTERCEPT ROOM ---
     elif st.session_state.sys_state == "FM_LOG":
         st.markdown("### [ FM INTERCEPT CONSOLE ACTIVE ]")
+        
+        st.markdown("#### 1. OPERATING PARAMETERS")
         r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="fm_cat")
         rover_grid = ""
+        
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
         active_grid_calc = get_grid(active_lat, active_lon)
+        
         if r_cat == "ROVER":
-            st.warning("ROVER MODE ACTIVE.")
+            st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
             rover_grid = st.text_input("ROVER GRID (e.g., EM40)", key="fm_rov")
             if len(rover_grid) >= 4:
                 try:
                     r_lat, r_lon = mh.to_location(rover_grid)
-                    active_lat, active_lon = float(r_lat), float(r_lon)
+                    active_lat = float(r_lat)
+                    active_lon = float(r_lon)
                     active_grid_calc = rover_grid.upper()
-                except: pass
+                except Exception: 
+                    pass
+                    
+        st.markdown("#### 2. TARGET ACQUISITION")
         tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
+        
         target_data = {}
+        
         with tab_search:
             st.write("ACCESSING WTFDA DATABANKS...")
-            if fm_db.empty: st.error("DATABANK OFFLINE.")
+            
+            if fm_db.empty: 
+                st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: WTFDA database not found in repository.")
             else:
-                if 'fm_filter_key' not in st.session_state: st.session_state.fm_filter_key = 0
-                def reset_fm_filters(): st.session_state.fm_filter_key += 1
+                if 'fm_filter_key' not in st.session_state: 
+                    st.session_state.fm_filter_key = 0
+                    
+                def reset_fm_filters(): 
+                    st.session_state.fm_filter_key += 1
+                    
                 st.button("[ RESET SEARCH FILTERS ]", on_click=reset_fm_filters, key="fm_reset")
+                
                 fk = st.session_state.fm_filter_key
                 c1, c2, c3, c4 = st.columns(4)
+                
                 all_freqs = sorted(fm_db['Frequency'].dropna().unique().tolist())
                 f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"fm_f1_{fk}")
                 f_call = c2.text_input("CALLSIGN", key=f"fm_f2_{fk}")
                 f_city = c3.text_input("CITY", key=f"fm_f3_{fk}")
-                f_state = c4.selectbox("STATE", ["All"] + sorted(fm_db['State'].dropna().unique().tolist()), key=f"fm_f4_{fk}")
+                
+                all_states = sorted(fm_db['State'].dropna().unique().tolist())
+                f_state = c4.selectbox("STATE", ["All"] + all_states, key=f"fm_f4_{fk}")
+                
                 c5, c6, c7 = st.columns(3)
                 f_county = c5.text_input("COUNTY", key=f"fm_f5_{fk}")
                 f_grid = c6.text_input("GRID", key=f"fm_f6_{fk}")
                 f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"fm_f7_{fk}")
+                
                 results = fm_db.copy()
-                if f_freq != "All": results = results[results['Frequency'] == float(f_freq)]
-                if f_call: results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
-                if f_city: results = results[results['City'].str.contains(f_city, case=False, na=False)]
-                if f_state != "All": results = results[results['State'] == f_state]
-                if f_county: results = results[results['County'].str.contains(f_county, case=False, na=False)]
-                if f_grid: results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
+                
+                if f_freq != "All": 
+                    results = results[results['Frequency'] == float(f_freq)]
+                if f_call: 
+                    results = results[results['Callsign'].str.contains(f_call.upper(), na=False)]
+                if f_city: 
+                    results = results[results['City'].str.contains(f_city, case=False, na=False)]
+                if f_state != "All": 
+                    results = results[results['State'] == f_state]
+                if f_county: 
+                    results = results[results['County'].str.contains(f_county, case=False, na=False)]
+                if f_grid: 
+                    results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
+                    
                 if f_status != "All":
                     logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "FM")
                     results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                    if f_status == "Logged Only": results = results[results['Check'].isin(logged_set)]
-                    else: results = results[~results['Check'].isin(logged_set)]
+                    if f_status == "Logged Only": 
+                        results = results[results['Check'].isin(logged_set)]
+                    else: 
+                        results = results[~results['Check'].isin(logged_set)]
+                        
                 st.write(f"> {len(results)} TARGETS FOUND:")
+                
                 if not results.empty:
                     results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+                    
                     logged_set = get_logged_set(st.session_state.operator_profile.get('name', ''), "FM")
                     results['Check'] = results['Callsign'].str.upper() + "-" + results['Frequency'].astype(str)
-                    results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Check'] in logged_set else r['Callsign'], axis=1)
+                    
+                    def add_fm_dot(r):
+                        if r['Check'] in logged_set:
+                            return f"🟢 {r['Callsign']}"
+                        return r['Callsign']
+                        
+                    results['Display Call'] = results.apply(add_fm_dot, axis=1)
+                    
                     results.insert(0, 'Log?', False)
+                    
                     view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign']]
-                    edited_df = st.data_editor(view_df, hide_index=True, use_container_width=True,
-                        column_config={"Log?": st.column_config.CheckboxColumn("Log?"), "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"), "Callsign": None},
-                        disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign'], key=f"fm_db_editor_{fk}")
+                    
+                    edited_df = st.data_editor(
+                        view_df, 
+                        hide_index=True, 
+                        use_container_width=True,
+                        column_config={
+                            "Log?": st.column_config.CheckboxColumn("Log?"), 
+                            "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"), 
+                            "Callsign": None
+                        },
+                        disabled=['Frequency', 'Display Call', 'City', 'State', 'County', 'Grid', 'PI Code', 'Dist', 'Callsign'], 
+                        key=f"fm_db_editor_{fk}"
+                    )
+                    
                     selected_rows = edited_df[edited_df['Log?'] == True]
                     if not selected_rows.empty:
                         target = selected_rows.iloc[0]
-                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['Dist']} mi)")
-                        target_data = {"freq": target['Frequency'], "call": target['Callsign'], "city": target['City'], "state": target['State'], "county": target['County'], "country": "United States", "grid": target['Grid'], "pi": target.get('PI Code', ''), "dist": target['Dist']}
+                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target['County']} County | Grid: {target['Grid']} | {target['Dist']} mi)")
+                        
+                        target_data = {
+                            "freq": target['Frequency'], 
+                            "call": target['Callsign'], 
+                            "city": target['City'], 
+                            "state": target['State'], 
+                            "county": target['County'], 
+                            "country": "United States", 
+                            "grid": target['Grid'], 
+                            "pi": target.get('PI Code', ''), 
+                            "dist": target['Dist']
+                        }
 
         with tab_manual:
             st.write("INITIATE UNLISTED PROTOCOL...")
+            
             c_m1, c_m2, c_m3 = st.columns(3)
             man_freq = c_m1.number_input("MANUAL FREQ (MHz)", min_value=87.7, max_value=107.9, value=88.1, step=0.1, key="man_fm")
             man_call = c_m2.text_input("STATION ID", key="man_fm_call")
-            man_ctry = c_m3.selectbox("COUNTRY", country_list + ["Other"], key="fm_ctry")
-            man_other = st.text_input("SPECIFY COUNTRY:") if man_ctry == "Other" else ""
+            
+            full_countries = country_list.copy()
+            if "Other" not in full_countries:
+                full_countries.append("Other")
+                
+            def_idx = 0
+            if "United States" in full_countries:
+                def_idx = full_countries.index("United States")
+                
+            man_ctry = c_m3.selectbox("COUNTRY", full_countries, index=def_idx, key="fm_man_ctry")
+            
+            man_other = ""
+            if man_ctry == "Other":
+                man_other = st.text_input("SPECIFY COUNTRY:")
+                
             c_m4, c_m5, c_m6 = st.columns(3)
-            man_city = c_m4.text_input("CITY", key="fm_city")
+            man_city = c_m4.text_input("CITY", key="fm_man_cty")
             man_sp = c_m5.selectbox("STATE/PROV", get_state_list(man_ctry), key="fm_sp")
             man_dist = c_m6.number_input("DIST (MILES)", min_value=0.0, step=1.0, key="fm_dist")
-            if man_call: target_data = {"freq": man_freq, "call": man_call, "city": man_city, "state": man_sp, "county": "Unknown", "country": man_other if man_ctry == "Other" else man_ctry, "grid": "", "pi": "", "dist": man_dist}
+            
+            if man_call: 
+                selected_country = man_ctry
+                if man_ctry == "Other":
+                    selected_country = man_other
+                    
+                target_data = {
+                    "freq": man_freq, 
+                    "call": man_call, 
+                    "city": man_city, 
+                    "state": man_sp, 
+                    "county": "Unknown", 
+                    "country": selected_country, 
+                    "grid": "", 
+                    "pi": "", 
+                    "dist": man_dist
+                }
 
         with tab_import:
             st.write("INITIATE BULK INGESTION PROTOCOL (FMLIST / WLOGGER)...")
+            
+            mode_import = st.radio("IMPORT SOURCE", ["FMList Export", "WLogger Export"], horizontal=True, key="fm_import_radio")
+            
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="fm_bulk")
+            
             if uploaded_file is not None:
                 try:
                     df_import = handle_file_upload(uploaded_file)
-                    st.write(f"DETECTED {len(df_import)} RECORDS.")
+                    st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
+                    st.markdown("#### MAP DATABANK COLUMNS")
+                    
                     cols = ["<Skip>"] + df_import.columns.tolist()
+                    
                     c_i1, c_i2, c_i3 = st.columns(3)
                     map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["freq", "mhz"], cols), key="fm_map_1")
                     map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["call", "station", "program"], cols), key="fm_map_2")
-                    map_date = c_i3.selectbox("DATE", cols, index=get_idx(["date"], cols), key="fm_map_3")
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols), key="fm_map_3")
+                    
                     c_i4, c_i5, c_i6 = st.columns(3)
-                    map_time = c_i4.selectbox("TIME", cols, index=get_idx(["time", "utc"], cols), key="fm_map_4")
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["time", "utc"], cols), key="fm_map_4")
                     map_city = c_i5.selectbox("CITY", cols, index=get_idx(["city", "loc"], cols), key="fm_map_5")
                     map_state = c_i6.selectbox("STATE", cols, index=get_idx(["state", "reg"], cols), key="fm_map_6")
-                    if st.button("> PROCESS & TRANSMIT BULK", key="fm_bulk_btn"):
+                    
+                    c_i7, c_i8, c_i9 = st.columns(3)
+                    map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols), key="fm_map_7")
+                    map_pi = c_i8.selectbox("PI CODE", cols, index=get_idx(["pi"], cols), key="fm_map_8")
+                    map_prop = c_i9.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols), key="fm_map_9")
+                    
+                    map_dist = st.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols), key="fm_map_10")
+                    
+                    if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="fm_bulk_btn"):
                         sheet = get_gsheet()
-                        if sheet:
-                            bulk = []
+                        if sheet is None: 
+                            st.error("🚨 DATALINK OFFLINE.")
+                        else:
+                            bulk_rows = []
                             op = st.session_state.operator_profile
-                            cat = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
                             for _, row in df_import.iterrows():
-                                r = [op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
-                                    "FM", "", row[map_freq] if map_freq != "<Skip>" else "", row[map_call] if map_call != "<Skip>" else "", "",
-                                    row[map_city] if map_city != "<Skip>" else "", row[map_state] if map_state != "<Skip>" else "", "USA", "", active_grid_calc,
-                                    row[map_date] if map_date != "<Skip>" else "", row[map_time] if map_time != "<Skip>" else "", 0.0, "", "", "", "Other", "", cat, "", ""]
-                                bulk.append(["" if pd.isna(x) else (x.item() if hasattr(x, 'item') else x) for x in r])
-                            sheet.append_rows(bulk)
-                            st.success(f"### [ {len(bulk)} RECORDS TRANSMITTED ]")
-                            st.balloons()
-                except Exception as e: st.error(f"FILE ERROR: {e}")
+                                # Handle Country logic
+                                raw_country = row[map_ctry] if map_ctry != "<Skip>" else "USA"
+                                clean_country = itu_map.get(str(raw_country).upper(), "Other")
+                                
+                                # Handle DX states
+                                clean_state = row[map_state] if map_state != "<Skip>" else ""
+                                if clean_country not in ["United States", "Canada", "Mexico"]:
+                                    clean_state = "DX"
+                                    
+                                # Distance Conversion
+                                dist_val = 0.0
+                                if map_dist != "<Skip>":
+                                    raw_dist = str(row[map_dist]).lower()
+                                    try:
+                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '.').strip())
+                                        if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                            dist_val = clean_dist * 0.621371
+                                        else:
+                                            dist_val = clean_dist
+                                    except Exception: 
+                                        dist_val = 0.0
+                                        
+                                # RDS and County Lookup Engine
+                                rds_val = "No"
+                                county_val = ""
+                                pi_val = row[map_pi] if map_pi != "<Skip>" else ""
+                                
+                                if not pd.isna(pi_val) and str(pi_val).strip() != "":
+                                    rds_val = "Yes"
+                                    # Look up county from WTFDA database if we have a PI match
+                                    if not fm_db.empty:
+                                        match = fm_db[fm_db['PI Code'] == str(pi_val).strip()]
+                                        if not match.empty: 
+                                            county_val = match.iloc[0]['County']
+
+                                r_data = [
+                                    op.get('name', ''), 
+                                    op.get('city', ''), 
+                                    op.get('state', ''), 
+                                    op.get('country', ''),
+                                    "FM", 
+                                    "", 
+                                    row[map_freq] if map_freq != "<Skip>" else "", 
+                                    clean_callsign(row[map_call]) if map_call != "<Skip>" else "", 
+                                    "",
+                                    row[map_city] if map_city != "<Skip>" else "", 
+                                    clean_state, 
+                                    clean_country, 
+                                    "", 
+                                    active_grid_calc,
+                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
+                                    row[map_time] if map_time != "<Skip>" else "", 
+                                    round(dist_val, 1), 
+                                    "", 
+                                    rds_val, 
+                                    pi_val, 
+                                    row[map_prop] if map_prop != "<Skip>" else "Other", 
+                                    county_val, 
+                                    entry_cat_val, 
+                                    "", 
+                                    ""
+                                ]
+                                
+                                sanitized_row = []
+                                for item in r_data:
+                                    if pd.isna(item):
+                                        sanitized_row.append("")
+                                    elif hasattr(item, 'item'):
+                                        sanitized_row.append(item.item())
+                                    else:
+                                        sanitized_row.append(item)
+                                        
+                                bulk_rows.append(sanitized_row)
+                                
+                            try:
+                                sheet.append_rows(bulk_rows)
+                                st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                st.balloons()
+                            except Exception as e: 
+                                st.error(f"BULK FAILED: {e}")
+                except Exception as e: 
+                    st.error(f"FILE ERROR: {e}")
 
         st.markdown("#### 3. SUBMIT INTERCEPT")
         with st.form("fm_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns(3)
             now = datetime.datetime.now(datetime.timezone.utc)
+            
             log_date = col_s1.date_input("DATE (UTC)", value=now.date(), key="fm_dt")
             log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="fm_tm")
             log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"])
+            
             c_p1, c_p2 = st.columns(2)
             log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
-            log_pi = c_p2.text_input("PI CODE", value=target_data.get("pi", ""))
-            log_notes = st.text_area("NOTES", key="fm_nts")
-            if st.form_submit_button("> TRANSMIT REPORT"):
-                if not target_data: st.error("TARGET NOT ACQUIRED.")
+            
+            default_pi = ""
+            if "pi" in target_data:
+                default_pi = target_data["pi"]
+                
+            log_pi = c_p2.text_input("PI CODE", value=default_pi)
+            log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
+            
+            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+            if submit_log:
+                if not target_data: 
+                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 else:
                     sheet = get_gsheet()
-                    if sheet:
+                    if sheet is None: 
+                        st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                    else:
                         try:
                             op = st.session_state.operator_profile
-                            cat = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
-                            r = [op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
-                                "FM", "", target_data.get("freq", ""), target_data.get("call", ""), "", target_data.get("city", ""),
-                                target_data.get("state", ""), target_data.get("country", ""), "", target_data.get("grid", ""),
-                                log_date.strftime("%m/%d/%Y"), log_time, target_data.get("dist", 0.0), log_notes, log_rds, log_pi,
-                                log_prop, target_data.get("county", ""), cat, "", ""]
-                            sheet.append_row(["" if pd.isna(x) else (x.item() if hasattr(x, 'item') else x) for x in r])
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
+                            row_data = [
+                                op.get('name', ''), 
+                                op.get('city', ''), 
+                                op.get('state', ''), 
+                                op.get('country', ''),
+                                "FM", 
+                                "", 
+                                target_data.get("freq", ""), 
+                                target_data.get("call", ""), 
+                                "", 
+                                target_data.get("city", ""),
+                                target_data.get("state", ""), 
+                                target_data.get("country", ""), 
+                                "", 
+                                target_data.get("grid", ""),
+                                log_date.strftime("%m/%d/%Y"), 
+                                log_time, 
+                                target_data.get("dist", 0.0), 
+                                log_notes, 
+                                log_rds, 
+                                log_pi,
+                                log_prop, 
+                                target_data.get("county", ""), 
+                                entry_cat_val, 
+                                "", 
+                                ""
+                            ]
+                            
+                            sanitized_row = []
+                            for item in row_data:
+                                if pd.isna(item):
+                                    sanitized_row.append("")
+                                elif hasattr(item, 'item'):
+                                    sanitized_row.append(item.item())
+                                else:
+                                    sanitized_row.append(item)
+                                    
+                            sheet.append_row(sanitized_row)
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
-                        except Exception as e: st.error(f"FAILED: {e}")
+                        except Exception as e: 
+                            st.error(f"FAILED: {e}")
 
     # --- 8E. THE CLANDESTINE MATRIX (BOUNTY ROOM) ---
     elif st.session_state.sys_state == "BOUNTY_HUNT":
         st.markdown("### --- SECURE UPLINK ESTABLISHED ---")
         st.markdown("AWAITING MATRIX ALIGNMENT PARAMETERS<span class='blink'>_</span>", unsafe_allow_html=True)
-        ACTIVE_ALPHA, ACTIVE_NUMERIC, SECRET_PAYLOAD = "D", "4", "SPORADIC"
+        
+        ACTIVE_ALPHA = "D"
+        ACTIVE_NUMERIC = "4"
+        SECRET_PAYLOAD = "SPORADIC"
+        
         col1, col2 = st.columns(2)
         alpha_key = col1.selectbox("ALPHA KEY", ["A", "B", "C", "D", "E"])
         numeric_key = col2.selectbox("NUMERIC KEY", ["1", "2", "3", "4", "5"])
+        
         if alpha_key == ACTIVE_ALPHA and numeric_key == ACTIVE_NUMERIC:
             st.success("MATRIX ALIGNMENT LOCKED.")
-            st.markdown('<div class="classified-box"><strong>DECRYPTION CIPHER ACTIVE:</strong><br>19=S | 16=P | 15=O | 18=R | 01=A | 04=D | 09=I | 03=C</div>', unsafe_allow_html=True)
-            payload = st.text_input("ENTER DECRYPTED PAYLOAD:")
+            st.session_state.matrix_unlocked = True
+        else:
+            st.warning("MATRIX MISALIGNED. DECRYPTION UNAVAILABLE.")
+            st.session_state.matrix_unlocked = False
+
+        if st.session_state.matrix_unlocked:
+            st.markdown("""
+            <div class="classified-box">
+            <strong>DECRYPTION CIPHER ACTIVE:</strong><br>
+            19 = S | 16 = P | 15 = O | 18 = R | 01 = A | 04 = D | 09 = I | 03 = C
+            </div>
+            """, unsafe_allow_html=True)
+            
+            st.write("ENTER DECRYPTED PAYLOAD TO ACCESS DOSSIER:")
+            payload = st.text_input(">", key="payload_input")
+            
             if payload.upper() == SECRET_PAYLOAD:
                 st.markdown("### [ ACCESS GRANTED ]")
                 st.error("### TOP SECRET DOSSIER: ACTIVE")
-                st.markdown("* Log any Class C AM Graveyard station.\n* Distance > 400 miles.\n* Window: 14 days.")
-                st.button("> ACKNOWLEDGE MISSION")
-        else: st.warning("MATRIX MISALIGNED.")
+                st.markdown("""
+                **TARGET SPECIFICATIONS:**
+                * Log any Class C AM Graveyard station.
+                * Distance must exceed 400 miles.
+                * Acquisition window closes in 14 days.
+                """)
+                st.button("> ACKNOWLEDGE & ACCEPT MISSION")
 
     # --- 8F. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
     elif st.session_state.sys_state == "DASHBOARD":
         st.markdown("### [ GLOBAL INTELLIGENCE DATABANKS ]")
         st.write("ESTABLISHING CONNECTION TO PLOTLY SERVERS...")
-        st.markdown('<div class="classified-box"><strong>SYSTEM STATUS:</strong> DATA VISUALIZATION MODULES COMPILING.<br>STANDBY FOR CHOROPLETH MAPS, VOLUME TIMELINES, AND OPERATOR LEADERBOARDS.</div>', unsafe_allow_html=True)
+        st.markdown("""
+        <div class="classified-box">
+        <strong>SYSTEM STATUS:</strong> DATA VISUALIZATION MODULES COMPILING.<br>
+        STANDBY FOR CHOROPLETH MAPS, VOLUME TIMELINES, AND OPERATOR LEADERBOARDS.
+        </div>
+        """, unsafe_allow_html=True)
