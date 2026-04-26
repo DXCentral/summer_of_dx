@@ -357,26 +357,27 @@ def handle_file_upload(uploaded_file):
         raise ValueError("Unable to decode file. Encoding failure.")
         
     lines = content.splitlines()
-    header_idx = 0
     
-    # Keyword detection to skip bio/equipment headers
-    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date']
-    for i, line in enumerate(lines[:25]):
-        line_lower = line.lower()
-        if any(kw in line_lower for kw in keywords):
-            header_idx = i
-            break
-            
-    # CRITICAL: Semicolon Prioritization logic
-    sample_line = lines[header_idx]
-    sep = "," # Default
-    if ";" in sample_line:
-        sep = ";"
-    elif "\t" in sample_line:
-        sep = "\t"
+    # NEW: Delimiter Density Analysis to skip metadata headers correctly
+    best_row = 0
+    max_delims = 0
+    best_sep = ","
     
-    # Read the data, skipping the top descriptive junk
-    df = pd.read_csv(io.StringIO("\n".join(lines[header_idx:])), sep=sep, dtype=str)
+    for i, line in enumerate(lines[:50]):
+        c_comma = line.count(",")
+        c_semi = line.count(";")
+        c_tab = line.count("\t")
+        
+        current_max = max(c_comma, c_semi, c_tab)
+        if current_max > max_delims:
+            max_delims = current_max
+            best_row = i
+            if c_semi == current_max: best_sep = ";"
+            elif c_tab == current_max: best_sep = "\t"
+            else: best_sep = ","
+    
+    # Read the data starting from the line with the highest delimiter density
+    df = pd.read_csv(io.StringIO("\n".join(lines[best_row:])), sep=best_sep, dtype=str)
     return df
 
 # --- 6. SESSION STATE ROUTING & PROFILE ---
@@ -657,18 +658,22 @@ with main_content:
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
                     cols = ["<Skip>"] + df_import.columns.tolist()
+                    
                     c_i1, c_i2, c_i3 = st.columns(3)
-                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["freq", "khz"], cols))
-                    map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["call", "station", "program"], cols))
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "utc date"], cols))
+                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["khz", "freq"], cols))
+                    map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["program", "call", "station"], cols))
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols))
+                    
                     c_i4, c_i5, c_i6 = st.columns(3)
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["time", "utc time", "utc"], cols))
-                    map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["city", "loc", "town", "location"], cols))
-                    map_state = c_i6.selectbox("STATION STATE", cols, index=get_idx(["state", "prov", "sp", "reg"], cols))
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc"], cols))
+                    map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols))
+                    map_state = c_i6.selectbox("STATION STATE", cols, index=get_idx(["reg", "state", "prov"], cols))
+                    
                     c_i7, c_i8, c_i9 = st.columns(3)
-                    map_ctry = c_i7.selectbox("COUNTRY", cols, index=get_idx(["countr", "itu"], cols))
-                    map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["dist", "mi", "km", "qrb"], cols))
-                    map_notes = c_i9.selectbox("NOTES / DETAILS", cols, index=get_idx(["note", "detail", "info", "comment", "remarks"], cols))
+                    map_ctry = c_i7.selectbox("COUNTRY", cols, index=get_idx(["itu", "countr"], cols))
+                    map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols))
+                    map_notes = c_i9.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
+                    
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD"):
                         sheet = get_gsheet()
                         if sheet is None: st.error("🚨 DATALINK OFFLINE.")
@@ -872,7 +877,7 @@ with main_content:
         numeric_key = col2.selectbox("NUMERIC KEY", ["1", "2", "3", "4", "5"])
         if alpha_key == ACTIVE_ALPHA and numeric_key == ACTIVE_NUMERIC:
             st.success("MATRIX ALIGNMENT LOCKED.")
-            st.markdown('<div class="classified-box"><strong>DECRYPTION CIPHER ACTIVE:</strong><br>19=S | 16=P | 15 =O | 18=R | 01=A | 04=D | 09=I | 03=C</div>', unsafe_allow_html=True)
+            st.markdown('<div class="classified-box"><strong>DECRYPTION CIPHER ACTIVE:</strong><br>19=S | 16=P | 15=O | 18=R | 01=A | 04=D | 09=I | 03=C</div>', unsafe_allow_html=True)
             payload = st.text_input("ENTER DECRYPTED PAYLOAD:")
             if payload.upper() == SECRET_PAYLOAD:
                 st.markdown("### [ ACCESS GRANTED ]")
