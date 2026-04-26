@@ -7,6 +7,7 @@ import gspread
 import maidenhead as mh
 import io
 import re
+import unicodedata
 import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
 from google.oauth2.service_account import Credentials
@@ -134,18 +135,19 @@ itu_map = {
 }
 
 def clean_callsign(call):
-    if not call or pd.isna(call):
-        return ""
-    
+    if not call or pd.isna(call): return ""
     call = str(call).strip()
-    
-    # Target actual Call Letters (starts with K, W, X, C) to scrub FMList meta-data
     if re.match(r'^[KWXC][A-Z0-9]{2,4}', call, re.I):
-        # Strip off -FM, -LP, and radio text like 'r:1234'
         call = re.split(r'[- ]', call)[0]
         call = re.sub(r' r:.*', '', call)
-        
     return call.upper()
+
+def simplify_string(s):
+    if not s or pd.isna(s): return ""
+    s = str(s).upper()
+    s = unicodedata.normalize('NFD', s).encode('ascii', 'ignore').decode('utf-8')
+    s = s.replace(' DX', '')
+    return re.sub(r'[^A-Z0-9]', '', s)
 
 def standardize_cuban_station(call, freq, country):
     if str(country).strip() != "Cuba" or not call or pd.isna(call):
@@ -178,15 +180,12 @@ def standardize_cuban_station(call, freq, country):
             break
             
     if not std_name:
-        # Standardize "R. " to "Radio "
         std_name = re.sub(r'^r\.\s*', 'Radio ', str(call), flags=re.IGNORECASE)
-        # Protect CM callsigns, otherwise Title Case it
         if re.match(r'^CM[A-Z]{2}$', std_name.upper()):
             std_name = std_name.upper()
         else:
             std_name = std_name.title()
             
-    # Append Frequency if not already present
     if freq_str and f"({freq_str})" not in std_name:
         return f"{std_name} ({freq_str})"
         
@@ -194,7 +193,6 @@ def standardize_cuban_station(call, freq, country):
 
 def format_date_import(date_str):
     try:
-        # Transforms Euro DD.MM.YY into US MM/DD/YYYY
         date_str = str(date_str).strip()
         if not date_str: return ""
         d = pd.to_datetime(date_str, dayfirst=True)
@@ -395,14 +393,9 @@ def get_logged_dict(dxer_name, band):
                 row_name, row_band = str(row[0]).strip().upper(), str(row[4]).strip().upper()
                 if row_name == dxer_name.strip().upper() and row_band == band.upper():
                     call = str(row[7]).strip().upper()
-                    
-                    if band == "AM":
-                        freq_val = float(str(row[5]).replace(',', '.'))
-                    else:
-                        freq_val = float(str(row[6]).replace(',', '.'))
-                        
-                    if freq_val not in logged:
-                        logged[freq_val] = []
+                    if band == "AM": freq_val = float(str(row[5]).replace(',', '.'))
+                    else: freq_val = float(str(row[6]).replace(',', '.'))
+                    if freq_val not in logged: logged[freq_val] = []
                     logged[freq_val].append(call)
             except Exception: continue
         return logged
@@ -411,13 +404,13 @@ def get_logged_dict(dxer_name, band):
 def check_is_logged(freq, call, logged_dict):
     try:
         f_val = float(freq)
-        c_val = str(call).upper()
+        c_val = simplify_string(call)
         if f_val in logged_dict:
             for l_call in logged_dict[f_val]:
-                if l_call and c_val and (l_call in c_val or c_val in l_call):
+                l_simp = simplify_string(l_call)
+                if l_simp and c_val and (l_simp in c_val or c_val in l_simp):
                     return True
-    except:
-        pass
+    except: pass
     return False
 
 @st.cache_data
@@ -447,7 +440,8 @@ def load_mw_intel():
     try:
         intl_files = [
             "Summer of DX - International Database - MW - International Station List.csv",
-            "International_Master_Cleaned.csv"
+            "International_Master_Cleaned.csv",
+            "Summer of DX - International Database - MW - International Station List (2).csv"
         ]
         intl_df = pd.DataFrame()
         for f in intl_files:
@@ -508,6 +502,7 @@ def load_fm_intel():
 def load_countries():
     files_to_try = [
         "Summer of DX - International Database - MW - International Station List.csv",
+        "Summer of DX - International Database - MW - International Station List (2).csv",
         "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"
     ]
     for file in files_to_try:
@@ -685,7 +680,10 @@ with main_content:
                 
                 results = mw_db.copy()
                 if f_freq != "All": results = results[results['Frequency'] == float(f_freq)]
-                if f_call: results = results[results['Callsign'].str.contains(f_call, case=False, na=False)]
+                if f_call: 
+                    # Case insensitive substring match with simplification
+                    c_simp = simplify_string(f_call)
+                    results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
                 if f_city: results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All": results = results[results['State'] == f_state]
                 if f_ctry != "All": results = results[results['Country'] == f_ctry]
@@ -826,40 +824,47 @@ with main_content:
                                         
                                 clean_state = row[map_state] if map_state != "<Skip>" else ""
                                 if clean_country not in ["United States", "Canada", "Mexico"]: clean_state = "DX"
-                                    
-                                station_grid, station_county = "", " - " if clean_country not in ["United States"] else ""
                                 
-                                # DUAL-TRACK MATCHING ENGINE
+                                clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
+                                
+                                station_grid = ""
+                                station_county = " - " if clean_country not in ["United States"] else ""
+                                
+                                # DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                 if not mw_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
                                         match_df = mw_db[mw_db['Frequency'] == f_val]
                                         for _, m_row in match_df.iterrows():
-                                            db_call = str(m_row['Callsign']).upper()
-                                            db_city = str(m_row.get('City', '')).upper()
-                                            db_country = str(m_row.get('Country', 'United States')).upper()
+                                            db_call = simplify_string(m_row['Callsign'])
+                                            db_city = simplify_string(m_row.get('City', ''))
+                                            db_country = simplify_string(m_row.get('Country', 'United States'))
                                             
                                             is_match = False
                                             
-                                            # North America + Cuba Track: Use Callsign Substrings
+                                            imp_call = simplify_string(clean_call)
+                                            imp_country = simplify_string(clean_country)
+                                            imp_city = simplify_string(clean_city)
+                                            
                                             if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
-                                                if clean_call and (clean_call.upper() in db_call or db_call in clean_call.upper()):
+                                                if imp_call and db_call and (imp_call in db_call or db_call in imp_call):
                                                     is_match = True
-                                            # International Track: Use City + Country Substrings
                                             else:
-                                                import_city = str(row[map_city] if map_city != "<Skip>" else "").upper()
-                                                if import_city and clean_country.upper() == db_country and (import_city in db_city or db_city in import_city):
+                                                if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city):
                                                     is_match = True
                                                     
                                             if is_match:
                                                 station_grid = m_row['Grid']
                                                 station_county = m_row['County']
+                                                clean_call = m_row['Callsign']   # OVERWRITE
+                                                clean_city = m_row['City']       # OVERWRITE
+                                                clean_state = m_row['State']     # OVERWRITE
                                                 break
                                     except Exception: pass
 
                                 r_data = [
                                     op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
-                                    "AM", raw_freq, "", clean_call, "", row[map_city] if map_city != "<Skip>" else "", 
+                                    "AM", raw_freq, "", clean_call, "", clean_city, 
                                     clean_state, clean_country, "", station_grid,
                                     format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
                                     row[map_time] if map_time != "<Skip>" else "", round(dist_val, 1), 
@@ -958,7 +963,9 @@ with main_content:
                 
                 results = fm_db.copy()
                 if f_freq != "All": results = results[results['Frequency'] == float(f_freq)]
-                if f_call: results = results[results['Callsign'].str.contains(f_call, case=False, na=False)]
+                if f_call: 
+                    c_simp = simplify_string(f_call)
+                    results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
                 if f_city: results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All": results = results[results['State'] == f_state]
                 if f_ctry != "All": results = results[results['Country'] == f_ctry]
@@ -1090,7 +1097,9 @@ with main_content:
                                 
                                 clean_state = row[map_state] if map_state != "<Skip>" else ""
                                 if clean_country not in ["United States", "Canada", "Mexico"]: clean_state = "DX"
-                                    
+                                
+                                clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
+                                
                                 dist_val = 0.0
                                 if map_dist != "<Skip>":
                                     raw_dist = str(row[map_dist]).lower()
@@ -1104,7 +1113,7 @@ with main_content:
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 pi_val = row[map_pi] if map_pi != "<Skip>" else ""
                                 
-                                # DUAL-TRACK MATCHING ENGINE (FM)
+                                # DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                 if not fm_db.empty:
                                     if not pd.isna(pi_val) and str(pi_val).strip() != "":
                                         rds_val = "Yes"
@@ -1112,34 +1121,44 @@ with main_content:
                                         if not match.empty: 
                                             station_county = match.iloc[0]['County']
                                             station_grid = match.iloc[0]['Grid']
+                                            clean_call = match.iloc[0]['Callsign']     # OVERWRITE
+                                            clean_city = match.iloc[0].get('City', '') # OVERWRITE
+                                            clean_state = match.iloc[0].get('State', '') # OVERWRITE
+                                            
                                     if not station_grid and raw_freq:
                                         try:
                                             f_val = float(str(raw_freq).replace(',', '.'))
                                             match_df = fm_db[fm_db['Frequency'] == f_val]
                                             for _, m_row in match_df.iterrows():
-                                                db_call = str(m_row['Callsign']).upper()
-                                                db_city = str(m_row.get('City', '')).upper()
-                                                db_country = str(m_row.get('Country', 'United States')).upper()
+                                                db_call = simplify_string(m_row['Callsign'])
+                                                db_city = simplify_string(m_row.get('City', ''))
+                                                db_country = simplify_string(m_row.get('Country', 'United States'))
                                                 
                                                 is_match = False
                                                 
+                                                imp_call = simplify_string(clean_call)
+                                                imp_country = simplify_string(clean_country)
+                                                imp_city = simplify_string(clean_city)
+                                                
                                                 if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
-                                                    if clean_call and (clean_call.upper() in db_call or db_call in clean_call.upper()):
+                                                    if imp_call and db_call and (imp_call in db_call or db_call in imp_call):
                                                         is_match = True
                                                 else:
-                                                    import_city = str(row[map_city] if map_city != "<Skip>" else "").upper()
-                                                    if import_city and clean_country.upper() == db_country and (import_city in db_city or db_city in import_city):
+                                                    if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city):
                                                         is_match = True
                                                         
                                                 if is_match:
                                                     station_county = m_row['County']
                                                     station_grid = m_row['Grid']
+                                                    clean_call = m_row['Callsign']   # OVERWRITE
+                                                    clean_city = m_row['City']       # OVERWRITE
+                                                    clean_state = m_row['State']     # OVERWRITE
                                                     break
                                         except Exception: pass
 
                                 r_data = [
                                     op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
-                                    "FM", "", raw_freq, clean_call, "", row[map_city] if map_city != "<Skip>" else "", 
+                                    "FM", "", raw_freq, clean_call, "", clean_city, 
                                     clean_state, clean_country, "", station_grid,
                                     format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
                                     row[map_time] if map_time != "<Skip>" else "", round(dist_val, 1), 
