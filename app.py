@@ -144,6 +144,8 @@ def clean_callsign(call):
 def format_date_import(date_str):
     try:
         # Transforms Euro DD.MM.YY into US MM/DD/YYYY
+        date_str = str(date_str).strip()
+        if not date_str: return ""
         d = pd.to_datetime(date_str, dayfirst=True)
         return d.strftime("%m/%d/%Y")
     except Exception:
@@ -276,7 +278,7 @@ def get_idx(guess_list, cols):
                 return idx
     return 0
 
-# --- THE CUSTOM CSV PARSER (MWLIST / WLOGGER FIX) ---
+# --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
     
@@ -295,63 +297,55 @@ def handle_file_upload(uploaded_file):
     lines = content.splitlines()
     
     best_row = 0
-    max_delims = 0
     best_sep = ","
     
-    # 1. Delimiter Density Analysis to skip metadata headers correctly
+    # 1. Keyword Scan to find the true header (Ignores comma-heavy bio paragraphs)
+    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call']
     for i, line in enumerate(lines[:50]):
-        c_comma = line.count(",")
-        c_semi = line.count(";")
-        c_tab = line.count("\t")
-        
-        current_max = max(c_comma, c_semi, c_tab)
-        if current_max > max_delims:
-            max_delims = current_max
+        line_lower = line.lower()
+        if sum(1 for kw in keywords if kw in line_lower) >= 2:
             best_row = i
+            c_comma = line.count(",")
+            c_semi = line.count(";")
+            c_tab = line.count("\t")
             
-            if c_semi == current_max:
-                best_sep = ";"
-            elif c_tab == current_max:
-                best_sep = "\t"
-            else:
-                best_sep = ","
-                
+            max_d = max(c_comma, c_semi, c_tab)
+            if max_d == c_semi: best_sep = ";"
+            elif max_d == c_tab: best_sep = "\t"
+            else: best_sep = ","
+            break
+            
     # 2. Forgiving Manual Parse Loop (Bypasses Pandas Expected Fields Crash)
-    parsed_data = []
-    actual_max_cols = 0
+    header_line = [h.strip() for h in lines[best_row].split(best_sep)]
+    num_cols = len(header_line)
     
-    valid_lines = lines[best_row:]
-    for line in valid_lines:
+    parsed_data = []
+    
+    for line in lines[best_row+1:]:
         if not line.strip(): 
             continue
             
         cols = line.split(best_sep)
-        if len(cols) > actual_max_cols:
-            actual_max_cols = len(cols)
+        
+        # If there are stray separators in the remarks, merge them into the final column
+        if len(cols) > num_cols:
+            merged_last = best_sep.join(cols[num_cols-1:])
+            cols = cols[:num_cols-1] + [merged_last]
+        # If missing columns, pad them
+        elif len(cols) < num_cols:
+            cols.extend([""] * (num_cols - len(cols)))
             
         parsed_data.append(cols)
         
-    # Pad all rows so they match the maximum column length perfectly
-    for row in parsed_data:
-        while len(row) < actual_max_cols:
-            row.append("")
-            
-    # Convert to DataFrame
-    df = pd.DataFrame(parsed_data)
-    
-    # 3. Clean Headers
-    headers = df.iloc[0].tolist()
+    # Clean up duplicate header names
     unique_headers = []
-    
-    for j, h in enumerate(headers):
-        h_str = str(h).strip() if pd.notna(h) and str(h).strip() else f"Unnamed_{j}"
+    for j, h in enumerate(header_line):
+        h_str = str(h) if h else f"Unnamed_{j}"
         if h_str in unique_headers:
             h_str = f"{h_str}_{j}"
         unique_headers.append(h_str)
         
-    df.columns = unique_headers
-    df = df[1:].reset_index(drop=True)
-    
+    df = pd.DataFrame(parsed_data, columns=unique_headers)
     return df
 
 # --- 5. DATABANK CONNECTIONS ---
@@ -681,7 +675,6 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -691,7 +684,6 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
-                    active_grid_calc = rover_grid.upper()
                 except Exception:
                     pass
                 
@@ -853,9 +845,7 @@ with main_content:
                 }
 
         with tab_import:
-            st.write("INITIATE BULK INGESTION PROTOCOL (MWLIST / WLOGGER)...")
-            
-            mode_import = st.radio("IMPORT SOURCE", ["MWList Export", "WLogger Export"], horizontal=True, key="mw_import_radio")
+            st.write("INITIATE BULK INGESTION PROTOCOL (MWLIST ONLY)...")
             
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="mw_bulk")
             if uploaded_file is not None:
@@ -1057,7 +1047,6 @@ with main_content:
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
-        active_grid_calc = get_grid(active_lat, active_lon)
         
         if r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
@@ -1067,7 +1056,6 @@ with main_content:
                     r_lat, r_lon = mh.to_location(rover_grid)
                     active_lat = float(r_lat)
                     active_lon = float(r_lon)
-                    active_grid_calc = rover_grid.upper()
                 except Exception: 
                     pass
                     
@@ -1224,7 +1212,7 @@ with main_content:
         with tab_import:
             st.write("INITIATE BULK INGESTION PROTOCOL (FMLIST / WLOGGER)...")
             
-            mode_import = st.radio("IMPORT SOURCE", ["FMList Export", "WLogger Export"], horizontal=True, key="fm_import_radio")
+            is_wlogger = st.toggle("Enable WLogger Export Format (Default is FMList)", value=False)
             
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="fm_bulk")
             
