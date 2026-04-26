@@ -307,6 +307,11 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
+    # Strict Exact Match Check First
+    for n in possible_names:
+        for col in df.columns:
+            if n.lower() == col.lower().strip(): return col
+    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if n.lower() in col.lower(): return col
@@ -431,7 +436,7 @@ def check_is_logged(freq, call, city, country, logged_dict):
                 else:
                     if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
                         return True
-    except: pass
+    except Exception: pass
     return False
 
 @st.cache_data
@@ -468,8 +473,10 @@ def load_mw_intel():
         intl_df = pd.DataFrame()
         for f in intl_files:
             try:
-                intl_df = pd.read_csv(f, dtype=str)
-                if not intl_df.empty: break
+                temp_df = pd.read_csv(f, dtype=str)
+                if not temp_df.empty:
+                    intl_df = temp_df
+                    break
             except Exception: continue
                 
         if not intl_df.empty:
@@ -529,24 +536,8 @@ def load_fm_intel():
         except Exception: continue
     return pd.DataFrame()
 
-@st.cache_data
-def load_countries():
-    files_to_try = [
-        "Summer of DX - International Database - MW - International Station List.csv",
-        "Summer of DX - International Database - MW - International Station List (2).csv",
-        "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"
-    ]
-    for file in files_to_try:
-        try:
-            df = pd.read_csv(file)
-            c_col = find_col(df, ['Station Country', 'Country', 'Country Name'])
-            if c_col: return df[c_col].dropna().sort_values().unique().tolist()
-        except Exception: continue
-    return ["Canada", "Mexico", "United States"]
-
 mw_db = load_mw_intel()
 fm_db = load_fm_intel()
-country_list = load_countries()
 
 us_states = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
 can_prov = ["AB", "BC", "MB", "NB", "NL", "NS", "NT", "NU", "ON", "PE", "QC", "SK", "YT"]
@@ -688,10 +679,11 @@ with main_content:
                 if 'mw_filter_key' not in st.session_state: st.session_state.mw_filter_key = 0
                 def reset_mw_filters(): st.session_state.mw_filter_key += 1
                 
-                c_btn1, c_btn2 = st.columns([2, 3])
+                c_btn1, c_btn2 = st.columns(2)
                 c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_mw_filters)
                 if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_mw"):
                     get_logged_dict.clear()
+                    load_mw_intel.clear()
                     st.rerun()
                 
                 fk = st.session_state.mw_filter_key
@@ -967,10 +959,11 @@ with main_content:
                 if 'fm_filter_key' not in st.session_state: st.session_state.fm_filter_key = 0
                 def reset_fm_filters(): st.session_state.fm_filter_key += 1
                 
-                c_btn1, c_btn2 = st.columns([2, 3])
+                c_btn1, c_btn2 = st.columns(2)
                 c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_fm_filters, key="fm_reset")
                 if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_fm"):
                     get_logged_dict.clear()
+                    load_fm_intel.clear()
                     st.rerun()
                 
                 fk = st.session_state.fm_filter_key
