@@ -13,11 +13,11 @@ from streamlit_javascript import st_javascript
 # --- 1. CORE CONFIGURATION ---
 st.set_page_config(
     page_title="SUMMER OF DX: DEFCON 6", 
-    layout="wide", 
-    initial_sidebar_state="collapsed"
+    layout="centered", 
+    initial_sidebar_state="expanded"
 )
 
-# --- 2. WARGAMES CRT CSS ---
+# --- 2. WARGAMES CRT CSS (CYAN EDITION) ---
 crt_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -25,8 +25,8 @@ crt_css = """
 html, body, [class*="st-"] {
     background-color: #050505 !important;
     font-family: 'VT323', monospace !important;
-    color: #39ff14 !important;
-    text-shadow: 0px 0px 4px rgba(57, 255, 20, 0.7);
+    color: #00e5ff !important;
+    text-shadow: 0px 0px 4px rgba(0, 229, 255, 0.7);
     letter-spacing: 2px;
 }
 
@@ -37,30 +37,36 @@ footer {
     visibility: hidden;
 }
 
+/* Sidebar styling to match the CRT vibe */
+[data-testid="stSidebar"] {
+    background-color: #050505 !important;
+    border-right: 1px dashed #00e5ff;
+}
+
 div.stButton > button {
     background-color: transparent !important;
-    border: 1px solid #39ff14 !important;
-    color: #39ff14 !important;
+    border: 1px solid #00e5ff !important;
+    color: #00e5ff !important;
     font-size: 1.5rem !important;
     font-family: 'VT323', monospace !important;
     justify-content: flex-start !important;
     padding-left: 20px !important;
-    box-shadow: inset 0px 0px 10px rgba(57, 255, 20, 0.1);
+    box-shadow: inset 0px 0px 10px rgba(0, 229, 255, 0.1);
     width: 100%;
     transition: all 0.2s ease-in-out;
 }
 
 div.stButton > button:hover {
-    background-color: #39ff14 !important;
+    background-color: #00e5ff !important;
     color: #050505 !important;
     text-shadow: none !important;
-    box-shadow: 0px 0px 15px #39ff14;
+    box-shadow: 0px 0px 15px #00e5ff;
 }
 
 input, textarea, div[data-baseweb="select"] > div {
     background-color: #0a0a0a !important;
-    border: 1px solid #39ff14 !important;
-    color: #39ff14 !important;
+    border: 1px solid #00e5ff !important;
+    color: #00e5ff !important;
     font-family: 'VT323', monospace !important;
     font-size: 1.2rem !important;
 }
@@ -85,14 +91,14 @@ input, textarea, div[data-baseweb="select"] > div {
 }
 
 .classified-box {
-    border: 2px dashed #39ff14;
+    border: 2px dashed #00e5ff;
     padding: 20px;
     margin-top: 20px;
-    background-color: rgba(57, 255, 20, 0.05);
+    background-color: rgba(0, 229, 255, 0.05);
 }
 
 hr {
-    border-color: #39ff14 !important;
+    border-color: #00e5ff !important;
     opacity: 0.3;
 }
 </style>
@@ -359,7 +365,7 @@ if 'operator_profile' not in st.session_state:
 def nav_to(page):
     st.session_state.sys_state = page
 
-# --- 6b. GLOBAL IRONCLAD FAILSAFE ---
+# --- 6b. GLOBAL IRONCLAD FAILSAFE & SIDEBAR NAVIGATION ---
 if st.session_state.sys_state != "OPERATOR_LOGIN":
     prof = st.session_state.operator_profile
     op_name = prof.get('name')
@@ -370,12 +376,50 @@ if st.session_state.sys_state != "OPERATOR_LOGIN":
         st.session_state.sys_state = "OPERATOR_LOGIN"
         st.rerun()
     else:
+        # Load the Banner Image directly at the top of the interface
+        try:
+            st.image("Summer of DX Banner.png", use_container_width=True)
+        except Exception:
+            pass # Failsafe in case the image file is renamed or missing
+            
         op_name_display = op_name.upper()
         st.markdown(f"<div style='text-align: right; font-size: 1.2rem;'>AGENT: {op_name_display} | STATUS: SECURE</div>", unsafe_allow_html=True)
         st.markdown("<hr style='margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
 
+        # --- SIDEBAR NAVIGATION (OMNIPRESENT) ---
+        with st.sidebar:
+            st.markdown("### [ SYSTEM COMMAND MENU ]")
+            
+            with st.expander("> INTELLIGENCE GATHERING", expanded=True):
+                if st.button("MW INTERCEPT REPORT", key="nav_mw"): 
+                    nav_to("MW_LOG")
+                    st.rerun()
+                if st.button("FM INTERCEPT REPORT", key="nav_fm"): 
+                    nav_to("FM_LOG")
+                    st.rerun()
+                if st.button("ENCRYPTION PROTOCOL", key="nav_bounty"): 
+                    nav_to("BOUNTY_HUNT")
+                    st.rerun()
+                    
+            with st.expander("> INTERCEPT DEBRIEFING", expanded=True):
+                if st.button("GLOBAL DASHBOARD", key="nav_dash"): 
+                    nav_to("DASHBOARD")
+                    st.rerun()
+                    
+            st.write("---")
+            if st.button("LOGOUT / PURGE CACHE", key="nav_logout"):
+                components.html("<script>window.parent.localStorage.removeItem('dx_central_operator');</script>", height=0, width=0)
+                st.session_state.clear()
+                st.rerun()
+
 # --- 7. OPERATOR LOGIN SCREEN ---
 if st.session_state.sys_state == "OPERATOR_LOGIN":
+    # Failsafe banner load for the login screen as well
+    try:
+        st.image("Summer of DX Banner.png", use_container_width=True)
+    except Exception:
+        pass
+
     st.markdown('<div class="typewriter">DX CENTRAL MAINFRAME<br>AUTHENTICATION REQUIRED<span class="blink">_</span></div>', unsafe_allow_html=True)
     
     js_get = "JSON.parse(localStorage.getItem('dx_central_operator'));"
@@ -461,22 +505,7 @@ elif st.session_state.sys_state == "TERMINAL_HOME":
     if "gcp_service_account" not in st.secrets:
         st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
     
-    if st.button("> INITIATE MW INTERCEPT REPORT"):
-        nav_to("MW_LOG")
-        st.rerun()
-        
-    if st.button("> INITIATE FM INTERCEPT REPORT"):
-        nav_to("FM_LOG")
-        st.rerun()
-        
-    if st.button("> INITIATE ENCRYPTION PROTOCOL"):
-        nav_to("BOUNTY_HUNT")
-        st.rerun()
-        
-    if st.button("> LOGOUT / PURGE LOCAL CACHE"):
-        components.html("<script>window.parent.localStorage.removeItem('dx_central_operator');</script>", height=0, width=0)
-        st.session_state.clear()
-        st.rerun()
+    st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
 
 # --- 9. MW INTERCEPT ROOM ---
 elif st.session_state.sys_state == "MW_LOG":
@@ -719,7 +748,7 @@ elif st.session_state.sys_state == "MW_LOG":
                         st.error(f"TRANSMISSION FAILED: {e}")
             
     st.write("---")
-    if st.button("< RETURN TO MAIN TERMINAL"):
+    if st.button("< RETURN TO HOME"):
         nav_to("TERMINAL_HOME")
         st.rerun()
 
@@ -965,7 +994,7 @@ elif st.session_state.sys_state == "FM_LOG":
                         st.error(f"TRANSMISSION FAILED: {e}")
 
     st.write("---")
-    if st.button("< RETURN TO MAIN TERMINAL"):
+    if st.button("< RETURN TO HOME"):
         nav_to("TERMINAL_HOME")
         st.rerun()
 
@@ -1029,6 +1058,6 @@ elif st.session_state.sys_state == "DASHBOARD":
     """, unsafe_allow_html=True)
     
     st.write("---")
-    if st.button("< RETURN TO MAIN TERMINAL"):
+    if st.button("< RETURN TO HOME"):
         nav_to("TERMINAL_HOME")
         st.rerun()
