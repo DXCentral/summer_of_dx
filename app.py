@@ -1042,9 +1042,9 @@ def load_global_dashboard_data():
         dx_lat = []
         dx_lon = []
         
-        mw_dict = mw_db.set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not mw_db.empty else {}
-        fm_dict = fm_db.set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not fm_db.empty else {}
-        nwr_dict = nwr_db.set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not nwr_db.empty else {}
+        mw_dict = mw_db.drop_duplicates(subset=['Callsign', 'Frequency']).set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not mw_db.empty else {}
+        fm_dict = fm_db.drop_duplicates(subset=['Callsign', 'Frequency']).set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not fm_db.empty else {}
+        nwr_dict = nwr_db.drop_duplicates(subset=['Callsign', 'Frequency']).set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not nwr_db.empty else {}
         
         for _, row in clean_df.iterrows():
             band = row['Band']
@@ -1356,6 +1356,7 @@ with main_content:
                         grid_str = f" | Grid: {target['Grid']}" if target['Grid'] else ""
                         dist_str = f" | {target['Dist']} mi" if target['Dist'] > 0 else ""
                         st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                        
                         target_data = {
                             "freq": target['Frequency'], 
                             "call": target['Callsign'], 
@@ -1366,6 +1367,10 @@ with main_content:
                             "grid": target['Grid'], 
                             "dist": target['Dist']
                         }
+                        
+                        st.markdown("#### RECEPTION VIA SDR?")
+                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"mw_sdr_db_{fk}")
+                        target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
             st.write("INITIATE UNLISTED / INTERNATIONAL PROTOCOL...")
@@ -1503,7 +1508,6 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # EXPLICIT MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                 if not mw_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1571,8 +1575,8 @@ with main_content:
                                     clean_country, 
                                     "", 
                                     station_grid,
-                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    row[map_time] if map_time != "<Skip>" else "", 
+                                    date_sig, 
+                                    time_sig, 
                                     round(dist_val, 1), 
                                     row[map_notes] if map_notes != "<Skip>" else "", 
                                     "", 
@@ -1604,8 +1608,12 @@ with main_content:
             
             log_date = col_s1.date_input("DATE (UTC)", value=now.date())
             log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"))
-            log_sdr = col_s3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="mw_man_sdr")
             
+            if "sdr" in target_data:
+                log_sdr = target_data["sdr"]
+            else:
+                log_sdr = col_s3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="mw_man_sdr")
+                
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
@@ -1802,6 +1810,10 @@ with main_content:
                             "pi": "", 
                             "dist": target['Dist']
                         }
+                        
+                        st.markdown("#### RECEPTION VIA SDR?")
+                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"fm_sdr_db_{fk}")
+                        target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
             st.write("INITIATE UNLISTED PROTOCOL...")
@@ -1977,7 +1989,6 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # EXPLICIT FM TRIPLE-TRACK MATCHING ENGINE
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1997,15 +2008,12 @@ with main_content:
                                             imp_country = simplify_string(clean_country)
                                             imp_city = simplify_string(clean_city)
                                             
-                                            # Track 1: Standard Callsign Match
                                             if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
                                                 is_match = True
                                                 
-                                            # Track 2: City + Country Match
                                             elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
                                                 is_match = True
                                                 
-                                            # Track 3: Slogan Match
                                             elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
                                                 is_match = True
                                                     
@@ -2052,8 +2060,8 @@ with main_content:
                                     clean_country, 
                                     "", 
                                     station_grid,
-                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
+                                    date_sig, 
+                                    time_sig, 
                                     round(dist_val, 1), 
                                     map_notes_val, 
                                     rds_val, 
@@ -2091,8 +2099,12 @@ with main_content:
             log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
             default_pi = target_data["pi"] if "pi" in target_data else ""
             log_pi = c_p2.text_input("PI CODE", value=default_pi)
-            log_sdr = c_p3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="fm_man_sdr")
             
+            if "sdr" in target_data:
+                log_sdr = target_data["sdr"]
+            else:
+                log_sdr = c_p3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="fm_man_sdr")
+                
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
@@ -2291,6 +2303,10 @@ with main_content:
                             "pi": "", 
                             "dist": target['Dist']
                         }
+                        
+                        st.markdown("#### RECEPTION VIA SDR?")
+                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_db_{fk}")
+                        target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
             st.write("INITIATE UNLISTED PROTOCOL...")
@@ -2495,15 +2511,12 @@ with main_content:
                                             imp_country = simplify_string(clean_country)
                                             imp_city = simplify_string(clean_city)
                                             
-                                            # Track 1: Standard Callsign Match
                                             if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
                                                 is_match = True
                                                 
-                                            # Track 2: City + Country Match
                                             elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
                                                 is_match = True
                                                 
-                                            # Track 3: Slogan Match
                                             elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
                                                 is_match = True
                                                     
@@ -2550,8 +2563,8 @@ with main_content:
                                     clean_country, 
                                     "", 
                                     station_grid,
-                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
+                                    date_sig, 
+                                    time_sig, 
                                     round(dist_val, 1), 
                                     map_notes_val, 
                                     "", 
@@ -2585,7 +2598,11 @@ with main_content:
             log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="nwr_tm")
             log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"], key="nwr_prop")
             
-            log_sdr = st.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="nwr_man_sdr")
+            if "sdr" in target_data:
+                log_sdr = target_data["sdr"]
+            else:
+                log_sdr = st.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="nwr_man_sdr")
+                
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="nwr_nts")
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
@@ -2676,7 +2693,7 @@ with main_content:
                 """)
                 st.button("> ACKNOWLEDGE & ACCEPT MISSION")
 
-    # --- 8F. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
+    # --- 8F. GLOBAL INTELLIGENCE (DASHBOARD) ---
     elif st.session_state.sys_state == "DASHBOARD":
         df = load_global_dashboard_data()
         if df.empty:
