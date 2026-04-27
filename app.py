@@ -148,9 +148,9 @@ def clean_callsign(call):
     if not call or pd.isna(call): 
         return ""
     call = str(call).strip().upper()
-    call = re.sub(r'\s+R:.*$', '', call) # Remove FMList meta tags
-    call = call.replace('-FM', '')       # Safely remove -FM while preserving -LP or -2
-    call = re.sub(r'\s+FM\b', '', call)  # Remove trailing standalone FM
+    call = re.sub(r'\s+R:.*$', '', call)
+    call = call.replace('-FM', '')
+    call = re.sub(r'\s+FM\b', '', call)
     return call.strip('- ')
 
 def simplify_string(s):
@@ -209,7 +209,6 @@ def format_date_import(date_str):
         if not date_str or date_str == "<Skip>": 
             return ""
         
-        # If it's WLogger format (YYYY-MM-DD), don't use dayfirst
         if "-" in date_str and len(date_str.split("-")[0]) == 4:
             d = pd.to_datetime(date_str)
         else:
@@ -361,19 +360,16 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
-    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
-    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
                 return col
     return None
 
-# --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -391,12 +387,10 @@ def handle_file_upload(uploaded_file):
     
     best_row = 0
     best_sep = ","
-    
-    # Purged 'location' and 'signature' from auto-detect to guarantee pristine parsing
     keywords = [
         'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
         'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
-        'mode', 'comments'
+        'mode', 'comments', 'location'
     ]
     
     for i, line in enumerate(lines[:50]):
@@ -416,7 +410,6 @@ def handle_file_upload(uploaded_file):
             break
             
     try:
-        # Pandas buffer perfectly preserves quoted variables with inner commas
         df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, engine='python', on_bad_lines='skip')
     except Exception:
         df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, on_bad_lines='skip')
@@ -494,7 +487,6 @@ def check_is_logged(freq, call, slogan, city, state, country, logged_dict):
                 l_st = simplify_string(l_dict['state'])
                 l_ctry = simplify_string(l_dict['country'])
                 
-                # Dual Track Match
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO"]:
                     if l_call and c_val and (l_call in c_val or c_val in l_call):
                         return True
@@ -1161,6 +1153,7 @@ with main_content:
                                                 clean_call = m_row['Callsign']
                                                 clean_city = m_row['City']
                                                 clean_state = m_row['State']
+                                                clean_country = m_row.get('Country', clean_country)
                                                 break
                                     except Exception: 
                                         pass
@@ -1431,8 +1424,7 @@ with main_content:
                 }
 
         with tab_import:
-            st.write("INITIATE BULK INGESTION PROTOCOL (FMLIST / WLOGGER)...")
-            is_wlogger_toggle = st.toggle("Enable WLogger Export Format", value=False, key="fm_wlogger_toggle")
+            st.write("INITIATE BULK INGESTION PROTOCOL...")
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="fm_bulk")
             
             if uploaded_file is not None:
@@ -1446,8 +1438,6 @@ with main_content:
                     
                     is_wlogger = False
                     if any("timestamp" in c for c in cols_lower) and any("mode" in c for c in cols_lower):
-                        is_wlogger = True
-                    elif is_wlogger_toggle:
                         is_wlogger = True
                     
                     if is_wlogger:
@@ -1505,9 +1495,9 @@ with main_content:
                             
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
-                                raw_country = row[map_ctry] if map_ctry != "<Skip>" else "USA"
-                                clean_country = itu_map.get(str(raw_country).upper(), str(raw_country).title())
-                                if clean_country.upper() == "USA": 
+                                raw_country = str(row[map_ctry]).strip() if map_ctry != "<Skip>" and not pd.isna(row[map_ctry]) else "USA"
+                                clean_country = itu_map.get(raw_country.upper(), raw_country.title())
+                                if clean_country.upper() in ["USA", "UNITED STATES"]: 
                                     clean_country = "United States"
                                 
                                 raw_call = row[map_call] if map_call != "<Skip>" else ""
@@ -1549,7 +1539,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE
+                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE LOCK)
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1591,7 +1581,8 @@ with main_content:
                                                 station_grid = m_row['Grid']
                                                 clean_call = m_row['Callsign']   
                                                 clean_city = m_row['City']       
-                                                clean_state = m_row['State']     
+                                                clean_state = m_row['State']  
+                                                clean_country = m_row.get('Country', clean_country)   
                                                 break
                                     except Exception: 
                                         pass
