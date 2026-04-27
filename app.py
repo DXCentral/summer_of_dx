@@ -206,12 +206,32 @@ def standardize_cuban_station(call, freq, country):
 def format_date_import(date_str):
     try:
         date_str = str(date_str).strip()
-        if not date_str: 
+        if not date_str or date_str == "<Skip>": 
             return ""
-        d = pd.to_datetime(date_str, dayfirst=True)
+        
+        # Detect WLogger YYYY-MM-DD vs FMList DD.MM.YY
+        if "-" in date_str and len(date_str.split("-")[0]) == 4:
+            d = pd.to_datetime(date_str)
+        else:
+            d = pd.to_datetime(date_str, dayfirst=True)
+            
         return d.strftime("%m/%d/%Y")
     except Exception:
         return date_str
+
+def format_time_import(time_str):
+    try:
+        time_str = str(time_str).strip()
+        if not time_str or time_str == "<Skip>": 
+            return ""
+            
+        if re.match(r'^\d{3,4}$', time_str):
+            return time_str.zfill(4)
+            
+        d = pd.to_datetime(time_str)
+        return d.strftime("%H%M")
+    except Exception:
+        return time_str
 
 def map_mw_prop(prop_raw):
     if not prop_raw or pd.isna(prop_raw): 
@@ -341,10 +361,12 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
+    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
+    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
@@ -369,7 +391,13 @@ def handle_file_upload(uploaded_file):
     
     best_row = 0
     best_sep = ","
-    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
+    
+    # Upgraded Keywords list to naturally detect WLogger exports
+    keywords = [
+        'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
+        'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
+        'mode', 'comments', 'location'
+    ]
     
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
@@ -499,7 +527,7 @@ def check_is_logged(freq, call, slogan, city, state, country, logged_dict):
                 l_st = simplify_string(l_dict['state'])
                 l_ctry = simplify_string(l_dict['country'])
                 
-                if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
+                if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO"]:
                     if l_call and c_val and (l_call in c_val or c_val in l_call):
                         return True
                     if l_city and city_val and l_st and st_val and (l_city in city_val or city_val in l_city) and l_st == st_val:
@@ -1072,8 +1100,8 @@ with main_content:
                     c_i1, c_i2, c_i3, c_i4 = st.columns(4)
                     map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["khz", "freq"], cols))
                     map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["program", "call", "station"], cols))
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols))
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time"], cols))
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols))
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time", "timestamp"], cols))
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
                     map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols))
@@ -1140,6 +1168,7 @@ with main_content:
                                         match_df = mw_db[mw_db['Frequency'] == f_val]
                                         for _, m_row in match_df.iterrows():
                                             db_call = simplify_string(m_row['Callsign'])
+                                            db_slogan = simplify_string(m_row.get('Slogan', ''))
                                             db_city = simplify_string(m_row.get('City', ''))
                                             db_state = simplify_string(m_row.get('State', ''))
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
@@ -1155,8 +1184,12 @@ with main_content:
                                                     is_match = True
                                                 elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
                                                     is_match = True
+                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
+                                                    is_match = True
                                             else:
                                                 if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
+                                                    is_match = True
+                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
                                                     is_match = True
                                                     
                                             if is_match:
@@ -1185,7 +1218,7 @@ with main_content:
                                     "", 
                                     station_grid,
                                     format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    row[map_time] if map_time != "<Skip>" else "", 
+                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
                                     round(dist_val, 1), 
                                     row[map_notes] if map_notes != "<Skip>" else "", 
                                     "", 
@@ -1275,7 +1308,8 @@ with main_content:
             if len(rover_grid) >= 4:
                 try:
                     r_lat, r_lon = mh.to_location(rover_grid)
-                    active_lat, active_lon = float(r_lat), float(r_lon)
+                    active_lat = float(r_lat)
+                    active_lon = float(r_lon)
                 except Exception: 
                     pass
                     
@@ -1422,10 +1456,15 @@ with main_content:
             if man_call: 
                 selected_country = man_other if man_ctry == "Other" else man_ctry
                 target_data = {
-                    "freq": man_freq, "call": standardize_cuban_station(man_call, man_freq, selected_country), 
-                    "city": man_city, "state": man_sp, "county": " - " if selected_country not in ["United States"] else "", 
+                    "freq": man_freq, 
+                    "call": standardize_cuban_station(man_call, man_freq, selected_country), 
+                    "city": man_city, 
+                    "state": man_sp, 
+                    "county": " - " if selected_country not in ["United States"] else "", 
                     "country": selected_country, 
-                    "grid": "", "pi": "", "dist": man_dist
+                    "grid": "", 
+                    "pi": "", 
+                    "dist": man_dist
                 }
 
         with tab_import:
@@ -1444,8 +1483,8 @@ with main_content:
                     c_i1, c_i2, c_i3, c_i4 = st.columns(4)
                     map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["freq", "mhz"], cols), key="fm_map_1")
                     map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["call", "station", "program"], cols), key="fm_map_2")
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols), key="fm_map_3")
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["time", "utc"], cols), key="fm_map_4")
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols), key="fm_map_3")
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["time", "utc", "timestamp"], cols), key="fm_map_4")
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
                     map_city = c_i5.selectbox("CITY", cols, index=get_idx(["city", "loc"], cols), key="fm_map_5")
@@ -1506,11 +1545,15 @@ with main_content:
                                 map_notes_val = str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else ""
                                 if "pi logged" in map_notes_val.lower():
                                     rds_val = "Yes"
+                                    if not pi_val:
+                                        pi_match = re.search(r'pi logged:\s*([A-F0-9]{4})', map_notes_val, re.IGNORECASE)
+                                        if pi_match:
+                                            pi_val = pi_match.group(1).upper()
                                 
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE
+                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE LOCK)
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1573,7 +1616,7 @@ with main_content:
                                     "", 
                                     station_grid,
                                     format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    row[map_time] if map_time != "<Skip>" else "", 
+                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
                                     round(dist_val, 1), 
                                     map_notes_val, 
                                     rds_val, 
