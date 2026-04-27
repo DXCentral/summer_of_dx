@@ -373,20 +373,18 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
-    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
-    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
                 return col
     return None
 
-# --- THE BULLETPROOF MW CSV PARSER (ISOLATED) ---
-def handle_mw_file_upload(uploaded_file):
+# --- THE BULLETPROOF UNIVERSAL CSV PARSER ---
+def handle_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
         try:
@@ -403,95 +401,10 @@ def handle_mw_file_upload(uploaded_file):
     
     best_row = 0
     best_sep = ","
-    
-    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
-    
-    for i, line in enumerate(lines[:50]):
-        line_lower = line.lower()
-        if sum(1 for kw in keywords if kw in line_lower) >= 3 and len(line) < 300:
-            best_row = i
-            c_comma = line.count(",")
-            c_semi = line.count(";")
-            c_tab = line.count("\t")
-            max_d = max(c_comma, c_semi, c_tab)
-            if max_d == c_semi: 
-                best_sep = ";"
-            elif max_d == c_tab: 
-                best_sep = "\t"
-            else: 
-                best_sep = ","
-            break
-            
-    if best_row == 0:
-        max_delims = 0
-        for i, line in enumerate(lines[:50]):
-            c_comma = line.count(",")
-            c_semi = line.count(";")
-            c_tab = line.count("\t")
-            current_max = max(c_comma, c_semi, c_tab)
-            if current_max > max_delims and len(line) < 300:
-                max_delims = current_max
-                best_row = i
-                if c_semi == current_max: 
-                    best_sep = ";"
-                elif c_tab == current_max: 
-                    best_sep = "\t"
-                else: 
-                    best_sep = ","
-
-    header_line_raw = next(csv.reader([lines[best_row]], delimiter=best_sep))
-    header_line = [h.strip(' \'"') for h in header_line_raw]
-    num_cols = len(header_line)
-    parsed_data = []
-    
-    for line in lines[best_row+1:]:
-        if not line.strip(): 
-            continue
-        
-        cols = next(csv.reader([line], delimiter=best_sep))
-        
-        if len(cols) > num_cols:
-            merged_last = best_sep.join(cols[num_cols-1:])
-            cols = cols[:num_cols-1] + [merged_last]
-        elif len(cols) < num_cols:
-            cols.extend([""] * (num_cols - len(cols)))
-            
-        cols = [c.strip(' \'"') for c in cols]
-        parsed_data.append(cols)
-        
-    unique_headers = []
-    for j, h in enumerate(header_line):
-        h_str = str(h) if h else f"Unnamed_{j}"
-        if h_str in unique_headers: 
-            h_str = f"{h_str}_{j}"
-        unique_headers.append(h_str)
-        
-    return pd.DataFrame(parsed_data, columns=unique_headers)
-
-
-# --- THE HEAVYWEIGHT FM PANDAS PARSER (ISOLATED) ---
-def handle_fm_file_upload(uploaded_file):
-    content = ""
-    for enc in ['utf-8', 'latin-1', 'cp1252']:
-        try:
-            uploaded_file.seek(0)
-            content = uploaded_file.read().decode(enc)
-            break
-        except Exception: 
-            continue
-            
-    if not content: 
-        raise ValueError("Unable to decode file. Encoding failure.")
-        
-    lines = content.splitlines()
-    
-    best_row = 0
-    best_sep = ","
-    
     keywords = [
         'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
         'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
-        'mode', 'comments'
+        'mode', 'comments', 'location'
     ]
     
     for i, line in enumerate(lines[:50]):
@@ -510,20 +423,37 @@ def handle_fm_file_upload(uploaded_file):
                 best_sep = ","
             break
             
-    try:
-        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, engine='python', on_bad_lines='skip')
-    except Exception:
-        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, on_bad_lines='skip')
-        
-    df.columns = [str(c).strip(' \'"') for c in df.columns]
+    header_line_raw = next(csv.reader([lines[best_row]], delimiter=best_sep))
+    header_line = [h.strip(' \'"') for h in header_line_raw]
+    num_cols = len(header_line)
+    parsed_data = []
     
-    # Strip WLogger Location/Signature immediately to prevent alignment drift
-    if 'Location' in df.columns:
-        df = df.drop(columns=['Location'])
-    if 'Signature' in df.columns:
-        df = df.drop(columns=['Signature'])
+    for line in lines[best_row+1:]:
+        if not line.strip(): 
+            continue
         
-    return df
+        try:
+            cols = next(csv.reader([line], delimiter=best_sep))
+        except Exception:
+            cols = line.split(best_sep)
+        
+        if len(cols) > num_cols:
+            merged_last = best_sep.join(cols[num_cols-1:])
+            cols = cols[:num_cols-1] + [merged_last]
+        elif len(cols) < num_cols:
+            cols.extend([""] * (num_cols - len(cols)))
+            
+        cols = [c.strip(' \'"') for c in cols]
+        parsed_data.append(cols)
+        
+    unique_headers = []
+    for j, h in enumerate(header_line):
+        h_str = str(h) if h else f"Unnamed_{j}"
+        if h_str in unique_headers: 
+            h_str = f"{h_str}_{j}"
+        unique_headers.append(h_str)
+        
+    return pd.DataFrame(parsed_data, columns=unique_headers)
 
 # --- 5. DATABANK CONNECTIONS ---
 def get_gsheet():
@@ -1181,7 +1111,7 @@ with main_content:
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="mw_bulk")
             if uploaded_file is not None:
                 try:
-                    df_import = handle_mw_file_upload(uploaded_file)
+                    df_import = handle_file_upload(uploaded_file)
                     st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
@@ -1251,7 +1181,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # EXPLICIT MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
+                                # MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                 if not mw_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1556,7 +1486,7 @@ with main_content:
             
             if uploaded_file is not None:
                 try:
-                    df_import = handle_fm_file_upload(uploaded_file)
+                    df_import = handle_file_upload(uploaded_file)
                     st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
