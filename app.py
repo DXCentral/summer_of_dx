@@ -854,15 +854,6 @@ def load_nwr_intel():
                 text = f.read()
     except Exception:
         pass
-        
-    if not text:
-        try:
-            url = "https://www.weather.gov/source/nwr/JS/CCL.js"
-            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-            with urllib.request.urlopen(req, timeout=5) as response:
-                text = response.read().decode('utf-8')
-        except Exception:
-            pass
 
     if text:
         try:
