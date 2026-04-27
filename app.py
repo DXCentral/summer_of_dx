@@ -361,10 +361,12 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
+    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
+    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
@@ -389,7 +391,13 @@ def handle_file_upload(uploaded_file):
     
     best_row = 0
     best_sep = ","
-    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 'mode', 'comments', 'location']
+    
+    # Purged 'location' and 'signature' from auto-detect to guarantee pristine parsing
+    keywords = [
+        'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
+        'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
+        'mode', 'comments'
+    ]
     
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
@@ -407,47 +415,14 @@ def handle_file_upload(uploaded_file):
                 best_sep = ","
             break
             
-    if best_row == 0:
-        max_delims = 0
-        for i, line in enumerate(lines[:50]):
-            c_comma = line.count(",")
-            c_semi = line.count(";")
-            c_tab = line.count("\t")
-            current_max = max(c_comma, c_semi, c_tab)
-            if current_max > max_delims and len(line) < 300:
-                max_delims = current_max
-                best_row = i
-                if c_semi == current_max: 
-                    best_sep = ";"
-                elif c_tab == current_max: 
-                    best_sep = "\t"
-                else: 
-                    best_sep = ","
-
-    header_line = [h.strip(' \'"') for h in lines[best_row].split(best_sep)]
-    num_cols = len(header_line)
-    parsed_data = []
-    
-    for line in lines[best_row+1:]:
-        if not line.strip(): 
-            continue
-        cols = line.split(best_sep)
-        if len(cols) > num_cols:
-            merged_last = best_sep.join(cols[num_cols-1:])
-            cols = cols[:num_cols-1] + [merged_last]
-        elif len(cols) < num_cols:
-            cols.extend([""] * (num_cols - len(cols)))
-        cols = [c.strip(' \'"') for c in cols]
-        parsed_data.append(cols)
+    try:
+        # Pandas buffer perfectly preserves quoted variables with inner commas
+        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, engine='python', on_bad_lines='skip')
+    except Exception:
+        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, on_bad_lines='skip')
         
-    unique_headers = []
-    for j, h in enumerate(header_line):
-        h_str = str(h) if h else f"Unnamed_{j}"
-        if h_str in unique_headers: 
-            h_str = f"{h_str}_{j}"
-        unique_headers.append(h_str)
-        
-    return pd.DataFrame(parsed_data, columns=unique_headers)
+    df.columns = [str(c).strip(' \'"') for c in df.columns]
+    return df
 
 # --- 5. DATABANK CONNECTIONS ---
 def get_gsheet():
@@ -519,6 +494,7 @@ def check_is_logged(freq, call, slogan, city, state, country, logged_dict):
                 l_st = simplify_string(l_dict['state'])
                 l_ctry = simplify_string(l_dict['country'])
                 
+                # Dual Track Match
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO"]:
                     if l_call and c_val and (l_call in c_val or c_val in l_call):
                         return True
@@ -1160,7 +1136,6 @@ with main_content:
                                         match_df = mw_db[mw_db['Frequency'] == f_val]
                                         for _, m_row in match_df.iterrows():
                                             db_call = simplify_string(m_row['Callsign'])
-                                            db_slogan = simplify_string(m_row.get('Slogan', ''))
                                             db_city = simplify_string(m_row.get('City', ''))
                                             db_state = simplify_string(m_row.get('State', ''))
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
@@ -1176,12 +1151,8 @@ with main_content:
                                                     is_match = True
                                                 elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
                                                     is_match = True
-                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
-                                                    is_match = True
                                             else:
                                                 if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
-                                                    is_match = True
-                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
                                                     is_match = True
                                                     
                                             if is_match:
@@ -1461,7 +1432,7 @@ with main_content:
 
         with tab_import:
             st.write("INITIATE BULK INGESTION PROTOCOL (FMLIST / WLOGGER)...")
-            is_wlogger = st.toggle("Enable WLogger Export Format (Default is FMList)", value=False, key="fm_wlogger_toggle")
+            is_wlogger_toggle = st.toggle("Enable WLogger Export Format", value=False, key="fm_wlogger_toggle")
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="fm_bulk")
             
             if uploaded_file is not None:
@@ -1471,20 +1442,29 @@ with main_content:
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
                     cols = ["<Skip>"] + df_import.columns.tolist()
+                    cols_lower = [str(c).lower() for c in cols]
+                    
+                    is_wlogger = False
+                    if any("timestamp" in c for c in cols_lower) and any("mode" in c for c in cols_lower):
+                        is_wlogger = True
+                    elif is_wlogger_toggle:
+                        is_wlogger = True
                     
                     if is_wlogger:
+                        st.success("✅ WLogger Export Format Detected & Mapped")
                         idx_freq = get_idx(["frequency"], cols)
-                        idx_call = get_idx(["callsign"], cols)
+                        idx_call = get_idx(["callsign", "call"], cols)
                         idx_date = get_idx(["timestamp"], cols)
                         idx_time = get_idx(["timestamp"], cols)
                         idx_city = get_idx(["city"], cols)
-                        idx_state = get_idx(["state/prov"], cols)
+                        idx_state = get_idx(["state"], cols)
                         idx_ctry = 0
                         idx_dist = get_idx(["distance"], cols)
                         idx_pi = 0
                         idx_prop = get_idx(["mode"], cols)
                         idx_notes = get_idx(["comments"], cols)
                     else:
+                        st.info("✅ FMList Export Format Detected & Mapped")
                         idx_freq = get_idx(["freq", "mhz"], cols)
                         idx_call = get_idx(["call", "station", "program"], cols)
                         idx_date = get_idx(["date"], cols)
@@ -1558,7 +1538,6 @@ with main_content:
                                 if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
                                     rds_val = "Yes"
                                     
-                                # The FMList Remarks Scanner
                                 map_notes_val = str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else ""
                                 if "pi logged" in map_notes_val.lower():
                                     rds_val = "Yes"
@@ -1570,7 +1549,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE LOCK)
+                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
