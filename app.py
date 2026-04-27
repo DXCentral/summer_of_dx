@@ -845,51 +845,68 @@ def load_fm_intel():
 
 @st.cache_data(ttl=86400)
 def load_nwr_intel():
+    text = ""
+    # Local First (Bypasses government cloud blocks)
     try:
-        url = "https://www.weather.gov/source/nwr/JS/CCL.js"
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=10) as response:
-            text = response.read().decode('utf-8')
-            
-        start_idx = text.find('[')
-        end_idx = text.rfind(']')
-        
-        if start_idx != -1 and end_idx != -1:
-            json_str = text[start_idx:end_idx+1]
-            
-            # Clean up JS specific quirks to make it valid JSON
-            json_str = re.sub(r'([{,])\s*([a-zA-Z0-9_]+)\s*:', r'\1"\2":', json_str)
-            json_str = json_str.replace("'", '"')
-            json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
-            
-            data = json.loads(json_str)
-            df = pd.DataFrame(data)
-            
-            f_col = find_col(df, ['Frequency', 'Freq', 'FREQ', 'MHZ', 'mhz'])
-            c_col = find_col(df, ['Callsign', 'Call', 'CALL', 'Station', 'STATION'])
-            cty_col = find_col(df, ['City', 'Site', 'SITE', 'Location', 'LOCATION', 'SiteName'])
-            st_col = find_col(df, ['State', 'STATE'])
-            lat_col = find_col(df, ['Lat', 'LAT', 'LATITUDE'])
-            lon_col = find_col(df, ['Lon', 'LON', 'LONG', 'LONGITUDE'])
-            
-            if f_col and c_col:
-                df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce')
-                df['Callsign'] = df[c_col].fillna("Unknown").apply(clean_callsign)
-                df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
-                df['State'] = df[st_col].fillna("XX") if st_col else "XX"
-                df['Country'] = "United States"
-                df['County'] = " - "
-                df['LAT'] = pd.to_numeric(df[lat_col], errors='coerce') if lat_col else 0.0
-                df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
-                df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
-                df['Slogan'] = "NOAA Weather Radio"
-                
-                df = df.dropna(subset=['Frequency'])
-                df = df[(df['Frequency'] >= 162.4) & (df['Frequency'] <= 162.55)]
-                
-                return df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']]
-    except Exception: 
+        files_in_dir = os.listdir('.')
+        lower_files = {f.lower(): f for f in files_in_dir}
+        if "ccl.js" in lower_files:
+            with open(lower_files["ccl.js"], 'r', encoding='utf-8', errors='ignore') as f:
+                text = f.read()
+    except Exception:
         pass
+        
+    # Live Fetch Backup
+    if not text:
+        try:
+            url = "https://www.weather.gov/source/nwr/JS/CCL.js"
+            req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+            with urllib.request.urlopen(req, timeout=5) as response:
+                text = response.read().decode('utf-8')
+        except Exception:
+            pass
+
+    if text:
+        try:
+            start_idx = text.find('[')
+            end_idx = text.rfind(']')
+            
+            if start_idx != -1 and end_idx != -1:
+                json_str = text[start_idx:end_idx+1]
+                
+                json_str = re.sub(r'([{,])\s*([a-zA-Z0-9_]+)\s*:', r'\1"\2":', json_str)
+                json_str = json_str.replace("'", '"')
+                json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
+                
+                data = json.loads(json_str)
+                df = pd.DataFrame(data)
+                
+                f_col = find_col(df, ['Frequency', 'Freq', 'FREQ', 'MHZ', 'mhz', 'freq'])
+                c_col = find_col(df, ['Callsign', 'Call', 'CALL', 'Station', 'STATION', 'call'])
+                cty_col = find_col(df, ['City', 'Site', 'SITE', 'Location', 'LOCATION', 'SiteName'])
+                st_col = find_col(df, ['State', 'STATE', 'state'])
+                lat_col = find_col(df, ['Lat', 'LAT', 'LATITUDE'])
+                lon_col = find_col(df, ['Lon', 'LON', 'LONG', 'LONGITUDE'])
+                
+                if f_col and c_col:
+                    df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce')
+                    df['Callsign'] = df[c_col].fillna("Unknown").apply(clean_callsign)
+                    df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
+                    df['State'] = df[st_col].fillna("XX") if st_col else "XX"
+                    df['Country'] = "United States"
+                    df['County'] = " - "
+                    df['LAT'] = pd.to_numeric(df[lat_col], errors='coerce') if lat_col else 0.0
+                    df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
+                    df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
+                    df['Slogan'] = "NOAA Weather Radio"
+                    
+                    df = df.dropna(subset=['Frequency'])
+                    df = df[(df['Frequency'] >= 162.4) & (df['Frequency'] <= 162.55)]
+                    
+                    return df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']]
+        except Exception:
+            pass
+            
     return pd.DataFrame()
 
 @st.cache_data
