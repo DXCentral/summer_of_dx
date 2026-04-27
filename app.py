@@ -8,6 +8,7 @@ import maidenhead as mh
 import io
 import re
 import os
+import csv
 import unicodedata
 import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
@@ -220,6 +221,7 @@ def format_date_import(date_str):
         if not date_str or date_str == "<Skip>": 
             return ""
         
+        # If it's WLogger format (YYYY-MM-DD), don't use dayfirst
         if "-" in date_str and len(date_str.split("-")[0]) == 4:
             d = pd.to_datetime(date_str)
         else:
@@ -371,16 +373,19 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
+    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
+    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
                 return col
     return None
 
+# --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -420,13 +425,53 @@ def handle_file_upload(uploaded_file):
                 best_sep = ","
             break
             
-    try:
-        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, engine='python', on_bad_lines='skip')
-    except Exception:
-        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, on_bad_lines='skip')
+    if best_row == 0:
+        max_delims = 0
+        for i, line in enumerate(lines[:50]):
+            c_comma = line.count(",")
+            c_semi = line.count(";")
+            c_tab = line.count("\t")
+            current_max = max(c_comma, c_semi, c_tab)
+            if current_max > max_delims and len(line) < 300:
+                max_delims = current_max
+                best_row = i
+                if c_semi == current_max: 
+                    best_sep = ";"
+                elif c_tab == current_max: 
+                    best_sep = "\t"
+                else: 
+                    best_sep = ","
+
+    # Explicit reversion to the manual loop architecture combined with csv native parsing
+    header_line_raw = next(csv.reader([lines[best_row]], delimiter=best_sep))
+    header_line = [h.strip(' \'"') for h in header_line_raw]
+    num_cols = len(header_line)
+    parsed_data = []
+    
+    for line in lines[best_row+1:]:
+        if not line.strip(): 
+            continue
         
-    df.columns = [str(c).strip(' \'"') for c in df.columns]
-    return df
+        # safely interpret quoted commas like Wlogger exports
+        cols = next(csv.reader([line], delimiter=best_sep))
+        
+        if len(cols) > num_cols:
+            merged_last = best_sep.join(cols[num_cols-1:])
+            cols = cols[:num_cols-1] + [merged_last]
+        elif len(cols) < num_cols:
+            cols.extend([""] * (num_cols - len(cols)))
+            
+        cols = [c.strip(' \'"') for c in cols]
+        parsed_data.append(cols)
+        
+    unique_headers = []
+    for j, h in enumerate(header_line):
+        h_str = str(h) if h else f"Unnamed_{j}"
+        if h_str in unique_headers: 
+            h_str = f"{h_str}_{j}"
+        unique_headers.append(h_str)
+        
+    return pd.DataFrame(parsed_data, columns=unique_headers)
 
 # --- 5. DATABANK CONNECTIONS ---
 def get_gsheet():
@@ -495,7 +540,6 @@ def check_is_logged_mw(freq, call, city, country, logged_dict):
                 l_city = simplify_string(l_dict['city'])
                 l_ctry = simplify_string(l_dict['country'])
                 
-                # Dual Track Match
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
                     if l_call and c_val and (l_call in c_val or c_val in l_call):
                         return True
@@ -565,7 +609,7 @@ def load_mw_intel():
             mesa_df = pd.read_csv(file, dtype=str)
             if not mesa_df.empty:
                 mesa_df['Frequency'] = pd.to_numeric(mesa_df['FREQ'], errors='coerce')
-                mesa_df['Callsign'] = mesa_df['CALL'].fillna("Unknown")
+                mesa_df['Callsign'] = mesa_df['CALL'].fillna("Unknown").apply(clean_callsign)
                 mesa_df['State'] = mesa_df['STATE'].fillna("XX")
                 mesa_df['City'] = mesa_df['CITY'].fillna("Unknown")
                 if 'County' in mesa_df.columns:
@@ -576,6 +620,7 @@ def load_mw_intel():
                 mesa_df['LON'] = pd.to_numeric(mesa_df['LON'], errors='coerce')
                 mesa_df['Grid'] = mesa_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 mesa_df['Country'] = "United States"
+                mesa_df['Slogan'] = ""
                 break
         except Exception: 
             continue
@@ -621,11 +666,12 @@ def load_mw_intel():
 
             if f_col and c_col:
                 intl_df['Frequency'] = pd.to_numeric(intl_df[f_col], errors='coerce')
-                intl_df['Callsign'] = intl_df[c_col]
+                intl_df['Callsign'] = intl_df[c_col].fillna("Unknown").apply(clean_callsign)
                 intl_df['City'] = intl_df[cty_col].fillna("Unknown") if cty_col else "Unknown"
                 intl_df['State'] = intl_df[st_col].fillna("DX") if st_col else "DX"
                 intl_df['Country'] = intl_df[ctr_col].fillna("Unknown") if ctr_col else "Unknown"
                 intl_df['County'] = " - "
+                intl_df['Slogan'] = ""
                 
                 intl_df['LAT'] = pd.to_numeric(intl_df[lat_col], errors='coerce') if lat_col else 0.0
                 intl_df['LON'] = pd.to_numeric(intl_df[lon_col], errors='coerce') if lon_col else 0.0
@@ -633,7 +679,7 @@ def load_mw_intel():
                 
                 intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
                 
-                keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']
+                keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']
                 if not mesa_df.empty:
                     mesa_df = pd.concat([mesa_df[keep_cols], intl_df[keep_cols]], ignore_index=True)
                 else:
@@ -1090,20 +1136,20 @@ with main_content:
                     cols = ["<Skip>"] + df_import.columns.tolist()
                     
                     c_i1, c_i2, c_i3, c_i4 = st.columns(4)
-                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["khz", "freq"], cols))
-                    map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["program", "call", "station"], cols))
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols))
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time", "timestamp"], cols))
+                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["khz", "freq"], cols), key="mw_map_1")
+                    map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["program", "call", "station"], cols), key="mw_map_2")
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols), key="mw_map_3")
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time", "timestamp"], cols), key="mw_map_4")
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
-                    map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols))
-                    map_state = c_i6.selectbox("STATION STATE", cols, index=get_idx(["reg", "state", "prov"], cols))
-                    map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols))
-                    map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols))
+                    map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols), key="mw_map_5")
+                    map_state = c_i6.selectbox("STATION STATE", cols, index=get_idx(["reg", "state", "prov"], cols), key="mw_map_6")
+                    map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols), key="mw_map_7")
+                    map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols), key="mw_map_10")
                     
                     c_i9, c_i10 = st.columns(2)
-                    map_prop = c_i9.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols))
-                    map_notes = c_i10.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols))
+                    map_prop = c_i9.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols), key="mw_map_9")
+                    map_notes = c_i10.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols), key="mw_map_11")
                     
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="mw_bulk_btn"):
                         sheet = get_gsheet()
@@ -1153,7 +1199,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
+                                # EXPLICIT REVERSION TO ORIGINAL MW MATCHING RULE
                                 if not mw_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
