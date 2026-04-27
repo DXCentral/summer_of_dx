@@ -33,6 +33,30 @@ def render_dashboard():
     [data-testid="stElementToolbar"] {
         display: none !important;
     }
+    /* Score Leader Custom UI */
+    .leader-box {
+        border: 1px solid #139a9b;
+        padding: 10px;
+        background-color: #050505;
+        text-align: center;
+        box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1);
+    }
+    .leader-title {
+        color: #139a9b;
+        font-size: 0.85rem;
+        text-transform: uppercase;
+        letter-spacing: 1px;
+        margin-bottom: 5px;
+    }
+    .leader-name {
+        color: #ffffff;
+        font-size: 1.4rem;
+        line-height: 1.2;
+    }
+    .leader-score {
+        color: #1bd2d4;
+        font-size: 1.1rem;
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -120,9 +144,9 @@ def render_dashboard():
         st.stop()
 
     # --- SCORE CALCULATION HELPER ---
-    def get_leader(band_target):
+    def get_leader_data(band_target):
         b_df = filt_df[filt_df['Band'] == band_target]
-        if b_df.empty: return "N/A (0 pts)"
+        if b_df.empty: return "N/A", "0 pts"
         
         scores = b_df.groupby('DXer')['Base_Score'].sum().reset_index()
         
@@ -136,7 +160,7 @@ def render_dashboard():
             scores['Total'] = scores['Base_Score']
             
         leader = scores.sort_values('Total', ascending=False).iloc[0]
-        return f"{leader['DXer']} ({int(leader['Total']):,} pts)"
+        return leader['DXer'], f"{int(leader['Total']):,} pts"
 
     # =====================================================================
     # VIEW 1: MISSION OVERVIEW
@@ -157,10 +181,14 @@ def render_dashboard():
         m7.metric("Unique Gridsquares", filt_df['Station_Grid'].nunique())
         m8.metric("Unique Counties/Parishes", filt_df['County'].nunique())
 
+        am_name, am_score = get_leader_data('AM')
+        fm_name, fm_score = get_leader_data('FM')
+        nwr_name, nwr_score = get_leader_data('NWR')
+
         m9, m10, m11 = st.columns(3)
-        m9.metric("MW Score Leader", get_leader('AM'))
-        m10.metric("FM Score Leader", get_leader('FM'))
-        m11.metric("NWR Score Leader", get_leader('NWR'))
+        m9.markdown(f"<div class='leader-box'><div class='leader-title'>MW Score Leader</div><div class='leader-name'>{am_name}</div><div class='leader-score'>{am_score}</div></div>", unsafe_allow_html=True)
+        m10.markdown(f"<div class='leader-box'><div class='leader-title'>FM Score Leader</div><div class='leader-name'>{fm_name}</div><div class='leader-score'>{fm_score}</div></div>", unsafe_allow_html=True)
+        m11.markdown(f"<div class='leader-box'><div class='leader-title'>NWR Score Leader</div><div class='leader-name'>{nwr_name}</div><div class='leader-score'>{nwr_score}</div></div>", unsafe_allow_html=True)
 
         st.markdown("---")
         st.markdown("### 📡 SUBMITTED LOGGINGS")
