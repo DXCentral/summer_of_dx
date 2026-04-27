@@ -374,13 +374,25 @@ def render_dashboard():
                 dx_map_data['DX_Lon'] = lons
                 dx_map_data = dx_map_data[(dx_map_data['DX_Lat'] != 0.0) | (dx_map_data['DX_Lon'] != 0.0)]
                 
-                fig_dx = px.scatter_mapbox(
-                    dx_map_data, lat='DX_Lat', lon='DX_Lon', 
+                # CRT Wireframe Vector Map (Plotly Scatter Geo)
+                fig_dx = px.scatter_geo(
+                    dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
                     hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
-                    color_discrete_sequence=['#1bd2d4'], zoom=4.0, center=dict(lat=38, lon=-95), size_max=15
+                    size_max=25
                 )
-                fig_dx.update_traces(marker=dict(size=14, opacity=0.8))
-                fig_dx.update_layout(mapbox_style="carto-darkmatter", height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
+                fig_dx.update_traces(marker=dict(symbol='diamond', color='#1bd2d4', line=dict(color='#ffffff', width=1), opacity=0.9))
+                fig_dx.update_geos(
+                    projection_type="equirectangular",
+                    showcoastlines=True, coastlinecolor="#139a9b",
+                    showland=True, landcolor="#050505",
+                    showocean=True, oceancolor="#050505",
+                    showlakes=True, lakecolor="#050505",
+                    showcountries=True, countrycolor="#139a9b",
+                    showsubunits=True, subunitcolor="#0a4040",
+                    fitbounds="locations",
+                    bgcolor='#050505'
+                )
+                fig_dx.update_layout(height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 
                 ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"m_dx_{st.session_state.matrix_map_key}")
                 
