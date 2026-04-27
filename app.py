@@ -1,4 +1,7 @@
 import streamlit as st
+import pandas as pd
+import datetime
+import re
 import json
 import maidenhead as mh
 from geopy.geocoders import Nominatim
@@ -810,7 +813,6 @@ with main_content:
                                 if clean_country not in ["United States", "Canada", "Mexico"]: 
                                     clean_state = "DX"
                                 clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
-                                
                                 dist_val = 0.0
                                 if map_dist != "<Skip>":
                                     try:
@@ -834,7 +836,6 @@ with main_content:
                                         pi_match = re.search(r'pi logged:\s*([A-F0-9]{4})', map_notes_val, re.IGNORECASE)
                                         if pi_match: 
                                             pi_val = pi_match.group(1).upper()
-                                
                                 station_grid, station_county = "", " - " if clean_country not in ["United States"] else ""
                                 
                                 if not fm_db.empty and raw_freq:
@@ -865,17 +866,17 @@ with main_content:
                                 date_sig = str(format_date_import(row[map_date])).strip()
                                 time_sig = str(format_time_import(row[map_time])).strip()
                                 row_sig = f"FM_{sig_freq}_{str(clean_call).strip().upper()}_{date_sig}_{time_sig}"
-                                
                                 if row_sig in existing_signatures:
-                                    skipped_dupes += 1
-                                    continue
+                                    skipped_dupes += 1; continue
                                 existing_signatures.add(row_sig)
+                                
+                                sdr_val = def_sdr # Default since FMList/WLogger don't natively output SDR mapping
 
                                 r_data = [
                                     op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
                                     "FM", "", raw_freq, clean_call, "", clean_city, clean_state, clean_country, "", station_grid,
                                     date_sig, time_sig, round(dist_val, 1), map_notes_val, rds_val, pi_val, map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
-                                    station_county, entry_cat_val, "", "", def_sdr
+                                    station_county, entry_cat_val, "", "", sdr_val
                                 ]
                                 bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
                                 
@@ -977,7 +978,8 @@ with main_content:
                 if f_freq != "All": 
                     results = results[results['Frequency'] == float(f_freq)]
                 if f_call: 
-                    results = results[results['Callsign'].apply(lambda x: simplify_string(f_call) in simplify_string(x))]
+                    c_simp = simplify_string(f_call)
+                    results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
                 if f_city: 
                     results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All": 
@@ -1052,7 +1054,7 @@ with main_content:
                     
                     if is_wlogger:
                         idx_freq, idx_call, idx_date, idx_time = get_idx(["frequency"], cols), get_idx(["callsign", "call"], cols), get_idx(["timestamp"], cols), get_idx(["timestamp"], cols)
-                        idx_city, idx_state, idx_dist, idx_prop, idx_notes = get_idx(["city"], cols), get_idx(["state"], cols), get_idx(["distance"], cols), get_idx(["mode"], cols), get_idx(["comments"], cols)
+                        idx_city, idx_state, idx_dist, idx_prop, idx_notes = get_idx(["city"], cols), get_idx(["state"], cols), 0, get_idx(["distance"], cols)
                         idx_ctry, idx_pi = 0, 0
                     else:
                         idx_freq, idx_call, idx_date, idx_time = get_idx(["freq", "mhz"], cols), get_idx(["call", "station", "program"], cols), get_idx(["date"], cols), get_idx(["time", "utc"], cols)
@@ -1162,13 +1164,15 @@ with main_content:
                                     skipped_dupes += 1
                                     continue
                                 existing_signatures.add(row_sig)
+                                
+                                sdr_val = def_sdr
 
                                 r_data = [
                                     op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
                                     "NWR", "", raw_freq, clean_call, "", clean_city, clean_state, clean_country, "", station_grid,
                                     date_sig, time_sig, round(dist_val, 1), str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else "", 
                                     "", "", map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
-                                    station_county, entry_cat_val, "", "", def_sdr
+                                    station_county, entry_cat_val, "", "", sdr_val
                                 ]
                                 bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
                                 
