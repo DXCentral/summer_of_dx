@@ -5,6 +5,7 @@ import plotly.express as px
 import plotly.graph_objects as go
 import numpy as np
 import datetime
+import time
 from modules.data_forge import load_global_dashboard_data
 
 # --- CYAN ESPIONAGE COLOR PALETTE ---
@@ -23,10 +24,8 @@ def render_dashboard():
     if df.empty:
         st.error("🚨 SYSTEM ALERT: DATABANK OFFLINE OR EMPTY.")
         st.stop()
-        
-    st.markdown("<h1 style='text-align: center; color: #1bd2d4; text-shadow: 0px 0px 10px rgba(27,210,212,0.8);'>GLOBAL INTELLIGENCE COMMAND</h1>", unsafe_allow_html=True)
-    
-    # --- SESSION STATE FOR FLYOUTS & SELECTIONS ---
+
+    # --- SESSION STATE INITIALIZATION (SEDAP MECHANICS) ---
     if 'dash_nav' not in st.session_state: st.session_state.dash_nav = "OVERVIEW"
     if 'sel_dxer' not in st.session_state: st.session_state.sel_dxer = None
     if 'sel_state' not in st.session_state: st.session_state.sel_state = None
@@ -34,11 +33,25 @@ def render_dashboard():
     if 'sel_mhz' not in st.session_state: st.session_state.sel_mhz = "TUNE..."
     if 'freq_direct_entry' not in st.session_state: st.session_state.freq_direct_entry = ""
     
+    # Timelapse & Map States
+    if 'full_screen' not in st.session_state: st.session_state.full_screen = False
+    if 'playing' not in st.session_state: st.session_state.playing = False
+    if 'p_idx' not in st.session_state: st.session_state.p_idx = 0
+    if 'map_key' not in st.session_state: st.session_state.map_key = 500000
+    if 'dx_map_key' not in st.session_state: st.session_state.dx_map_key = 1000000
+    if 'selected_dx_loc' not in st.session_state: st.session_state.selected_dx_loc = None
+
     def reset_flyouts():
         st.session_state.sel_dxer = None
         st.session_state.sel_state = None
         st.session_state.sel_country = None
+        st.session_state.selected_dx_loc = None
 
+    if st.session_state.full_screen:
+        st.markdown("""<style>[data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; } .stMain { padding: 0 !important; }</style>""", unsafe_allow_html=True)
+
+    st.markdown("<h1 style='text-align: center; color: #1bd2d4; text-shadow: 0px 0px 10px rgba(27,210,212,0.8);'>GLOBAL INTELLIGENCE COMMAND</h1>", unsafe_allow_html=True)
+    
     # --- DASHBOARD NAVIGATION ---
     d_cols = st.columns(5)
     if d_cols[0].button("▶ MISSION OVERVIEW", use_container_width=True): 
@@ -53,7 +66,7 @@ def render_dashboard():
         st.session_state.dash_nav = "ACHIEVEMENTS"
         reset_flyouts()
         st.rerun()
-    if d_cols[3].button("▶ ES-CLOUD RADAR", use_container_width=True): 
+    if d_cols[3].button("▶ TIMELAPSE & RADAR", use_container_width=True): 
         st.session_state.dash_nav = "ES_TRACKER"
         reset_flyouts()
         st.rerun()
@@ -86,6 +99,17 @@ def render_dashboard():
         st.warning("NO TELEMETRY MATCHES CURRENT FILTER PARAMETERS.")
         st.stop()
 
+    # --- REUSABLE FLYOUT STYLES ---
+    st.markdown("""
+    <style>
+    .flyout-box { border: 1px solid #139a9b; padding: 15px; background-color: #050505; box-shadow: 0px 0px 10px rgba(19, 154, 155, 0.2); }
+    .flyout-title { color: #1bd2d4; margin-top: 0; font-size: 1.8rem; text-transform: uppercase; border-bottom: 1px dashed #139a9b; padding-bottom: 5px; }
+    .flyout-header { color: #139a9b; font-size: 0.85rem; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; }
+    .flyout-val { font-size: 1.8rem; color: #ffffff; line-height: 1.1; }
+    .flyout-sub { font-size: 0.9rem; color: #a3e8e9; }
+    </style>
+    """, unsafe_allow_html=True)
+
     # =====================================================================
     # VIEW 1: MISSION OVERVIEW
     # =====================================================================
@@ -107,7 +131,6 @@ def render_dashboard():
             Base_Points=('Base_Score', 'sum')
         ).reset_index()
         
-        # Monthly Consistency Bonus Math (100 pts per 10+ logs in a month per band, excluding NWR)
         bonus_df = filt_df[filt_df['Band'].isin(['AM', 'FM'])].groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Count')
         bonus_df['Bonus'] = bonus_df['Count'].apply(lambda x: 100 if x >= 10 else 0)
         bonuses = bonus_df.groupby('DXer')['Bonus'].sum().reset_index()
@@ -138,7 +161,6 @@ def render_dashboard():
             col_tbl, col_fly = st.columns([3, 2]) if st.session_state.sel_dxer else st.columns([1, 0.001])
             
             with col_tbl:
-                # Basic Operator Table
                 op_stats = filt_df.groupby('DXer').agg(
                     Total_Logs=('Callsign', 'count'),
                     Unique_Stations=('Callsign', 'nunique'),
@@ -162,8 +184,9 @@ def render_dashboard():
                 with col_fly:
                     agent = st.session_state.sel_dxer
                     agent_df = filt_df[filt_df['DXer'] == agent]
-                    st.markdown(f"<div style='border: 1px solid #139a9b; padding: 15px; background-color: #050505;'>", unsafe_allow_html=True)
-                    st.markdown(f"<h3 style='color: #1bd2d4; margin-top:0;'>AGENT: {agent}</h3>", unsafe_allow_html=True)
+                    
+                    st.markdown("<div class='flyout-box'>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-title'>AGENT: {agent}</div>", unsafe_allow_html=True)
                     
                     if st.button("❌ CLOSE DOSSIER", use_container_width=True):
                         st.session_state.sel_dxer = None
@@ -171,15 +194,17 @@ def render_dashboard():
                         
                     f_row = agent_df.sort_values('Distance', ascending=False).iloc[0] if not agent_df.empty else None
                     if f_row is not None:
-                        st.markdown("<div style='color:#139a9b; font-size:0.8rem; margin-top:10px;'>FURTHEST INTERCEPT</div>", unsafe_allow_html=True)
-                        st.markdown(f"<div style='font-size:1.5rem;'>{f_row['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                        st.markdown(f"<div style='font-size:0.9rem;'>{f_row['Frequency']} MHz - {f_row['Callsign']} ({f_row['City']}, {f_row['State']})<br>{f_row['Date_Str']} at {f_row['Time_Str']}</div>", unsafe_allow_html=True)
+                        st.markdown("<div class='flyout-header'>FURTHEST INTERCEPT</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='flyout-val'>{f_row['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='flyout-sub'>{f_row['Frequency']} MHz - {f_row['Callsign']} ({f_row['City']}, {f_row['State']})<br>{f_row['Date_Str']} at {f_row['Time_Str']}</div>", unsafe_allow_html=True)
                     
-                    st.markdown("<div style='color:#139a9b; font-size:0.8rem; margin-top:15px;'>TOP TARGET STATES</div>", unsafe_allow_html=True)
-                    st.dataframe(agent_df.groupby('State').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(3), hide_index=True, use_container_width=True)
-                    
-                    st.markdown("<div style='color:#139a9b; font-size:0.8rem; margin-top:15px;'>MOST CAUGHT STATIONS</div>", unsafe_allow_html=True)
-                    st.dataframe(agent_df.groupby('Callsign').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(3), hide_index=True, use_container_width=True)
+                    c1, c2 = st.columns(2)
+                    with c1:
+                        st.markdown("<div class='flyout-header'>TOP TARGET STATES</div>", unsafe_allow_html=True)
+                        st.dataframe(agent_df.groupby('State').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5), hide_index=True, use_container_width=True)
+                    with c2:
+                        st.markdown("<div class='flyout-header'>MOST CAUGHT STATIONS</div>", unsafe_allow_html=True)
+                        st.dataframe(agent_df.groupby('Callsign').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5), hide_index=True, use_container_width=True)
                     
                     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -188,7 +213,7 @@ def render_dashboard():
     # =====================================================================
     elif st.session_state.dash_nav == "GEOGRAPHY":
         st.markdown("### 🗺️ GEOSPATIAL ANALYSIS")
-        geo_tabs = st.tabs(["[ US STATE DENSITY ]", "[ GLOBAL COUNTRY DENSITY ]", "[ TRANSMITTER HEATMAP ]"])
+        geo_tabs = st.tabs(["[ US STATE DENSITY ]", "[ GLOBAL DENSITY ]", "[ RECEIVER NETWORK MAP ]"])
         
         with geo_tabs[0]:
             st.caption("👈 Select a State on the map to open the Tactical Flyout.")
@@ -200,7 +225,7 @@ def render_dashboard():
                 fig_us = px.choropleth(state_counts, locations='State', locationmode="USA-states", color='Logs', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', geo=dict(bgcolor='rgba(0,0,0,0)', lakecolor='#050505'), margin={"r":0,"t":0,"l":0,"b":0}, height=500)
                 
-                ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun")
+                ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_state_{st.session_state.map_key}")
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
                     n_state = ev_st["selection"]["points"][0]["location"]
                     if st.session_state.sel_state != n_state:
@@ -211,24 +236,26 @@ def render_dashboard():
                 with cm2:
                     t_state = st.session_state.sel_state
                     t_state_df = us_df[us_df['State'] == t_state]
-                    st.markdown(f"<div style='border: 1px solid #139a9b; padding: 15px; background-color: #050505;'>", unsafe_allow_html=True)
-                    st.markdown(f"<h3 style='color: #1bd2d4; margin-top:0;'>TARGET REGION: {t_state}</h3>", unsafe_allow_html=True)
+                    
+                    st.markdown("<div class='flyout-box'>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-title'>REGION: {t_state}</div>", unsafe_allow_html=True)
                     
                     if st.button("❌ CLOSE DOSSIER", key="close_state", use_container_width=True):
                         st.session_state.sel_state = None
+                        st.session_state.map_key += 1
                         st.rerun()
                         
-                    st.markdown("<div style='color:#139a9b; font-size:0.8rem; margin-top:10px;'>TOTAL LOGS</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div style='font-size:1.5rem;'>{len(t_state_df):,}</div>", unsafe_allow_html=True)
+                    st.markdown("<div class='flyout-header'>TOTAL LOGS</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-val'>{len(t_state_df):,}</div>", unsafe_allow_html=True)
                     
                     f_row = t_state_df.sort_values('Distance', ascending=False).iloc[0] if not t_state_df.empty else None
                     if f_row is not None:
-                        st.markdown("<div style='color:#139a9b; font-size:0.8rem; margin-top:10px;'>FURTHEST INTERCEPT</div>", unsafe_allow_html=True)
-                        st.markdown(f"<div style='font-size:1.1rem;'>{f_row['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                        st.markdown(f"<div style='font-size:0.9rem;'>{f_row['Callsign']} ({f_row['City']}) caught by {f_row['DXer']}</div>", unsafe_allow_html=True)
+                        st.markdown("<div class='flyout-header'>FURTHEST INTERCEPT</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='font-size:1.3rem; color:#fff;'>{f_row['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='flyout-sub'>{f_row['Callsign']} ({f_row['City']}) caught by {f_row['DXer']}</div>", unsafe_allow_html=True)
                     
-                    st.markdown("<div style='color:#139a9b; font-size:0.8rem; margin-top:15px;'>TOP AGENTS TARGETING REGION</div>", unsafe_allow_html=True)
-                    st.dataframe(t_state_df.groupby('DXer').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(3), hide_index=True, use_container_width=True)
+                    st.markdown("<div class='flyout-header'>TOP AGENTS TARGETING REGION</div>", unsafe_allow_html=True)
+                    st.dataframe(t_state_df.groupby('DXer').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5), hide_index=True, use_container_width=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
         with geo_tabs[1]:
@@ -248,19 +275,60 @@ def render_dashboard():
                 st.dataframe(world_counts.sort_values('Logs', ascending=False), hide_index=True, use_container_width=True)
 
         with geo_tabs[2]:
-            st.caption("Heatmap of verified transmitter locations.")
-            st_map_data = filt_df.dropna(subset=['ST_Lat', 'ST_Lon'])
-            if not st_map_data.empty:
-                layers = [pdk.Layer(
-                    'HeatmapLayer', 
-                    data=st_map_data[['ST_Lat', 'ST_Lon', 'Callsign']], 
-                    get_position='[ST_Lon, ST_Lat]',
-                    radius_pixels=40, intensity=1.5, threshold=0.03, 
-                    color_range=[[5,5,5,50], [10,64,64,100], [19,154,155,150], [27,210,212,200], [255,255,255,255]]
-                )]
-                st.pydeck_chart(pdk.Deck(map_style='https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', initial_view_state=pdk.ViewState(latitude=38, longitude=-95, zoom=3.4), layers=layers))
-            else:
-                st.warning("Insufficient coordinates for transmitter map.")
+            st.caption("👈 Click any location cluster to interrogate specific DXer intelligence.")
+            
+            col_rx_map, col_rx_fly = st.columns([3, 1]) if st.session_state.selected_dx_loc else st.columns([1, 0.001])
+            
+            with col_rx_map:
+                dx_map_data = filt_df.groupby(['DXer_City', 'DX_Lat', 'DX_Lon']).agg(
+                    Logs=('Callsign', 'count'),
+                    DXer_Count=('DXer', 'nunique'),
+                    DXers=('DXer', lambda x: '<br>'.join(x.unique()))
+                ).reset_index()
+                
+                fig_dx = px.scatter_mapbox(
+                    dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs', color='Logs',
+                    hover_name='DXer_City', 
+                    hover_data={'DX_Lat':False, 'DX_Lon':False, 'DXers':True, 'DXer_Count':True},
+                    color_continuous_scale=CYAN_SCALE, zoom=4.2, center=dict(lat=38, lon=-95), size_max=45
+                )
+                fig_dx.update_layout(mapbox_style="carto-darkmatter", height=600, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
+                
+                ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"dx_map_{st.session_state.dx_map_key}")
+                
+                if ev_dx and ev_dx.get("selection") and ev_dx["selection"].get("points"):
+                    pt = ev_dx["selection"]["points"][0]
+                    if "hovertext" in pt:
+                        new_loc = pt["hovertext"]
+                        if st.session_state.selected_dx_loc != new_loc:
+                            st.session_state.selected_dx_loc = new_loc
+                            st.rerun()
+
+            if st.session_state.selected_dx_loc:
+                with col_rx_fly:
+                    loc = st.session_state.selected_dx_loc
+                    loc_df = filt_df[filt_df['DXer_City'] == loc]
+                    
+                    st.markdown("<div class='flyout-box'>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-title'>📍 {loc}</div>", unsafe_allow_html=True)
+                    
+                    if st.button("❌ CLEAR LOCATION", key="cl_dx_map", use_container_width=True): 
+                        st.session_state.selected_dx_loc = None
+                        st.session_state.dx_map_key += 1
+                        st.rerun()
+                        
+                    st.markdown("<div class='flyout-header'>TOTAL LOGS</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-val'>{len(loc_df):,}</div>", unsafe_allow_html=True)
+                    
+                    f_r = loc_df.sort_values('Distance', ascending=False).iloc[0] if not loc_df.empty else None
+                    if f_r is not None:
+                        st.markdown("<div class='flyout-header'>FURTHEST RECEPTION</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div style='font-size:1.3rem; color:#fff;'>{f_r['Distance']:,.0f} MILES</div>", unsafe_allow_html=True)
+                        st.markdown(f"<div class='flyout-sub'>{f_r['Frequency']} - {f_r['Callsign']}, {f_r['State']} on {f_r['Date_Str']} by {f_r['DXer']}</div>", unsafe_allow_html=True)
+
+                    st.markdown("<div class='flyout-header'>LOCAL AGENTS</div>", unsafe_allow_html=True)
+                    st.dataframe(loc_df.groupby('DXer').size().reset_index(name='Logs').sort_values('Logs', ascending=False), hide_index=True, use_container_width=True)
+                    st.markdown("</div>", unsafe_allow_html=True)
 
     # =====================================================================
     # VIEW 3: ACHIEVEMENT TRACKERS
@@ -300,7 +368,6 @@ def render_dashboard():
             grave_counts = grave_df.groupby(['DXer', 'Freq_Num']).size().reset_index(name='Logs')
             grave_met = grave_counts[grave_counts['Logs'] >= 3].groupby('DXer').size().reset_index(name='Frequencies_Conquered')
             
-            # Merge back all AM DXers so everyone shows up on the board
             all_am_dxers = pd.DataFrame(filt_df[filt_df['Band'] == 'AM']['DXer'].unique(), columns=['DXer'])
             grave_board = all_am_dxers.merge(grave_met, on='DXer', how='left').fillna(0)
             grave_board['Status'] = grave_board['Frequencies_Conquered'].apply(lambda x: "🟢 MASTER" if x >= 6 else f"⏳ {int(x)}/6 SECURED")
@@ -321,41 +388,124 @@ def render_dashboard():
                 st.info("No Rover telemetry detected in current databank.")
 
     # =====================================================================
-    # VIEW 4: ES-CLOUD RADAR
+    # VIEW 4: TIMELAPSE & ES-CLOUD RADAR (SEDAP LOGIC PORTED)
     # =====================================================================
     elif st.session_state.dash_nav == "ES_TRACKER":
-        st.markdown("### ☁️ SPORADIC-E CLOUD RADAR")
-        st.caption("Visualizing the calculated geographic mid-points of all logs tagged as 'Sporadic E'.")
+        st.markdown("### ☁️ IONOSPHERIC PROPAGATION ANALYSIS")
         
-        es_df = filt_df[filt_df['Prop_Mode'].str.upper() == 'SPORADIC E'].copy()
-        if es_df.empty:
-            st.warning("No Sporadic E telemetry found in current filter parameters.")
-        else:
-            # Calculate midpoints if not existing
-            if 'Mid_Lat' not in es_df.columns:
-                es_df['Mid_Lat'] = (es_df['DX_Lat'] + es_df['ST_Lat']) / 2
-                es_df['Mid_Lon'] = (es_df['DX_Lon'] + es_df['ST_Lon']) / 2
+        vm = st.pills("MAP LAYER SELECTION", ["Heatmap (Midpoints)", "Path Line Analysis"], default="Heatmap (Midpoints)")
+        
+        hc1, hc2 = st.columns([1, 2])
+        with hc1:
+            range_on = st.checkbox("Enable Date Range Mode", value=True) 
+            avail_days = sorted(filt_df['Date_Obj'].dropna().unique()) 
+            if not avail_days:
+                st.warning("No dates available for timeline.")
+                st.stop()
                 
-            es_df = es_df.dropna(subset=['Mid_Lat', 'Mid_Lon'])
+            if not range_on:
+                date_sel = st.date_input("Select Event Date", value=avail_days[-1])
+                map_df = filt_df[filt_df['Date_Obj'] == date_sel].copy()
+            else:
+                date_range = st.date_input("Select Date Range", value=(avail_days[0], avail_days[-1]))
+                if len(date_range) == 2: 
+                    map_df = filt_df[(filt_df['Date_Obj'] >= date_range[0]) & (filt_df['Date_Obj'] <= date_range[1])].copy()
+                else: 
+                    map_df = filt_df[filt_df['Date_Obj'] == date_range[0]].copy()
             
-            if not es_df.empty:
+            speed_sets = {"1x": {"delay": 0.2, "step": 1}, "2x": {"delay": 0.1, "step": 2}, "3x": {"delay": 0.05, "step": 3}, "4x": {"delay": 0.01, "step": 4}}
+            play_speed = st.selectbox("Playback Speed", options=list(speed_sets.keys()), index=1)
+            
+            if st.button("📺 VIEW FULL SCREEN" if not st.session_state.full_screen else "❌ EXIT"): 
+                st.session_state.full_screen = not st.session_state.full_screen
+                st.rerun()
+
+        if not map_df.empty:
+            # Force Es Midpoint calculations for Heatmap
+            if 'Mid_Lat' not in map_df.columns:
+                map_df['Mid_Lat'] = (map_df['DX_Lat'] + map_df['ST_Lat']) / 2
+                map_df['Mid_Lon'] = (map_df['DX_Lon'] + map_df['ST_Lon']) / 2
+
+            map_df['DateTime_Key'] = pd.to_datetime(map_df['Date_Str'] + ' ' + map_df['Time_Str'], errors='coerce')
+            timeline = map_df.dropna(subset=['DateTime_Key']).sort_values('DateTime_Key')
+            time_steps = timeline[['Date_Str', 'Time_Str']].drop_duplicates().values.tolist()
+            
+            pb1, pb2, pb_txt = st.columns([1, 1, 3])
+            if pb1.button("▶ PLAY"): 
+                st.session_state.playing = True
+                st.session_state.p_idx = 0
+                st.rerun()
+            if pb2.button("⏹ STOP"): 
+                st.session_state.playing = False
+                st.rerun()
+            
+            if st.session_state.playing and len(time_steps) > 0:
+                cur_step = time_steps[st.session_state.p_idx]
+                cur_date, cur_time = cur_step[0], cur_step[1]
+            else:
+                times_only = sorted(map_df['Time_Str'].dropna().unique())
+                cur_time = hc2.select_slider("Time Control", options=["SHOW ALL"] + times_only, value="SHOW ALL")
+                cur_date = "N/A"
+
+            if cur_time == "SHOW ALL":
+                pb_txt.write("## 🕒 VIEWING: ALL SELECTED DATA")
+                render_df = map_df
+            else:
+                display_date = f"{cur_date} | " if cur_date != "N/A" else ""
+                pb_txt.write(f"## 🕒 {display_date}{cur_time}")
+                
+                # STROBE EFFECT FIX: 30-Minute Persistence Window
+                try:
+                    lookback_time_str = (datetime.datetime.strptime(cur_time, '%H:%M') - datetime.timedelta(minutes=30)).strftime('%H:%M')
+                except:
+                    lookback_time_str = "00:00"
+                    
+                if st.session_state.playing:
+                    render_df = map_df[(map_df['Date_Str'] == cur_date) & (map_df['Time_Str'] <= cur_time) & (map_df['Time_Str'] >= lookback_time_str)]
+                else:
+                    render_df = map_df[(map_df['Time_Str'] <= cur_time) & (map_df['Time_Str'] >= lookback_time_str)]
+            
+            # --- RENDER MAP LAYERS ---
+            if vm == "Heatmap (Midpoints)":
+                es_df = render_df[render_df['Prop_Mode'].str.upper() == 'SPORADIC E']
                 layers = [pdk.Layer(
                     'HeatmapLayer', 
-                    data=es_df[['Mid_Lat', 'Mid_Lon', 'DXer']], 
+                    data=es_df[['Mid_Lat', 'Mid_Lon', 'DXer']].dropna(), 
                     get_position='[Mid_Lon, Mid_Lat]',
                     radius_pixels=65, intensity=2.0, threshold=0.03, 
                     color_range=[[5,5,5,50], [10,64,64,100], [19,154,155,150], [27,210,212,200], [255,255,255,255]]
                 )]
-                st.pydeck_chart(pdk.Deck(map_style='https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', initial_view_state=pdk.ViewState(latitude=38, longitude=-95, zoom=3.4), layers=layers))
             else:
-                st.warning("Coordinates missing for Es midpoint calculation.")
+                layers = [pdk.Layer(
+                    'LineLayer',
+                    data=render_df[['DX_Lat', 'DX_Lon', 'ST_Lat', 'ST_Lon']].dropna(),
+                    get_source_position='[DX_Lon, DX_Lat]',
+                    get_target_position='[ST_Lon, ST_Lat]',
+                    get_width=2,
+                    get_color=[27, 210, 212, 100],  # Cyan lines
+                )]
+                                            
+            st.pydeck_chart(pdk.Deck(map_style='https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', initial_view_state=pdk.ViewState(latitude=38, longitude=-95, zoom=3.4), layers=layers))
+            
+            # Autoplay loop execution
+            if st.session_state.playing:
+                conf = speed_sets[play_speed]
+                if st.session_state.p_idx + conf['step'] < len(time_steps):
+                    st.session_state.p_idx += conf['step']
+                    time.sleep(conf['delay'])
+                    st.rerun()
+                else:
+                    st.session_state.playing = False
+                    st.rerun()
+        else:
+            st.warning("No data points available for the selected dates.")
 
     # =====================================================================
     # VIEW 5: FREQUENCY TUNER
     # =====================================================================
     elif st.session_state.dash_nav == "TUNER":
         st.markdown("### 🎚️ SIGNAL FORENSICS TUNER")
-        st.caption("Use the Coarse (1.0 MHz) or Fine (0.2 MHz) buttons to tune the dial, or enter a specific frequency directly.")
+        st.caption("Use the Coarse (1.0) or Fine (0.2 / 0.01) buttons to tune the dial, or enter a specific frequency directly.")
         
         current = st.session_state.sel_mhz
         base_freq = 87.7 if current in ["TUNE...", None] else current
@@ -382,18 +532,23 @@ def render_dashboard():
         """, unsafe_allow_html=True)
         
         t1, t2, t3, t4, t5 = st.columns([1, 1, 3, 1, 1])
-        if t1.button("⏪ -1.0", use_container_width=True): 
-            st.session_state.sel_mhz = round(base_freq - 1.0, 1)
+        
+        step_val = 0.2 if band_filter == "FM" else (10 if band_filter == "AM" else 0.025)
+        coarse_val = 1.0 if band_filter == "FM" else 100
+        
+        if t1.button(f"⏪ -{coarse_val}", use_container_width=True): 
+            st.session_state.sel_mhz = round(base_freq - coarse_val, 3)
             st.rerun()
-        if t2.button("◀ -0.2", use_container_width=True): 
-            st.session_state.sel_mhz = round(base_freq - 0.2, 1)
+        if t2.button(f"◀ -{step_val}", use_container_width=True): 
+            st.session_state.sel_mhz = round(base_freq - step_val, 3)
             st.rerun()
         
         with t3:
             if current in ["TUNE...", None]: 
                 st.markdown('<div class="lcd-screen">TUNE...</div>', unsafe_allow_html=True)
             else: 
-                st.markdown(f'<div class="lcd-screen">{current:.1f} <span class="lcd-unit">MHz/kHz</span></div>', unsafe_allow_html=True)
+                disp = f"{current:.1f}" if current > 50 else f"{current:.0f}"
+                st.markdown(f'<div class="lcd-screen">{disp} <span class="lcd-unit">MHz/kHz</span></div>', unsafe_allow_html=True)
                 
             def process_freq():
                 raw = st.session_state.freq_direct_entry
@@ -406,11 +561,11 @@ def render_dashboard():
                 
             st.text_input("DIRECT ENTRY (e.g. 92.1 or 1230)", key="freq_direct_entry", on_change=process_freq)
             
-        if t4.button("+0.2 ▶", use_container_width=True): 
-            st.session_state.sel_mhz = round(base_freq + 0.2, 1)
+        if t4.button(f"+{step_val} ▶", use_container_width=True): 
+            st.session_state.sel_mhz = round(base_freq + step_val, 3)
             st.rerun()
-        if t5.button("+1.0 ⏩", use_container_width=True): 
-            st.session_state.sel_mhz = round(base_freq + 1.0, 1)
+        if t5.button(f"+{coarse_val} ⏩", use_container_width=True): 
+            st.session_state.sel_mhz = round(base_freq + coarse_val, 3)
             st.rerun()
         
         if current not in ["TUNE...", None]:
