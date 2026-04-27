@@ -81,7 +81,8 @@ input, textarea, div[data-baseweb="select"] > div {
 /* Aggressive overrides for centering Dataframes */
 [data-testid="stDataFrame"] th, 
 [data-testid="stDataFrame"] td,
-.stDataFrame div[role="gridcell"] {
+.stDataFrame div[role="gridcell"],
+.stDataFrame div[data-testid="stTable"] {
     text-align: center !important;
     justify-content: center !important;
 }
@@ -219,7 +220,6 @@ def format_date_import(date_str):
         if not date_str or date_str == "<Skip>": 
             return ""
         
-        # If it's WLogger format (YYYY-MM-DD), don't use dayfirst
         if "-" in date_str and len(date_str.split("-")[0]) == 4:
             d = pd.to_datetime(date_str)
         else:
@@ -371,19 +371,16 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
-    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
-    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
                 return col
     return None
 
-# --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -494,7 +491,6 @@ def check_is_logged(freq, call, slogan, city, state, country, logged_dict):
         ctry_val = simplify_string(country)
         
         for l_freq, logs in logged_dict.items():
-            # Accounts for slight floating-point export discrepancies
             if abs(l_freq - f_val) < 0.05:
                 for l_dict in logs:
                     l_call = super_clean(l_dict['call'])
@@ -509,7 +505,7 @@ def check_is_logged(freq, call, slogan, city, state, country, logged_dict):
                     if l_city and city_val and l_city != "UNKNOWN" and city_val != "UNKNOWN" and (l_city in city_val or city_val in l_city) and l_ctry == ctry_val:
                         return True
                         
-                    # Track 3: Slogan Match against Slogan OR Callsign column
+                    # Track 3: Slogan Match
                     if l_call and slogan_val and l_call != "UNKNOWN" and slogan_val != "UNKNOWN" and (l_call in slogan_val or slogan_val in l_call):
                         return True
                         
@@ -1074,8 +1070,8 @@ with main_content:
                     c_i1, c_i2, c_i3, c_i4 = st.columns(4)
                     map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["khz", "freq"], cols))
                     map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["program", "call", "station"], cols))
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols))
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time"], cols))
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols))
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time", "timestamp"], cols))
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
                     map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols))
@@ -1135,31 +1131,31 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # DUAL-TRACK MATCHING ENGINE & OVERWRITE
+                                # UNIVERSAL TRIPLE-TRACK MATCHING ENGINE (TOLERANCE UPGRADE)
                                 if not mw_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
-                                        match_df = mw_db[mw_db['Frequency'] == f_val]
+                                        match_df = mw_db[abs(mw_db['Frequency'] - f_val) < 0.05]
                                         for _, m_row in match_df.iterrows():
                                             db_call = super_clean(m_row['Callsign'])
+                                            db_slogan = super_clean(m_row.get('Slogan', ''))
                                             db_city = simplify_string(m_row.get('City', ''))
-                                            db_state = simplify_string(m_row.get('State', ''))
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
                                             
                                             is_match = False
                                             imp_call = super_clean(clean_call)
                                             imp_country = simplify_string(clean_country)
                                             imp_city = simplify_string(clean_city)
-                                            imp_state = simplify_string(clean_state)
                                             
-                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO"]:
-                                                if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
-                                                    is_match = True
-                                                elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
-                                                    is_match = True
-                                            else:
-                                                if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
-                                                    is_match = True
+                                            # Track 1: Standard Callsign Match
+                                            if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
+                                                is_match = True
+                                            # Track 2: City + Country Match
+                                            elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
+                                                is_match = True
+                                            # Track 3: Slogan Match
+                                            elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
+                                                is_match = True
                                                     
                                             if is_match:
                                                 station_grid = m_row['Grid']
@@ -1188,7 +1184,7 @@ with main_content:
                                     "", 
                                     station_grid,
                                     format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    row[map_time] if map_time != "<Skip>" else "", 
+                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
                                     round(dist_val, 1), 
                                     row[map_notes] if map_notes != "<Skip>" else "", 
                                     "", 
@@ -1557,8 +1553,6 @@ with main_content:
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
-                                        
-                                        # Freq tolerance to catch decimal drift
                                         match_df = fm_db[(pd.to_numeric(fm_db['Frequency'], errors='coerce') >= f_val - 0.05) & 
                                                          (pd.to_numeric(fm_db['Frequency'], errors='coerce') <= f_val + 0.05)]
                                                          
@@ -1569,8 +1563,7 @@ with main_content:
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
                                             
                                             is_match = False
-                                            
-                                            imp_call = super_clean(clean_callsign(raw_call))
+                                            imp_call = super_clean(clean_call)
                                             imp_country = simplify_string(clean_country)
                                             imp_city = simplify_string(clean_city)
                                             
