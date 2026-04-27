@@ -79,6 +79,7 @@ def render_dashboard():
     if 'filter_reset_key' not in st.session_state: st.session_state.filter_reset_key = 0
     if 'matrix_loc' not in st.session_state: st.session_state.matrix_loc = None
     if 'matrix_map_key' not in st.session_state: st.session_state.matrix_map_key = 2000000
+    if 'sat_sector' not in st.session_state: st.session_state.sat_sector = "North America Sector"
 
     def reset_flyouts():
         st.session_state.matrix_loc = None
@@ -362,7 +363,6 @@ def render_dashboard():
             with c_map:
                 dx_map_data = filt_df.groupby(['DXer_City', 'DXer_State', 'DXer_Country']).size().reset_index(name='Logs')
                 
-                # Dynamic Geocoding fallback for missing app.py payload coordinates
                 lats, lons = [], []
                 for _, r in dx_map_data.iterrows():
                     city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
@@ -374,21 +374,35 @@ def render_dashboard():
                 dx_map_data['DX_Lon'] = lons
                 dx_map_data = dx_map_data[(dx_map_data['DX_Lat'] != 0.0) | (dx_map_data['DX_Lon'] != 0.0)]
                 
-                # CRT Wireframe Vector Map (Plotly Scatter Geo)
+                # --- TACTICAL SECTOR TOGGLE ---
+                sat_view = st.radio("SATELLITE UPLINK", ["North America Sector", "Global Sector"], horizontal=True, label_visibility="collapsed")
+                
+                if sat_view == "North America Sector":
+                    geo_scope = 'north america'
+                    geo_res = 50
+                    lat_rng = [15, 65]
+                    lon_rng = [-130, -55]
+                else:
+                    geo_scope = 'world'
+                    geo_res = 110
+                    lat_rng = [-55, 75]
+                    lon_rng = [-160, 160]
+
                 fig_dx = px.scatter_geo(
                     dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
                     hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
-                    scope='north america', size_max=12
+                    scope=geo_scope, size_max=12
                 )
                 fig_dx.update_traces(marker=dict(symbol='diamond', color='#1bd2d4', line=dict(color='#ffffff', width=1), opacity=0.9))
                 fig_dx.update_geos(
-                    resolution=50,
+                    resolution=geo_res,
                     showcoastlines=True, coastlinecolor="#139a9b",
                     showland=True, landcolor="#050505",
                     showocean=True, oceancolor="#050505",
                     showlakes=True, lakecolor="#050505",
                     showcountries=True, countrycolor="#1bd2d4",
                     showsubunits=True, subunitcolor="#139a9b",
+                    lataxis_range=lat_rng, lonaxis_range=lon_rng,
                     bgcolor='#050505'
                 )
                 fig_dx.update_layout(height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
