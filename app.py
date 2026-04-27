@@ -148,9 +148,9 @@ def clean_callsign(call):
     if not call or pd.isna(call): 
         return ""
     call = str(call).strip().upper()
-    call = re.sub(r'\s+R:.*$', '', call)
-    call = call.replace('-FM', '')
-    call = re.sub(r'\s+FM\b', '', call)
+    call = re.sub(r'\s+R:.*$', '', call) # Remove FMList meta tags
+    call = call.replace('-FM', '')       # Safely remove -FM while preserving -LP or -2
+    call = re.sub(r'\s+FM\b', '', call)  # Remove trailing standalone FM
     return call.strip('- ')
 
 def simplify_string(s):
@@ -209,6 +209,7 @@ def format_date_import(date_str):
         if not date_str or date_str == "<Skip>": 
             return ""
         
+        # If it's WLogger format (YYYY-MM-DD), don't use dayfirst
         if "-" in date_str and len(date_str.split("-")[0]) == 4:
             d = pd.to_datetime(date_str)
         else:
@@ -360,16 +361,19 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
+    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
+    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
                 return col
     return None
 
+# --- THE BULLETPROOF CSV PARSER ---
 def handle_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -487,18 +491,22 @@ def check_is_logged(freq, call, slogan, city, state, country, logged_dict):
                 l_st = simplify_string(l_dict['state'])
                 l_ctry = simplify_string(l_dict['country'])
                 
-                if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO"]:
-                    if l_call and c_val and (l_call in c_val or c_val in l_call):
-                        return True
-                    if l_city and city_val and l_st and st_val and (l_city in city_val or city_val in l_city) and l_st == st_val:
-                        return True
-                    if l_call and slogan_val and (l_call in slogan_val or slogan_val in l_call):
-                        return True
-                else:
-                    if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
-                        return True
-                    if l_call and slogan_val and (l_call in slogan_val or slogan_val in l_call):
-                        return True
+                # 1. Callsign Match
+                if l_call and c_val and l_call != "UNKNOWN" and c_val != "UNKNOWN" and (l_call in c_val or c_val in l_call):
+                    return True
+                    
+                # 2. Slogan Match
+                if l_call and slogan_val and l_call != "UNKNOWN" and slogan_val != "UNKNOWN" and (l_call in slogan_val or slogan_val in l_call):
+                    return True
+                    
+                # 3. Location Match (City + State/Country)
+                if l_city and city_val and l_city != "UNKNOWN" and city_val != "UNKNOWN" and (l_city in city_val or city_val in l_city):
+                    if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO"]:
+                        if l_st and st_val and l_st == st_val:
+                            return True
+                    else:
+                        if l_ctry and ctry_val and l_ctry == ctry_val:
+                            return True
     except Exception: 
         pass
     return False
@@ -1138,14 +1146,17 @@ with main_content:
                                             imp_city = simplify_string(clean_city)
                                             imp_state = simplify_string(clean_state)
                                             
-                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO"]:
-                                                if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
-                                                    is_match = True
-                                                elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
-                                                    is_match = True
-                                            else:
-                                                if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
-                                                    is_match = True
+                                            # 1. Standard Callsign Match
+                                            if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
+                                                is_match = True
+                                            # 2. Location Match
+                                            elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city):
+                                                if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO"]:
+                                                    if imp_state and db_state and imp_state == db_state:
+                                                        is_match = True
+                                                else:
+                                                    if imp_country and db_country and imp_country == db_country:
+                                                        is_match = True
                                                     
                                             if is_match:
                                                 station_grid = m_row['Grid']
@@ -1153,7 +1164,6 @@ with main_content:
                                                 clean_call = m_row['Callsign']
                                                 clean_city = m_row['City']
                                                 clean_state = m_row['State']
-                                                clean_country = m_row.get('Country', clean_country)
                                                 break
                                     except Exception: 
                                         pass
@@ -1424,7 +1434,7 @@ with main_content:
                 }
 
         with tab_import:
-            st.write("INITIATE BULK INGESTION PROTOCOL...")
+            st.write("INITIATE BULK INGESTION PROTOCOL (FMLIST / WLOGGER)...")
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="fm_bulk")
             
             if uploaded_file is not None:
@@ -1558,23 +1568,20 @@ with main_content:
                                             imp_city = simplify_string(clean_city)
                                             imp_state = simplify_string(clean_state)
                                             
-                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO"]:
-                                                # Track 1: Standard Callsign Match
-                                                if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
-                                                    is_match = True
-                                                # Track 2: The Ghost Lock
-                                                elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
-                                                    is_match = True
-                                                # Track 3: Slogan Match
-                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
-                                                    is_match = True
-                                            else:
-                                                # Track 2: International Rule
-                                                if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
-                                                    is_match = True
-                                                # Track 3: Slogan Match
-                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
-                                                    is_match = True
+                                            # 1. Standard Callsign Match
+                                            if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
+                                                is_match = True
+                                            # 2. Slogan Match
+                                            elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
+                                                is_match = True
+                                            # 3. Location Match
+                                            elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city):
+                                                if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO"]:
+                                                    if imp_state and db_state and imp_state == db_state:
+                                                        is_match = True
+                                                else:
+                                                    if imp_country and db_country and imp_country == db_country:
+                                                        is_match = True
                                                     
                                             if is_match:
                                                 station_county = m_row['County']
