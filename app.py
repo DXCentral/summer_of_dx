@@ -5,9 +5,17 @@ from geopy.geocoders import Nominatim
 import streamlit.components.v1 as components
 from streamlit_javascript import st_javascript
 
-# Import our new massive background engines!
-from modules.importers import get_idx, find_col, handle_mw_file_upload, handle_fm_file_upload
-from modules.data_forge import mw_db, fm_db, nwr_db, get_state_list, get_logged_dict, check_is_logged_mw, check_is_logged_fm, calculate_distance, get_lat_lon_from_city, standardize_cuban_station, simplify_string, super_clean, format_date_import, format_time_import, clean_callsign, map_fm_prop, map_mw_prop, get_gsheet, get_full_logs_df, itu_map
+# Corrected modular imports
+from modules.importers import (
+    get_idx, find_col, handle_mw_file_upload, handle_fm_file_upload,
+    clean_callsign, simplify_string, super_clean, standardize_cuban_station,
+    format_date_import, format_time_import, map_mw_prop, map_fm_prop, calculate_distance
+)
+from modules.data_forge import (
+    mw_db, fm_db, nwr_db, country_list, get_state_list, get_logged_dict, 
+    check_is_logged_mw, check_is_logged_fm, get_lat_lon_from_city, 
+    get_gsheet, get_full_logs_df, itu_map
+)
 from modules.dashboard import render_dashboard
 
 # --- 1. CORE CONFIGURATION ---
@@ -772,6 +780,8 @@ with main_content:
                         else:
                             bulk_rows = []
                             op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
                             vals = sheet.get_all_values()
                             existing_signatures = set()
                             op_name_upper = op.get('name', '').strip().upper()
@@ -832,13 +842,16 @@ with main_content:
                                         f_val = float(str(raw_freq).replace(',', '.'))
                                         match_df = fm_db[(pd.to_numeric(fm_db['Frequency'], errors='coerce') >= f_val - 0.05) & (pd.to_numeric(fm_db['Frequency'], errors='coerce') <= f_val + 0.05)]
                                         for _, m_row in match_df.iterrows():
-                                            db_call = super_clean(m_row['Callsign'])
-                                            db_slogan = super_clean(m_row.get('Slogan', ''))
-                                            imp_call = super_clean(clean_call)
+                                            db_call, db_slogan, db_city, db_country = super_clean(m_row['Callsign']), super_clean(m_row.get('Slogan', '')), simplify_string(m_row.get('City', '')), simplify_string(m_row.get('Country', 'United States'))
+                                            is_match = False
+                                            imp_call, imp_country, imp_city = super_clean(clean_callsign(raw_call)), simplify_string(clean_country), simplify_string(clean_city)
                                             if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
-                                                station_county, station_grid, clean_call, clean_city, clean_state, clean_country = m_row['County'], m_row['Grid'], m_row['Callsign'], m_row['City'], m_row['State'], m_row.get('Country', clean_country)
-                                                break
-                                            elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
+                                                is_match = True
+                                            elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country: 
+                                                is_match = True
+                                            elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call): 
+                                                is_match = True
+                                            if is_match:
                                                 station_county, station_grid, clean_call, clean_city, clean_state, clean_country = m_row['County'], m_row['Grid'], m_row['Callsign'], m_row['City'], m_row['State'], m_row.get('Country', clean_country)
                                                 break
                                     except Exception: 
@@ -852,6 +865,7 @@ with main_content:
                                 date_sig = str(format_date_import(row[map_date])).strip()
                                 time_sig = str(format_time_import(row[map_time])).strip()
                                 row_sig = f"FM_{sig_freq}_{str(clean_call).strip().upper()}_{date_sig}_{time_sig}"
+                                
                                 if row_sig in existing_signatures:
                                     skipped_dupes += 1
                                     continue
@@ -906,6 +920,7 @@ with main_content:
                     else:
                         try:
                             op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
                             row_data = [
                                 op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
                                 "FM", "", target_data.get("freq", ""), target_data.get("call", ""), "", target_data.get("city", ""),
@@ -962,8 +977,7 @@ with main_content:
                 if f_freq != "All": 
                     results = results[results['Frequency'] == float(f_freq)]
                 if f_call: 
-                    c_simp = simplify_string(f_call)
-                    results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
+                    results = results[results['Callsign'].apply(lambda x: simplify_string(f_call) in simplify_string(x))]
                 if f_city: 
                     results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All": 
@@ -1071,6 +1085,8 @@ with main_content:
                         else:
                             bulk_rows = []
                             op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
                             vals = sheet.get_all_values()
                             existing_signatures = set()
                             op_name_upper = op.get('name', '').strip().upper()
@@ -1192,6 +1208,7 @@ with main_content:
                     else:
                         try:
                             op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
                             row_data = [
                                 op.get('name', ''), op.get('city', ''), op.get('state', ''), op.get('country', ''),
                                 "NWR", "", target_data.get("freq", ""), target_data.get("call", ""), "", target_data.get("city", ""),
