@@ -92,12 +92,12 @@ def render_dashboard():
         st.session_state.dash_nav = "OVERVIEW"
         reset_flyouts()
         st.rerun()
-    if d_cols[1].button("▶ GEOGRAPHIC INTEL", use_container_width=True): 
-        st.session_state.dash_nav = "GEOGRAPHY"
+    if d_cols[1].button("▶ CLASSIFICATION MATRIX", use_container_width=True): 
+        st.session_state.dash_nav = "MATRIX"
         reset_flyouts()
         st.rerun()
-    if d_cols[2].button("▶ CLASSIFICATION MATRIX", use_container_width=True): 
-        st.session_state.dash_nav = "MATRIX"
+    if d_cols[2].button("▶ GEOGRAPHIC INTEL", use_container_width=True): 
+        st.session_state.dash_nav = "GEOGRAPHY"
         reset_flyouts()
         st.rerun()
     if d_cols[3].button("▶ TIMELAPSE & RADAR", use_container_width=True): 
@@ -238,7 +238,7 @@ def render_dashboard():
         )
 
     # =====================================================================
-    # VIEW 3: CLASSIFICATION MATRIX
+    # VIEW 2: CLASSIFICATION MATRIX
     # =====================================================================
     elif st.session_state.dash_nav == "MATRIX":
         st.markdown("### 🗄️ CLASSIFICATION MATRIX")
@@ -457,7 +457,7 @@ def render_dashboard():
                         if not b_df.empty:
                             f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
                             st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='flyout-micro'>{f_r['Frequency']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']})<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']})<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
 
                     st.markdown("</div>", unsafe_allow_html=True)
 
