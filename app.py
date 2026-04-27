@@ -132,7 +132,8 @@ itu_map = {
     "LCA": "St. Lucia", "VCT": "St. Vincent", "GRD": "Grenada", "TCA": "Turks & Caicos",
     "AIA": "Anguilla", "CYM": "Cayman Islands", "MSR": "Montserrat", "GLP": "Guadeloupe",
     "MTQ": "Martinique", "SPM": "St. Pierre & Miquelon",
-    "BON": "Bonaire", "BES": "Bonaire", "ATN": "Bonaire", "ANT": "Bonaire", "BONAIRE": "Bonaire"
+    "BON": "Bonaire", "BES": "Bonaire", "ATN": "Bonaire", "ANT": "Bonaire", "BONAIRE": "Bonaire",
+    "ABW": "Aruba"
 }
 
 def clean_callsign(call):
@@ -667,7 +668,12 @@ def load_fm_intel():
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 
                 if ctr_col:
-                    df['Country'] = df[ctr_col].fillna("United States").apply(lambda x: "United States" if str(x).strip().upper() == "USA" else ("Canada" if str(x).strip().upper() == "CAN" else ("Mexico" if str(x).strip().upper() == "MEX" else str(x).strip().title())))
+                    df['Country'] = df[ctr_col].fillna("United States").apply(
+                        lambda x: itu_map.get(str(x).strip().upper(), str(x).strip().title())
+                    )
+                    df['Country'] = df['Country'].apply(
+                        lambda x: "United States" if str(x).upper() in ["USA", "UNITED STATES"] else x
+                    )
                 else:
                     df['Country'] = "United States"
                 
@@ -1256,8 +1262,7 @@ with main_content:
             if len(rover_grid) >= 4:
                 try:
                     r_lat, r_lon = mh.to_location(rover_grid)
-                    active_lat = float(r_lat)
-                    active_lon = float(r_lon)
+                    active_lat, active_lon = float(r_lat), float(r_lon)
                 except Exception: 
                     pass
                     
@@ -1497,7 +1502,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE LOCK)
+                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1519,7 +1524,7 @@ with main_content:
                                                 # Standard Callsign Match
                                                 if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
                                                     is_match = True
-                                                # The Ghost Lock (If user imported a slogan, match strictly on City/State fallback)
+                                                # The Ghost Lock
                                                 elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
                                                     is_match = True
                                             else:
