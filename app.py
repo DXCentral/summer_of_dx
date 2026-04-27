@@ -209,7 +209,7 @@ def format_date_import(date_str):
         if not date_str or date_str == "<Skip>": 
             return ""
         
-        # Detect WLogger YYYY-MM-DD vs FMList DD.MM.YY
+        # If it's WLogger format (YYYY-MM-DD), don't use dayfirst
         if "-" in date_str and len(date_str.split("-")[0]) == 4:
             d = pd.to_datetime(date_str)
         else:
@@ -356,17 +356,15 @@ def update_from_search():
 def get_idx(guess_list, cols):
     for g in guess_list:
         for idx, c in enumerate(cols):
-            if g.lower() in c.lower(): 
+            if str(g).lower() in str(c).lower(): 
                 return idx
     return 0
 
 def find_col(df, possible_names):
-    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
-    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
@@ -391,13 +389,7 @@ def handle_file_upload(uploaded_file):
     
     best_row = 0
     best_sep = ","
-    
-    # Upgraded Keywords list to naturally detect WLogger exports
-    keywords = [
-        'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
-        'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
-        'mode', 'comments', 'location'
-    ]
+    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 'mode', 'comments', 'location']
     
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
@@ -1100,8 +1092,8 @@ with main_content:
                     c_i1, c_i2, c_i3, c_i4 = st.columns(4)
                     map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["khz", "freq"], cols))
                     map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["program", "call", "station"], cols))
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols))
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time", "timestamp"], cols))
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols))
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time"], cols))
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
                     map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols))
@@ -1218,7 +1210,7 @@ with main_content:
                                     "", 
                                     station_grid,
                                     format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
+                                    row[map_time] if map_time != "<Skip>" else "", 
                                     round(dist_val, 1), 
                                     row[map_notes] if map_notes != "<Skip>" else "", 
                                     "", 
@@ -1480,22 +1472,47 @@ with main_content:
                     st.markdown("#### MAP DATABANK COLUMNS")
                     cols = ["<Skip>"] + df_import.columns.tolist()
                     
+                    if is_wlogger:
+                        idx_freq = get_idx(["frequency"], cols)
+                        idx_call = get_idx(["callsign"], cols)
+                        idx_date = get_idx(["timestamp"], cols)
+                        idx_time = get_idx(["timestamp"], cols)
+                        idx_city = get_idx(["city"], cols)
+                        idx_state = get_idx(["state/prov"], cols)
+                        idx_ctry = 0
+                        idx_dist = get_idx(["distance"], cols)
+                        idx_pi = 0
+                        idx_prop = get_idx(["mode"], cols)
+                        idx_notes = get_idx(["comments"], cols)
+                    else:
+                        idx_freq = get_idx(["freq", "mhz"], cols)
+                        idx_call = get_idx(["call", "station", "program"], cols)
+                        idx_date = get_idx(["date"], cols)
+                        idx_time = get_idx(["time", "utc"], cols)
+                        idx_city = get_idx(["city", "loc"], cols)
+                        idx_state = get_idx(["state", "reg"], cols)
+                        idx_ctry = get_idx(["itu", "countr"], cols)
+                        idx_dist = get_idx(["qrb", "dist", "mi", "km"], cols)
+                        idx_pi = get_idx(["pi"], cols)
+                        idx_prop = get_idx(["propa", "mode"], cols)
+                        idx_notes = get_idx(["remarks", "detail", "info", "comment"], cols)
+                    
                     c_i1, c_i2, c_i3, c_i4 = st.columns(4)
-                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["freq", "mhz"], cols), key="fm_map_1")
-                    map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["call", "station", "program"], cols), key="fm_map_2")
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols), key="fm_map_3")
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["time", "utc", "timestamp"], cols), key="fm_map_4")
+                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=idx_freq, key="fm_map_1")
+                    map_call = c_i2.selectbox("CALLSIGN", cols, index=idx_call, key="fm_map_2")
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=idx_date, key="fm_map_3")
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=idx_time, key="fm_map_4")
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
-                    map_city = c_i5.selectbox("CITY", cols, index=get_idx(["city", "loc"], cols), key="fm_map_5")
-                    map_state = c_i6.selectbox("STATE", cols, index=get_idx(["state", "reg"], cols), key="fm_map_6")
-                    map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols), key="fm_map_7")
-                    map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols), key="fm_map_10")
+                    map_city = c_i5.selectbox("CITY", cols, index=idx_city, key="fm_map_5")
+                    map_state = c_i6.selectbox("STATE", cols, index=idx_state, key="fm_map_6")
+                    map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=idx_ctry, key="fm_map_7")
+                    map_dist = c_i8.selectbox("DISTANCE", cols, index=idx_dist, key="fm_map_10")
                     
                     c_i9, c_i10, c_i11 = st.columns(3)
-                    map_pi = c_i9.selectbox("PI CODE", cols, index=get_idx(["pi"], cols), key="fm_map_8")
-                    map_prop = c_i10.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols), key="fm_map_9")
-                    map_notes = c_i11.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols), key="fm_map_11")
+                    map_pi = c_i9.selectbox("PI CODE", cols, index=idx_pi, key="fm_map_8")
+                    map_prop = c_i10.selectbox("PROPAGATION", cols, index=idx_prop, key="fm_map_9")
+                    map_notes = c_i11.selectbox("NOTES / DETAILS", cols, index=idx_notes, key="fm_map_11")
                     
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="fm_bulk_btn"):
                         sheet = get_gsheet()
