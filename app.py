@@ -78,6 +78,14 @@ input, textarea, div[data-baseweb="select"] > div {
     font-family: 'VT323', monospace !important;
 }
 
+/* Aggressive overrides for centering Dataframes */
+[data-testid="stDataFrame"] th, 
+[data-testid="stDataFrame"] td,
+.stDataFrame div[role="gridcell"] {
+    text-align: center !important;
+    justify-content: center !important;
+}
+
 .typewriter {
     font-size: 2.2rem;
     text-align: center;
@@ -140,9 +148,9 @@ def clean_callsign(call):
     if not call or pd.isna(call): 
         return ""
     call = str(call).strip().upper()
-    call = re.sub(r'\s+R:.*$', '', call)
-    call = call.replace('-FM', '')
-    call = re.sub(r'\s+FM\b', '', call)
+    call = re.sub(r'\s+R:.*$', '', call) # Remove FMList meta tags
+    call = call.replace('-FM', '')       # Safely remove -FM while preserving -LP or -2
+    call = re.sub(r'\s+FM\b', '', call)  # Remove trailing standalone FM
     return call.strip('- ')
 
 def simplify_string(s):
@@ -677,6 +685,8 @@ def load_fm_intel():
                     )
                 else:
                     df['Country'] = "United States"
+                    
+                df['County'] = df.apply(lambda x: x['County'] if x['Country'] == "United States" else " - ", axis=1)
                 
                 return df
         except Exception: 
@@ -1354,7 +1364,7 @@ with main_content:
                     results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
                     results.insert(0, 'Log?', False)
                     
-                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'County', 'Callsign']]
+                    view_df = results[['Log?', 'Frequency', 'Display Call', 'Slogan', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'County', 'Callsign']]
                     edited_df = st.data_editor(
                         view_df, 
                         hide_index=True, 
@@ -1365,7 +1375,7 @@ with main_content:
                             "County": "County/Parish",
                             "Callsign": None
                         },
-                        disabled=['Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'County', 'Callsign'], 
+                        disabled=['Frequency', 'Display Call', 'Slogan', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'County', 'Callsign'], 
                         key=f"fm_db_editor_{fk}"
                     )
                     
@@ -1500,7 +1510,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE LOCK)
+                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1523,17 +1533,17 @@ with main_content:
                                                 # Track 1: Standard Callsign Match
                                                 if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
                                                     is_match = True
-                                                # The Ghost Lock
+                                                # Track 2: The Ghost Lock
                                                 elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
                                                     is_match = True
-                                                # Track 3: The Slogan Match
+                                                # Track 3: Slogan Match
                                                 elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
                                                     is_match = True
                                             else:
-                                                # Track 2: International City/Country Lock
+                                                # Track 2: International Rule
                                                 if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
                                                     is_match = True
-                                                # Track 3: The Slogan Match
+                                                # Track 3: Slogan Match
                                                 elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
                                                     is_match = True
                                                     
