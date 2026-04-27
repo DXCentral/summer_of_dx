@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 import numpy as np
 import datetime
 import time
-from modules.data_forge import load_global_dashboard_data
+from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 
 # --- CYAN ESPIONAGE AESTHETIC ---
 CYAN_SCALE = [
@@ -275,7 +275,7 @@ def render_dashboard():
                 st.dataframe(s_nwr[['DXer', 'Total']], hide_index=True, use_container_width=True, column_config={"Total": st.column_config.NumberColumn("Points", format="%d")})
 
         elif mx_tab == "GRID LEDGER":
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### MW GRID MASTERS")
                 df_g_am = build_progress_board(filt_df[filt_df['Band'] == 'AM'], 'DXer', 'Station_Grid', 100)
@@ -284,6 +284,9 @@ def render_dashboard():
                 st.markdown("#### FM GRID MASTERS")
                 df_g_fm = build_progress_board(filt_df[filt_df['Band'] == 'FM'], 'DXer', 'Station_Grid', 100)
                 st.dataframe(df_g_fm, hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
+            
+            st.markdown("---")
+            c3, c4 = st.columns(2)
             with c3:
                 st.markdown("#### NWR GRID MASTERS")
                 df_g_nwr = build_progress_board(filt_df[filt_df['Band'] == 'NWR'], 'DXer', 'Station_Grid', 25)
@@ -291,7 +294,7 @@ def render_dashboard():
 
         elif mx_tab == "COUNTY/PARISH LEDGER":
             us_df = filt_df[filt_df['Country'] == 'United States']
-            c1, c2, c3 = st.columns(3)
+            c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### MW COUNTY MASTERS")
                 df_c_am = build_progress_board(us_df[us_df['Band'] == 'AM'], 'DXer', 'County', 100)
@@ -300,6 +303,9 @@ def render_dashboard():
                 st.markdown("#### FM COUNTY MASTERS")
                 df_c_fm = build_progress_board(us_df[us_df['Band'] == 'FM'], 'DXer', 'County', 100)
                 st.dataframe(df_c_fm, hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
+            
+            st.markdown("---")
+            c3, c4 = st.columns(2)
             with c3:
                 st.markdown("#### NWR COUNTY MASTERS")
                 df_c_nwr = build_progress_board(us_df[us_df['Band'] == 'NWR'], 'DXer', 'County', 25)
@@ -354,14 +360,26 @@ def render_dashboard():
             c_map, c_fly = st.columns([3, 2]) if st.session_state.matrix_loc else st.columns([1, 0.001])
             
             with c_map:
-                dx_map_data = filt_df.groupby(['DXer_City', 'DX_Lat', 'DX_Lon']).size().reset_index(name='Logs')
+                dx_map_data = filt_df.groupby(['DXer_City', 'DXer_State', 'DXer_Country']).size().reset_index(name='Logs')
+                
+                # Dynamic Geocoding fallback for missing app.py payload coordinates
+                lats, lons = [], []
+                for _, r in dx_map_data.iterrows():
+                    city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
+                    lat, lon = get_lat_lon_from_city(city_query, r['DXer_Country'])
+                    lats.append(lat)
+                    lons.append(lon)
+                    
+                dx_map_data['DX_Lat'] = lats
+                dx_map_data['DX_Lon'] = lons
+                dx_map_data = dx_map_data[(dx_map_data['DX_Lat'] != 0.0) | (dx_map_data['DX_Lon'] != 0.0)]
                 
                 fig_dx = px.scatter_mapbox(
                     dx_map_data, lat='DX_Lat', lon='DX_Lon', 
-                    hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True},
+                    hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
                     color_discrete_sequence=['#1bd2d4'], zoom=4.0, center=dict(lat=38, lon=-95), size_max=15
                 )
-                fig_dx.update_traces(marker=dict(size=12, opacity=0.8))
+                fig_dx.update_traces(marker=dict(size=14, opacity=0.8))
                 fig_dx.update_layout(mapbox_style="carto-darkmatter", height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 
                 ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"m_dx_{st.session_state.matrix_map_key}")
