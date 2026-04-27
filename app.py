@@ -846,7 +846,6 @@ def load_fm_intel():
 @st.cache_data(ttl=86400)
 def load_nwr_intel():
     text = ""
-    # Local First (Bypasses government cloud blocks)
     try:
         files_in_dir = os.listdir('.')
         lower_files = {f.lower(): f for f in files_in_dir}
@@ -856,7 +855,6 @@ def load_nwr_intel():
     except Exception:
         pass
         
-    # Live Fetch Backup
     if not text:
         try:
             url = "https://www.weather.gov/source/nwr/JS/CCL.js"
@@ -868,25 +866,31 @@ def load_nwr_intel():
 
     if text:
         try:
-            start_idx = text.find('[')
-            end_idx = text.rfind(']')
+            lines = text.splitlines()
+            data = {}
+            for line in lines:
+                line = line.strip()
+                if not line or line.startswith('var '): continue
+                
+                match = re.match(r'([A-Z]+)\[(\d+)\]\s*=\s*"(.*?)";', line)
+                if match:
+                    var_name = match.group(1)
+                    idx = int(match.group(2))
+                    val = match.group(3)
+                    
+                    if idx not in data:
+                        data[idx] = {}
+                    data[idx][var_name] = val
+
+            df = pd.DataFrame.from_dict(data, orient='index')
             
-            if start_idx != -1 and end_idx != -1:
-                json_str = text[start_idx:end_idx+1]
-                
-                json_str = re.sub(r'([{,])\s*([a-zA-Z0-9_]+)\s*:', r'\1"\2":', json_str)
-                json_str = json_str.replace("'", '"')
-                json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
-                
-                data = json.loads(json_str)
-                df = pd.DataFrame(data)
-                
-                f_col = find_col(df, ['Frequency', 'Freq', 'FREQ', 'MHZ', 'mhz', 'freq'])
-                c_col = find_col(df, ['Callsign', 'Call', 'CALL', 'Station', 'STATION', 'call'])
-                cty_col = find_col(df, ['City', 'Site', 'SITE', 'Location', 'LOCATION', 'SiteName'])
-                st_col = find_col(df, ['State', 'STATE', 'state'])
-                lat_col = find_col(df, ['Lat', 'LAT', 'LATITUDE'])
-                lon_col = find_col(df, ['Lon', 'LON', 'LONG', 'LONGITUDE'])
+            if not df.empty:
+                f_col = find_col(df, ['FREQ'])
+                c_col = find_col(df, ['CALLSIGN'])
+                cty_col = find_col(df, ['SITENAME'])
+                st_col = find_col(df, ['ST'])
+                lat_col = find_col(df, ['LAT'])
+                lon_col = find_col(df, ['LON'])
                 
                 if f_col and c_col:
                     df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce')
