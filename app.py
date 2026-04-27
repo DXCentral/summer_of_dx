@@ -385,8 +385,8 @@ def find_col(df, possible_names):
                 return col
     return None
 
-# --- THE BULLETPROOF CSV PARSER ---
-def handle_file_upload(uploaded_file):
+# --- THE BULLETPROOF MW CSV PARSER (ISOLATED) ---
+def handle_mw_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
         try:
@@ -403,11 +403,8 @@ def handle_file_upload(uploaded_file):
     
     best_row = 0
     best_sep = ","
-    keywords = [
-        'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
-        'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
-        'mode', 'comments', 'location'
-    ]
+    
+    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
     
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
@@ -442,7 +439,6 @@ def handle_file_upload(uploaded_file):
                 else: 
                     best_sep = ","
 
-    # Explicit reversion to the manual loop architecture combined with csv native parsing
     header_line_raw = next(csv.reader([lines[best_row]], delimiter=best_sep))
     header_line = [h.strip(' \'"') for h in header_line_raw]
     num_cols = len(header_line)
@@ -452,7 +448,6 @@ def handle_file_upload(uploaded_file):
         if not line.strip(): 
             continue
         
-        # safely interpret quoted commas like Wlogger exports
         cols = next(csv.reader([line], delimiter=best_sep))
         
         if len(cols) > num_cols:
@@ -472,6 +467,63 @@ def handle_file_upload(uploaded_file):
         unique_headers.append(h_str)
         
     return pd.DataFrame(parsed_data, columns=unique_headers)
+
+
+# --- THE HEAVYWEIGHT FM PANDAS PARSER (ISOLATED) ---
+def handle_fm_file_upload(uploaded_file):
+    content = ""
+    for enc in ['utf-8', 'latin-1', 'cp1252']:
+        try:
+            uploaded_file.seek(0)
+            content = uploaded_file.read().decode(enc)
+            break
+        except Exception: 
+            continue
+            
+    if not content: 
+        raise ValueError("Unable to decode file. Encoding failure.")
+        
+    lines = content.splitlines()
+    
+    best_row = 0
+    best_sep = ","
+    
+    keywords = [
+        'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
+        'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
+        'mode', 'comments'
+    ]
+    
+    for i, line in enumerate(lines[:50]):
+        line_lower = line.lower()
+        if sum(1 for kw in keywords if kw in line_lower) >= 3 and len(line) < 300:
+            best_row = i
+            c_comma = line.count(",")
+            c_semi = line.count(";")
+            c_tab = line.count("\t")
+            max_d = max(c_comma, c_semi, c_tab)
+            if max_d == c_semi: 
+                best_sep = ";"
+            elif max_d == c_tab: 
+                best_sep = "\t"
+            else: 
+                best_sep = ","
+            break
+            
+    try:
+        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, engine='python', on_bad_lines='skip')
+    except Exception:
+        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, on_bad_lines='skip')
+        
+    df.columns = [str(c).strip(' \'"') for c in df.columns]
+    
+    # Strip WLogger Location/Signature immediately to prevent alignment drift
+    if 'Location' in df.columns:
+        df = df.drop(columns=['Location'])
+    if 'Signature' in df.columns:
+        df = df.drop(columns=['Signature'])
+        
+    return df
 
 # --- 5. DATABANK CONNECTIONS ---
 def get_gsheet():
@@ -1129,7 +1181,7 @@ with main_content:
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="mw_bulk")
             if uploaded_file is not None:
                 try:
-                    df_import = handle_file_upload(uploaded_file)
+                    df_import = handle_mw_file_upload(uploaded_file)
                     st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
@@ -1138,8 +1190,8 @@ with main_content:
                     c_i1, c_i2, c_i3, c_i4 = st.columns(4)
                     map_freq = c_i1.selectbox("FREQUENCY", cols, index=get_idx(["khz", "freq"], cols), key="mw_map_1")
                     map_call = c_i2.selectbox("CALLSIGN", cols, index=get_idx(["program", "call", "station"], cols), key="mw_map_2")
-                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date", "timestamp"], cols), key="mw_map_3")
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time", "timestamp"], cols), key="mw_map_4")
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=get_idx(["date"], cols), key="mw_map_3")
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=get_idx(["utc", "time"], cols), key="mw_map_4")
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
                     map_city = c_i5.selectbox("STATION CITY", cols, index=get_idx(["location", "city", "loc"], cols), key="mw_map_5")
@@ -1199,7 +1251,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # EXPLICIT REVERSION TO ORIGINAL MW MATCHING RULE
+                                # EXPLICIT MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                 if not mw_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1504,7 +1556,7 @@ with main_content:
             
             if uploaded_file is not None:
                 try:
-                    df_import = handle_file_upload(uploaded_file)
+                    df_import = handle_fm_file_upload(uploaded_file)
                     st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
@@ -1619,7 +1671,6 @@ with main_content:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
                                         
-                                        # Freq tolerance to catch decimal drift (+/- 0.05)
                                         match_df = fm_db[(pd.to_numeric(fm_db['Frequency'], errors='coerce') >= f_val - 0.05) & 
                                                          (pd.to_numeric(fm_db['Frequency'], errors='coerce') <= f_val + 0.05)]
                                                          
