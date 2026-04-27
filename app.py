@@ -9,6 +9,7 @@ import io
 import re
 import os
 import csv
+import urllib.request
 import unicodedata
 import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
@@ -842,6 +843,55 @@ def load_fm_intel():
             
     return pd.DataFrame()
 
+@st.cache_data(ttl=86400)
+def load_nwr_intel():
+    try:
+        url = "https://www.weather.gov/source/nwr/JS/CCL.js"
+        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
+        with urllib.request.urlopen(req, timeout=10) as response:
+            text = response.read().decode('utf-8')
+            
+        start_idx = text.find('[')
+        end_idx = text.rfind(']')
+        
+        if start_idx != -1 and end_idx != -1:
+            json_str = text[start_idx:end_idx+1]
+            
+            # Clean up JS specific quirks to make it valid JSON
+            json_str = re.sub(r'([{,])\s*([a-zA-Z0-9_]+)\s*:', r'\1"\2":', json_str)
+            json_str = json_str.replace("'", '"')
+            json_str = re.sub(r',\s*([\]}])', r'\1', json_str)
+            
+            data = json.loads(json_str)
+            df = pd.DataFrame(data)
+            
+            f_col = find_col(df, ['Frequency', 'Freq', 'FREQ', 'MHZ', 'mhz'])
+            c_col = find_col(df, ['Callsign', 'Call', 'CALL', 'Station', 'STATION'])
+            cty_col = find_col(df, ['City', 'Site', 'SITE', 'Location', 'LOCATION', 'SiteName'])
+            st_col = find_col(df, ['State', 'STATE'])
+            lat_col = find_col(df, ['Lat', 'LAT', 'LATITUDE'])
+            lon_col = find_col(df, ['Lon', 'LON', 'LONG', 'LONGITUDE'])
+            
+            if f_col and c_col:
+                df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce')
+                df['Callsign'] = df[c_col].fillna("Unknown").apply(clean_callsign)
+                df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
+                df['State'] = df[st_col].fillna("XX") if st_col else "XX"
+                df['Country'] = "United States"
+                df['County'] = " - "
+                df['LAT'] = pd.to_numeric(df[lat_col], errors='coerce') if lat_col else 0.0
+                df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
+                df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
+                df['Slogan'] = "NOAA Weather Radio"
+                
+                df = df.dropna(subset=['Frequency'])
+                df = df[(df['Frequency'] >= 162.4) & (df['Frequency'] <= 162.55)]
+                
+                return df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']]
+    except Exception: 
+        pass
+    return pd.DataFrame()
+
 @st.cache_data
 def load_countries():
     files_to_try = [
@@ -877,6 +927,7 @@ def load_countries():
 
 mw_db = load_mw_intel()
 fm_db = load_fm_intel()
+nwr_db = load_nwr_intel()
 country_list = load_countries()
 
 us_states = ["AL", "AK", "AZ", "AR", "CA", "CO", "CT", "DE", "FL", "GA", "HI", "ID", "IL", "IN", "IA", "KS", "KY", "LA", "ME", "MD", "MA", "MI", "MN", "MS", "MO", "MT", "NE", "NV", "NH", "NJ", "NM", "NY", "NC", "ND", "OH", "OK", "OR", "PA", "RI", "SC", "SD", "TN", "TX", "UT", "VT", "VA", "WA", "WV", "WI", "WY"]
@@ -938,6 +989,9 @@ with st.sidebar:
                 st.rerun()
             if st.button("FM INTERCEPT REPORT", key="nav_fm"): 
                 nav_to("FM_LOG")
+                st.rerun()
+            if st.button("NWR INTERCEPT REPORT", key="nav_nwr"): 
+                nav_to("NWR_LOG")
                 st.rerun()
             if st.button("ENCRYPTION PROTOCOL", key="nav_bounty"): 
                 nav_to("BOUNTY_HUNT")
@@ -1527,7 +1581,6 @@ with main_content:
                     results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
                     results.insert(0, 'Log?', False)
                     
-                    # Removed 'PI Code' per request
                     view_df = results[['Log?', 'Frequency', 'Display Call', 'Slogan', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign']]
                     edited_df = st.data_editor(
                         view_df, 
@@ -1842,6 +1895,450 @@ with main_content:
                                 log_notes, 
                                 log_rds, 
                                 log_pi,
+                                log_prop, 
+                                target_data.get("county", ""), 
+                                entry_cat_val, 
+                                "", 
+                                ""
+                            ]
+                            sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                            st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                        except Exception as e: 
+                            st.error(f"FAILED: {e}")
+                            
+    # --- 8D. NWR INTERCEPT ROOM ---
+    elif st.session_state.sys_state == "NWR_LOG":
+        st.markdown("### [ NOAA WEATHER RADIO (NWR) CONSOLE ACTIVE ]")
+        st.markdown("#### 1. OPERATING PARAMETERS")
+        r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="nwr_cat")
+        rover_grid = ""
+        
+        active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
+        active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
+        
+        if r_cat == "ROVER":
+            st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
+            rover_grid = st.text_input("ROVER GRID (e.g., EM40)", key="nwr_rov")
+            if len(rover_grid) >= 4:
+                try:
+                    r_lat, r_lon = mh.to_location(rover_grid)
+                    active_lat = float(r_lat)
+                    active_lon = float(r_lon)
+                except Exception: 
+                    pass
+                    
+        st.markdown("#### 2. TARGET ACQUISITION")
+        tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
+        target_data = {}
+        
+        with tab_search:
+            st.write("ACCESSING WTFDA DATABANKS...")
+            if nwr_db.empty: 
+                st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: NWR database not found.")
+            else:
+                if 'nwr_filter_key' not in st.session_state: 
+                    st.session_state.nwr_filter_key = 0
+                    
+                def reset_nwr_filters(): 
+                    st.session_state.nwr_filter_key += 1
+                
+                c_btn1, c_btn2 = st.columns([1.5, 3.5])
+                c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_nwr_filters, key="nwr_reset")
+                if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_nwr"):
+                    get_logged_dict.clear()
+                    load_nwr_intel.clear()
+                    st.rerun()
+                
+                fk = st.session_state.nwr_filter_key
+                c1, c2, c3, c4 = st.columns(4)
+                all_freqs = sorted(nwr_db['Frequency'].dropna().unique().tolist())
+                f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"nwr_f1_{fk}")
+                f_call = c2.text_input("CALLSIGN", key=f"nwr_f2_{fk}")
+                f_city = c3.text_input("CITY", key=f"nwr_f3_{fk}")
+                f_state = c4.selectbox("STATE", ["All"] + sorted(nwr_db['State'].dropna().unique().tolist()), key=f"nwr_f4_{fk}")
+                
+                c5, c6, c7, c8 = st.columns(4)
+                all_countries = sorted(nwr_db['Country'].dropna().unique().tolist()) if 'Country' in nwr_db.columns else ["United States"]
+                f_ctry = c5.selectbox("COUNTRY", ["All"] + all_countries, key=f"nwr_f5_{fk}")
+                f_county = c6.text_input("COUNTY/PARISH", key=f"nwr_f6_{fk}")
+                f_grid = c7.text_input("GRID", key=f"nwr_f7_{fk}")
+                f_status = c8.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"nwr_f8_{fk}")
+                
+                results = nwr_db.copy()
+                if f_freq != "All": 
+                    results = results[results['Frequency'] == float(f_freq)]
+                if f_call: 
+                    c_simp = simplify_string(f_call)
+                    results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
+                if f_city: 
+                    results = results[results['City'].str.contains(f_city, case=False, na=False)]
+                if f_state != "All": 
+                    results = results[results['State'] == f_state]
+                if f_ctry != "All": 
+                    results = results[results['Country'] == f_ctry]
+                if f_county: 
+                    results = results[results['County'].str.contains(f_county, case=False, na=False)]
+                if f_grid: 
+                    results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
+                    
+                if f_status != "All":
+                    logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "NWR")
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged_fm(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
+                    if f_status == "Logged Only": 
+                        results = results[results['Is_Logged']]
+                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                        full_logs_df = get_full_logs_df(st.session_state.operator_profile.get('name', ''), "NWR")
+                        if not full_logs_df.empty:
+                            csv_data = full_logs_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(label="📥 DOWNLOAD MY LOGS (CSV)", data=csv_data, file_name=f"My_NWR_Logs_{datetime.date.today().strftime('%Y%m%d')}.csv", mime="text/csv")
+                    else: 
+                        results = results[~results['Is_Logged']]
+                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                        
+                st.write(f"> {len(results)} TARGETS FOUND:")
+                st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: Weather.gov (NWR)*</div>", unsafe_allow_html=True)
+                
+                if not results.empty:
+                    if len(results) <= 100:
+                        for idx, r in results.iterrows():
+                            if float(r.get('LAT', 0.0)) == 0.0 and float(r.get('LON', 0.0)) == 0.0:
+                                lat, lon = get_lat_lon_from_city(r['City'], r.get('Country', 'United States'))
+                                results.at[idx, 'LAT'] = lat
+                                results.at[idx, 'LON'] = lon
+                                
+                    results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+                    
+                    if active_lat != 0.0 and active_lon != 0.0:
+                        results = results[results['Dist'] > 0.0]
+                        
+                    results = results.sort_values(by='Dist', ascending=True)
+                    
+                    logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "NWR")
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged_fm(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
+                    results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
+                    results.insert(0, 'Log?', False)
+                    
+                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign']]
+                    edited_df = st.data_editor(
+                        view_df, 
+                        hide_index=True, 
+                        use_container_width=True,
+                        column_config={
+                            "Log?": st.column_config.CheckboxColumn("Log?"), 
+                            "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
+                            "County": "County/Parish",
+                            "Callsign": None
+                        },
+                        disabled=['Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign'], 
+                        key=f"nwr_db_editor_{fk}"
+                    )
+                    
+                    selected_rows = edited_df[edited_df['Log?'] == True]
+                    if not selected_rows.empty:
+                        target = selected_rows.iloc[0]
+                        grid_str = f" | Grid: {target['Grid']}" if target['Grid'] else ""
+                        dist_str = f" | {target['Dist']} mi" if target['Dist'] > 0 else ""
+                        
+                        c_str = target.get('County', '')
+                        county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
+                        
+                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                        target_data = {
+                            "freq": target['Frequency'], 
+                            "call": target['Callsign'], 
+                            "city": target['City'], 
+                            "state": target['State'], 
+                            "county": target.get('County', 'Unknown'), 
+                            "country": target.get('Country', 'United States'), 
+                            "grid": target['Grid'], 
+                            "pi": "", 
+                            "dist": target['Dist']
+                        }
+
+        with tab_manual:
+            st.write("INITIATE UNLISTED PROTOCOL...")
+            c_m1, c_m2, c_m3 = st.columns(3)
+            man_freq = c_m1.number_input("MANUAL FREQ (MHz)", min_value=162.400, max_value=162.550, value=162.400, step=0.025, key="man_nwr")
+            man_call = c_m2.text_input("STATION ID", key="man_nwr_call")
+            
+            all_db_countries_nwr = sorted(nwr_db['Country'].dropna().unique().tolist()) if not nwr_db.empty else ["United States"]
+            if "Other" not in all_db_countries_nwr: 
+                all_db_countries_nwr.append("Other")
+            def_idx = all_db_countries_nwr.index("United States") if "United States" in all_db_countries_nwr else 0
+            man_ctry = c_m3.selectbox("COUNTRY", all_db_countries_nwr, index=def_idx, key="man_nwr_ctry")
+            man_other = st.text_input("SPECIFY COUNTRY:") if man_ctry == "Other" else ""
+            
+            c_m4, c_m5, c_m6 = st.columns(3)
+            man_city = c_m4.text_input("CITY", key="nwr_man_cty")
+            man_sp = c_m5.selectbox("STATE/PROV", get_state_list(man_ctry), key="nwr_sp")
+            man_dist = c_m6.number_input("DIST (MILES)", min_value=0.0, step=1.0, key="nwr_dist")
+            
+            if man_call: 
+                selected_country = man_other if man_ctry == "Other" else man_ctry
+                target_data = {
+                    "freq": man_freq, 
+                    "call": standardize_cuban_station(man_call, man_freq, selected_country), 
+                    "city": man_city, 
+                    "state": man_sp, 
+                    "county": " - " if selected_country not in ["United States"] else "", 
+                    "country": selected_country, 
+                    "grid": "", 
+                    "pi": "", 
+                    "dist": man_dist
+                }
+
+        with tab_import:
+            st.write("INITIATE BULK INGESTION PROTOCOL...")
+            uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="nwr_bulk")
+            
+            if uploaded_file is not None:
+                try:
+                    df_import = handle_fm_file_upload(uploaded_file)
+                    st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
+                    st.dataframe(df_import.head(5), use_container_width=True)
+                    st.markdown("#### MAP DATABANK COLUMNS")
+                    cols = ["<Skip>"] + df_import.columns.tolist()
+                    cols_lower = [str(c).lower() for c in cols]
+                    
+                    is_wlogger = False
+                    if any("timestamp" in c for c in cols_lower) and any("mode" in c for c in cols_lower):
+                        is_wlogger = True
+                    
+                    if is_wlogger:
+                        st.success("✅ WLogger Export Format Detected & Mapped")
+                        idx_freq = get_idx(["frequency"], cols)
+                        idx_call = get_idx(["callsign", "call"], cols)
+                        idx_date = get_idx(["timestamp"], cols)
+                        idx_time = get_idx(["timestamp"], cols)
+                        idx_city = get_idx(["city"], cols)
+                        idx_state = get_idx(["state"], cols)
+                        idx_ctry = 0
+                        idx_dist = get_idx(["distance"], cols)
+                        idx_pi = 0
+                        idx_prop = get_idx(["mode"], cols)
+                        idx_notes = get_idx(["comments"], cols)
+                    else:
+                        st.info("✅ FMList Export Format Detected & Mapped")
+                        idx_freq = get_idx(["freq", "mhz"], cols)
+                        idx_call = get_idx(["call", "station", "program"], cols)
+                        idx_date = get_idx(["date"], cols)
+                        idx_time = get_idx(["time", "utc"], cols)
+                        idx_city = get_idx(["city", "loc"], cols)
+                        idx_state = get_idx(["state", "reg"], cols)
+                        idx_ctry = get_idx(["itu", "countr"], cols)
+                        idx_dist = get_idx(["qrb", "dist", "mi", "km"], cols)
+                        idx_pi = get_idx(["pi"], cols)
+                        idx_prop = get_idx(["propa", "mode"], cols)
+                        idx_notes = get_idx(["remarks", "detail", "info", "comment"], cols)
+                    
+                    c_i1, c_i2, c_i3, c_i4 = st.columns(4)
+                    map_freq = c_i1.selectbox("FREQUENCY", cols, index=idx_freq, key="nwr_map_1")
+                    map_call = c_i2.selectbox("CALLSIGN", cols, index=idx_call, key="nwr_map_2")
+                    map_date = c_i3.selectbox("DATE (UTC)", cols, index=idx_date, key="nwr_map_3")
+                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=idx_time, key="nwr_map_4")
+                    
+                    c_i5, c_i6, c_i7, c_i8 = st.columns(4)
+                    map_city = c_i5.selectbox("CITY", cols, index=idx_city, key="nwr_map_5")
+                    map_state = c_i6.selectbox("STATE", cols, index=idx_state, key="nwr_map_6")
+                    map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=idx_ctry, key="nwr_map_7")
+                    map_dist = c_i8.selectbox("DISTANCE", cols, index=idx_dist, key="nwr_map_10")
+                    
+                    c_i9, c_i10, c_i11 = st.columns(3)
+                    map_pi = c_i9.selectbox("PI CODE", cols, index=idx_pi, key="nwr_map_8")
+                    map_prop = c_i10.selectbox("PROPAGATION", cols, index=idx_prop, key="nwr_map_9")
+                    map_notes = c_i11.selectbox("NOTES / DETAILS", cols, index=idx_notes, key="nwr_map_11")
+                    
+                    if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="nwr_bulk_btn"):
+                        sheet = get_gsheet()
+                        if sheet is None: 
+                            st.error("🚨 DATALINK OFFLINE. Streamlit Secrets not configured.")
+                        else:
+                            bulk_rows = []
+                            op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
+                            for _, row in df_import.iterrows():
+                                raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
+                                
+                                # Aggressive NWR Frequency Filter
+                                try:
+                                    f_val = float(str(raw_freq).replace(',', '.'))
+                                    if f_val < 162.0 or f_val > 163.0: 
+                                        continue 
+                                except Exception: 
+                                    continue
+                                
+                                raw_country = str(row[map_ctry]).strip() if map_ctry != "<Skip>" and not pd.isna(row[map_ctry]) else "USA"
+                                clean_country = itu_map.get(raw_country.upper(), raw_country.title())
+                                if clean_country.upper() in ["USA", "UNITED STATES"]: 
+                                    clean_country = "United States"
+                                
+                                raw_call = row[map_call] if map_call != "<Skip>" else ""
+                                clean_call = clean_callsign(raw_call)
+                                clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
+                                
+                                clean_state = row[map_state] if map_state != "<Skip>" else ""
+                                if clean_country not in ["United States", "Canada", "Mexico"]: 
+                                    clean_state = "DX"
+                                
+                                clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
+                                
+                                dist_val = 0.0
+                                if map_dist != "<Skip>":
+                                    raw_dist = str(row[map_dist]).lower()
+                                    try:
+                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
+                                        if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                            dist_val = clean_dist * 0.621371
+                                        else: 
+                                            dist_val = clean_dist
+                                    except Exception: 
+                                        dist_val = 0.0
+                                        
+                                rds_val = "No"
+                                pi_val = str(row[map_pi]).strip().upper() if map_pi != "<Skip>" and not pd.isna(row[map_pi]) else ""
+                                
+                                if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
+                                    rds_val = "Yes"
+                                    
+                                map_notes_val = str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else ""
+                                if "pi logged" in map_notes_val.lower():
+                                    rds_val = "Yes"
+                                    if not pi_val:
+                                        pi_match = re.search(r'pi logged:\s*([A-F0-9]{4})', map_notes_val, re.IGNORECASE)
+                                        if pi_match:
+                                            pi_val = pi_match.group(1).upper()
+                                
+                                station_grid = ""
+                                station_county = " - " if clean_country not in ["United States"] else ""
+                                
+                                # EXPLICIT NWR TRIPLE-TRACK MATCHING ENGINE
+                                if not nwr_db.empty and raw_freq:
+                                    try:
+                                        f_val = float(str(raw_freq).replace(',', '.'))
+                                        
+                                        match_df = nwr_db[(pd.to_numeric(nwr_db['Frequency'], errors='coerce') >= f_val - 0.05) & 
+                                                         (pd.to_numeric(nwr_db['Frequency'], errors='coerce') <= f_val + 0.05)]
+                                                         
+                                        for _, m_row in match_df.iterrows():
+                                            db_call = super_clean(m_row['Callsign'])
+                                            db_slogan = super_clean(m_row.get('Slogan', ''))
+                                            db_city = simplify_string(m_row.get('City', ''))
+                                            db_country = simplify_string(m_row.get('Country', 'United States'))
+                                            
+                                            is_match = False
+                                            imp_call = super_clean(clean_callsign(raw_call))
+                                            imp_country = simplify_string(clean_country)
+                                            imp_city = simplify_string(clean_city)
+                                            
+                                            # Track 1: Standard Callsign Match
+                                            if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
+                                                is_match = True
+                                                
+                                            # Track 2: City + Country Match
+                                            elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
+                                                is_match = True
+                                                
+                                            # Track 3: Slogan Match
+                                            elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
+                                                is_match = True
+                                                    
+                                            if is_match:
+                                                station_county = m_row['County']
+                                                station_grid = m_row['Grid']
+                                                clean_call = m_row['Callsign']   
+                                                clean_city = m_row['City']       
+                                                clean_state = m_row['State']  
+                                                clean_country = m_row.get('Country', clean_country)   
+                                                break
+                                    except Exception: 
+                                        pass
+
+                                r_data = [
+                                    op.get('name', ''), 
+                                    op.get('city', ''), 
+                                    op.get('state', ''), 
+                                    op.get('country', ''),
+                                    "NWR", 
+                                    "", 
+                                    raw_freq, 
+                                    clean_call, 
+                                    "", 
+                                    clean_city, 
+                                    clean_state, 
+                                    clean_country, 
+                                    "", 
+                                    station_grid,
+                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
+                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
+                                    round(dist_val, 1), 
+                                    map_notes_val, 
+                                    rds_val, 
+                                    pi_val, 
+                                    map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
+                                    station_county, 
+                                    entry_cat_val, 
+                                    "", 
+                                    ""
+                                ]
+                                bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
+                                
+                            try:
+                                sheet.append_rows(bulk_rows)
+                                st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                st.balloons()
+                            except Exception as e: 
+                                st.error(f"BULK FAILED: {e}")
+                except Exception as e: 
+                    st.error(f"FILE ERROR: {e}")
+
+        st.markdown("#### 3. SUBMIT INTERCEPT")
+        with st.form("nwr_submit_form", clear_on_submit=True):
+            col_s1, col_s2, col_s3 = st.columns(3)
+            now = datetime.datetime.now(datetime.timezone.utc)
+            
+            log_date = col_s1.date_input("DATE (UTC)", value=now.date(), key="nwr_dt")
+            log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="nwr_tm")
+            log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"], key="nwr_prop")
+            
+            log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="nwr_nts")
+            
+            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+            if submit_log:
+                if not target_data: 
+                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                else:
+                    sheet = get_gsheet()
+                    if sheet is None: 
+                        st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                    else:
+                        try:
+                            op = st.session_state.operator_profile
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            
+                            row_data = [
+                                op.get('name', ''), 
+                                op.get('city', ''), 
+                                op.get('state', ''), 
+                                op.get('country', ''),
+                                "NWR", 
+                                "", 
+                                target_data.get("freq", ""), 
+                                target_data.get("call", ""), 
+                                "", 
+                                target_data.get("city", ""),
+                                target_data.get("state", ""), 
+                                target_data.get("country", ""), 
+                                "", 
+                                target_data.get("grid", ""),
+                                log_date.strftime("%m/%d/%Y"), 
+                                log_time, 
+                                target_data.get("dist", 0.0), 
+                                log_notes, 
+                                "", 
+                                "",
                                 log_prop, 
                                 target_data.get("county", ""), 
                                 entry_cat_val, 
