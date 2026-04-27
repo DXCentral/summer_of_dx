@@ -88,6 +88,14 @@ input, textarea, div[data-baseweb="select"] > div {
     justify-content: center !important;
 }
 
+/* Eradicate Streamlit Dataframe Toolbars to prevent unauthorized downloads */
+[data-testid="stElementToolbar"], 
+[data-testid="stDataFrame"] [data-testid="stElementToolbar"] {
+    display: none !important;
+    visibility: hidden !important;
+    opacity: 0 !important;
+}
+
 .typewriter {
     font-size: 2.2rem;
     text-align: center;
@@ -373,18 +381,20 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
+    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
+    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
                 return col
     return None
 
-# --- THE BULLETPROOF UNIVERSAL CSV PARSER ---
-def handle_file_upload(uploaded_file):
+# --- THE BULLETPROOF MW CSV PARSER (ISOLATED) ---
+def handle_mw_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
         try:
@@ -401,11 +411,8 @@ def handle_file_upload(uploaded_file):
     
     best_row = 0
     best_sep = ","
-    keywords = [
-        'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
-        'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
-        'mode', 'comments', 'location'
-    ]
+    
+    keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
     
     for i, line in enumerate(lines[:50]):
         line_lower = line.lower()
@@ -423,6 +430,23 @@ def handle_file_upload(uploaded_file):
                 best_sep = ","
             break
             
+    if best_row == 0:
+        max_delims = 0
+        for i, line in enumerate(lines[:50]):
+            c_comma = line.count(",")
+            c_semi = line.count(";")
+            c_tab = line.count("\t")
+            current_max = max(c_comma, c_semi, c_tab)
+            if current_max > max_delims and len(line) < 300:
+                max_delims = current_max
+                best_row = i
+                if c_semi == current_max: 
+                    best_sep = ";"
+                elif c_tab == current_max: 
+                    best_sep = "\t"
+                else: 
+                    best_sep = ","
+
     header_line_raw = next(csv.reader([lines[best_row]], delimiter=best_sep))
     header_line = [h.strip(' \'"') for h in header_line_raw]
     num_cols = len(header_line)
@@ -432,10 +456,7 @@ def handle_file_upload(uploaded_file):
         if not line.strip(): 
             continue
         
-        try:
-            cols = next(csv.reader([line], delimiter=best_sep))
-        except Exception:
-            cols = line.split(best_sep)
+        cols = next(csv.reader([line], delimiter=best_sep))
         
         if len(cols) > num_cols:
             merged_last = best_sep.join(cols[num_cols-1:])
@@ -455,6 +476,63 @@ def handle_file_upload(uploaded_file):
         
     return pd.DataFrame(parsed_data, columns=unique_headers)
 
+
+# --- THE HEAVYWEIGHT FM PANDAS PARSER (ISOLATED) ---
+def handle_fm_file_upload(uploaded_file):
+    content = ""
+    for enc in ['utf-8', 'latin-1', 'cp1252']:
+        try:
+            uploaded_file.seek(0)
+            content = uploaded_file.read().decode(enc)
+            break
+        except Exception: 
+            continue
+            
+    if not content: 
+        raise ValueError("Unable to decode file. Encoding failure.")
+        
+    lines = content.splitlines()
+    
+    best_row = 0
+    best_sep = ","
+    
+    keywords = [
+        'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
+        'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
+        'mode', 'comments'
+    ]
+    
+    for i, line in enumerate(lines[:50]):
+        line_lower = line.lower()
+        if sum(1 for kw in keywords if kw in line_lower) >= 3 and len(line) < 300:
+            best_row = i
+            c_comma = line.count(",")
+            c_semi = line.count(";")
+            c_tab = line.count("\t")
+            max_d = max(c_comma, c_semi, c_tab)
+            if max_d == c_semi: 
+                best_sep = ";"
+            elif max_d == c_tab: 
+                best_sep = "\t"
+            else: 
+                best_sep = ","
+            break
+            
+    try:
+        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, engine='python', on_bad_lines='skip')
+    except Exception:
+        df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, on_bad_lines='skip')
+        
+    df.columns = [str(c).strip(' \'"') for c in df.columns]
+    
+    # Strip WLogger Location/Signature immediately to prevent alignment drift
+    if 'Location' in df.columns:
+        df = df.drop(columns=['Location'])
+    if 'Signature' in df.columns:
+        df = df.drop(columns=['Signature'])
+        
+    return df
+
 # --- 5. DATABANK CONNECTIONS ---
 def get_gsheet():
     try:
@@ -466,6 +544,28 @@ def get_gsheet():
         return client.open_by_key("11_4lKQRCrV2Q0YZM1syECgoSINmnGIG3k6UJH0m_u3Y").worksheet("Form Entries")
     except Exception: 
         return None
+
+@st.cache_data(ttl=60)
+def get_full_logs_df(dxer_name, band):
+    try:
+        sheet = get_gsheet()
+        if sheet is None: 
+            return pd.DataFrame()
+        vals = sheet.get_all_values()
+        if len(vals) < 2: 
+            return pd.DataFrame()
+        
+        df = pd.DataFrame(vals[1:], columns=vals[0])
+        
+        if len(df.columns) > 4:
+            name_col = df.columns[0]
+            band_col = df.columns[4]
+            
+            df = df[(df[name_col].str.strip().str.upper() == dxer_name.strip().upper()) & 
+                    (df[band_col].str.strip().str.upper() == band.upper())]
+        return df
+    except Exception:
+        return pd.DataFrame()
 
 @st.cache_data(ttl=60)
 def get_logged_dict(dxer_name, band):
@@ -1014,8 +1114,16 @@ with main_content:
                     results['Is_Logged'] = results.apply(lambda r: check_is_logged_mw(r['Frequency'], r['Callsign'], r['City'], r['Country'], logged_dict), axis=1)
                     if f_status == "Logged Only": 
                         results = results[results['Is_Logged']]
+                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                        full_logs_df = get_full_logs_df(st.session_state.operator_profile.get('name', ''), "AM")
+                        if not full_logs_df.empty:
+                            csv_data = full_logs_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(label="📥 DOWNLOAD MY LOGS (CSV)", data=csv_data, file_name=f"My_MW_Logs_{datetime.date.today().strftime('%Y%m%d')}.csv", mime="text/csv")
                     else: 
                         results = results[~results['Is_Logged']]
+                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
                         
                 st.write(f"> {len(results)} TARGETS FOUND:")
                 st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Sources: Mesa Mike's AM DB (mesamike.org) & DX Central MW Frequency Challenge Data*</div>", unsafe_allow_html=True)
@@ -1111,7 +1219,7 @@ with main_content:
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="mw_bulk")
             if uploaded_file is not None:
                 try:
-                    df_import = handle_file_upload(uploaded_file)
+                    df_import = handle_mw_file_upload(uploaded_file)
                     st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
@@ -1181,7 +1289,7 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
+                                # EXPLICIT MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                 if not mw_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
@@ -1385,8 +1493,16 @@ with main_content:
                     results['Is_Logged'] = results.apply(lambda r: check_is_logged_fm(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
                     if f_status == "Logged Only": 
                         results = results[results['Is_Logged']]
+                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                        full_logs_df = get_full_logs_df(st.session_state.operator_profile.get('name', ''), "FM")
+                        if not full_logs_df.empty:
+                            csv_data = full_logs_df.to_csv(index=False).encode('utf-8')
+                            st.download_button(label="📥 DOWNLOAD MY LOGS (CSV)", data=csv_data, file_name=f"My_FM_Logs_{datetime.date.today().strftime('%Y%m%d')}.csv", mime="text/csv")
                     else: 
                         results = results[~results['Is_Logged']]
+                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                else:
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
                         
                 st.write(f"> {len(results)} TARGETS FOUND:")
                 st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: WTFDA FM Database*</div>", unsafe_allow_html=True)
@@ -1411,7 +1527,8 @@ with main_content:
                     results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
                     results.insert(0, 'Log?', False)
                     
-                    view_df = results[['Log?', 'Frequency', 'Display Call', 'Slogan', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'County', 'Callsign']]
+                    # Removed 'PI Code' per request
+                    view_df = results[['Log?', 'Frequency', 'Display Call', 'Slogan', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign']]
                     edited_df = st.data_editor(
                         view_df, 
                         hide_index=True, 
@@ -1422,7 +1539,7 @@ with main_content:
                             "County": "County/Parish",
                             "Callsign": None
                         },
-                        disabled=['Frequency', 'Display Call', 'Slogan', 'City', 'State', 'Country', 'Dist', 'PI Code', 'Grid', 'County', 'Callsign'], 
+                        disabled=['Frequency', 'Display Call', 'Slogan', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign'], 
                         key=f"fm_db_editor_{fk}"
                     )
                     
@@ -1444,7 +1561,7 @@ with main_content:
                             "county": target.get('County', 'Unknown'), 
                             "country": target.get('Country', 'United States'), 
                             "grid": target['Grid'], 
-                            "pi": target.get('PI Code', ''), 
+                            "pi": "", 
                             "dist": target['Dist']
                         }
 
@@ -1486,7 +1603,7 @@ with main_content:
             
             if uploaded_file is not None:
                 try:
-                    df_import = handle_file_upload(uploaded_file)
+                    df_import = handle_fm_file_upload(uploaded_file)
                     st.write(f"DETECTED {len(df_import)} RECORDS. PREVIEW:")
                     st.dataframe(df_import.head(5), use_container_width=True)
                     st.markdown("#### MAP DATABANK COLUMNS")
