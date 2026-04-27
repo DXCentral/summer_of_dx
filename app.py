@@ -140,9 +140,9 @@ def clean_callsign(call):
     if not call or pd.isna(call): 
         return ""
     call = str(call).strip().upper()
-    call = re.sub(r'\s+R:.*$', '', call) # Remove FMList meta tags
-    call = call.replace('-FM', '')       # Safely remove -FM while preserving -LP or -2
-    call = re.sub(r'\s+FM\b', '', call)  # Remove trailing standalone FM
+    call = re.sub(r'\s+R:.*$', '', call)
+    call = call.replace('-FM', '')
+    call = re.sub(r'\s+FM\b', '', call)
     return call.strip('- ')
 
 def simplify_string(s):
@@ -333,12 +333,10 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
-    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
-    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
@@ -477,10 +475,11 @@ def get_logged_dict(dxer_name, band):
     except Exception: 
         return {}
 
-def check_is_logged(freq, call, city, state, country, logged_dict):
+def check_is_logged(freq, call, slogan, city, state, country, logged_dict):
     try:
         f_val = float(freq)
         c_val = simplify_string(call)
+        slogan_val = simplify_string(slogan)
         city_val = simplify_string(city)
         st_val = simplify_string(state)
         ctry_val = simplify_string(country)
@@ -492,17 +491,17 @@ def check_is_logged(freq, call, city, state, country, logged_dict):
                 l_st = simplify_string(l_dict['state'])
                 l_ctry = simplify_string(l_dict['country'])
                 
-                # Dual Track Match
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
-                    # Substring Callsign lock
                     if l_call and c_val and (l_call in c_val or c_val in l_call):
                         return True
-                    # The Ghost Lock: Slogan bailout if City+State match
                     if l_city and city_val and l_st and st_val and (l_city in city_val or city_val in l_city) and l_st == st_val:
                         return True
+                    if l_call and slogan_val and (l_call in slogan_val or slogan_val in l_call):
+                        return True
                 else:
-                    # International City/Country Lock
                     if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
+                        return True
+                    if l_call and slogan_val and (l_call in slogan_val or slogan_val in l_call):
                         return True
     except Exception: 
         pass
@@ -518,7 +517,6 @@ def load_mw_intel():
         "Mesa Mike US Station Data - Sheet1.csv"
     ]
     
-    # Case-insensitive File Hunter
     actual_file = None
     try:
         files_in_dir = os.listdir('.')
@@ -548,11 +546,11 @@ def load_mw_intel():
                 mesa_df['LON'] = pd.to_numeric(mesa_df['LON'], errors='coerce')
                 mesa_df['Grid'] = mesa_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 mesa_df['Country'] = "United States"
+                mesa_df['Slogan'] = ""
                 break
         except Exception: 
             continue
             
-    # Adaptive Ingestion for the International Databank
     try:
         intl_files = [
             "Summer of DX - International Database - MW - International Station List.csv",
@@ -599,6 +597,7 @@ def load_mw_intel():
                 intl_df['State'] = intl_df[st_col].fillna("DX") if st_col else "DX"
                 intl_df['Country'] = intl_df[ctr_col].fillna("Unknown") if ctr_col else "Unknown"
                 intl_df['County'] = " - "
+                intl_df['Slogan'] = ""
                 
                 intl_df['LAT'] = pd.to_numeric(intl_df[lat_col], errors='coerce') if lat_col else 0.0
                 intl_df['LON'] = pd.to_numeric(intl_df[lon_col], errors='coerce') if lon_col else 0.0
@@ -606,7 +605,7 @@ def load_mw_intel():
                 
                 intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
                 
-                keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid']
+                keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']
                 if not mesa_df.empty:
                     mesa_df = pd.concat([mesa_df[keep_cols], intl_df[keep_cols]], ignore_index=True)
                 else:
@@ -619,6 +618,7 @@ def load_mw_intel():
 @st.cache_data
 def load_fm_intel():
     files_to_try = [
+        "WTFDA Enriched.csv",
         "WTFDA_Enriched.csv", 
         "WTFDA Enriched (1).csv", 
         "WTFDA Enriched.CSV",
@@ -626,7 +626,6 @@ def load_fm_intel():
         "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"
     ]
     
-    # Case-insensitive File Hunter
     actual_file = None
     try:
         files_in_dir = os.listdir('.')
@@ -653,11 +652,13 @@ def load_fm_intel():
                 lat_col = find_col(df, ['Decimal_Lat', 'Lat', 'LAT', 'Lat_N', 'Lat-N'])
                 lon_col = find_col(df, ['Decimal_Lon', 'Long', 'Lon', 'LON', 'Long_W', 'Long-W'])
                 ctr_col = find_col(df, ['Country', 'COUNTRY'])
+                slg_col = find_col(df, ['Slogan', 'SLOGAN'])
 
                 df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce') if f_col else 0.0
                 df['Callsign'] = df[c_col].fillna("Unknown").apply(clean_callsign) if c_col else "Unknown"
                 df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
                 df['State'] = df[st_col].fillna("XX") if st_col else "XX"
+                df['Slogan'] = df[slg_col].fillna("").apply(lambda x: str(x).strip()) if slg_col else ""
                 
                 df['PI Code'] = df[pi_col].fillna("").apply(lambda x: str(x).strip().upper()) if pi_col else ""
                 df['PI Code'] = df['PI Code'].apply(lambda x: "" if x in ["NONE", "0", "0000", ""] else x)
@@ -929,7 +930,7 @@ with main_content:
                 c5, c6, c7, c8 = st.columns(4)
                 all_countries = sorted(mw_db['Country'].dropna().unique().tolist()) if 'Country' in mw_db.columns else ["United States"]
                 f_ctry = c5.selectbox("COUNTRY", ["All"] + all_countries, key=f"mw_f5_{fk}")
-                f_county = c6.text_input("COUNTY", key=f"mw_f6_{fk}")
+                f_county = c6.text_input("COUNTY/PARISH", key=f"mw_f6_{fk}")
                 f_grid = c7.text_input("GRID", key=f"mw_f7_{fk}")
                 f_status = c8.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"mw_f8_{fk}")
                 
@@ -952,7 +953,7 @@ with main_content:
                     
                 if f_status != "All":
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "AM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['State'], r['Country'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
                     if f_status == "Logged Only": 
                         results = results[results['Is_Logged']]
                     else: 
@@ -977,7 +978,7 @@ with main_content:
                     results = results.sort_values(by='Dist', ascending=True)
                     
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "AM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['State'], r['Country'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
                     results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
                     results.insert(0, 'Log?', False)
                     
@@ -1139,8 +1140,10 @@ with main_content:
                                             imp_city = simplify_string(clean_city)
                                             imp_state = simplify_string(clean_state)
                                             
-                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
+                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO"]:
                                                 if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
+                                                    is_match = True
+                                                elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
                                                     is_match = True
                                             else:
                                                 if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
@@ -1299,7 +1302,7 @@ with main_content:
                 c5, c6, c7, c8 = st.columns(4)
                 all_countries = sorted(fm_db['Country'].dropna().unique().tolist()) if 'Country' in fm_db.columns else ["United States"]
                 f_ctry = c5.selectbox("COUNTRY", ["All"] + all_countries, key=f"fm_f5_{fk}")
-                f_county = c6.text_input("COUNTY", key=f"fm_f6_{fk}")
+                f_county = c6.text_input("COUNTY/PARISH", key=f"fm_f6_{fk}")
                 f_grid = c7.text_input("GRID", key=f"fm_f7_{fk}")
                 f_status = c8.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"fm_f8_{fk}")
                 
@@ -1322,7 +1325,7 @@ with main_content:
                     
                 if f_status != "All":
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "FM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['State'], r['Country'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
                     if f_status == "Logged Only": 
                         results = results[results['Is_Logged']]
                     else: 
@@ -1347,7 +1350,7 @@ with main_content:
                     results = results.sort_values(by='Dist', ascending=True)
                     
                     logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "FM")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r['City'], r['State'], r['Country'], logged_dict), axis=1)
+                    results['Is_Logged'] = results.apply(lambda r: check_is_logged(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
                     results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
                     results.insert(0, 'Log?', False)
                     
@@ -1409,15 +1412,10 @@ with main_content:
             if man_call: 
                 selected_country = man_other if man_ctry == "Other" else man_ctry
                 target_data = {
-                    "freq": man_freq, 
-                    "call": standardize_cuban_station(man_call, man_freq, selected_country), 
-                    "city": man_city, 
-                    "state": man_sp, 
-                    "county": " - " if selected_country not in ["United States"] else "", 
+                    "freq": man_freq, "call": standardize_cuban_station(man_call, man_freq, selected_country), 
+                    "city": man_city, "state": man_sp, "county": " - " if selected_country not in ["United States"] else "", 
                     "country": selected_country, 
-                    "grid": "", 
-                    "pi": "", 
-                    "dist": man_dist
+                    "grid": "", "pi": "", "dist": man_dist
                 }
 
         with tab_import:
@@ -1502,13 +1500,14 @@ with main_content:
                                 station_grid = ""
                                 station_county = " - " if clean_country not in ["United States"] else ""
                                 
-                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE
+                                # TRIPLE-TRACK MATCHING ENGINE & OVERWRITE (NO PI CODE LOCK)
                                 if not fm_db.empty and raw_freq:
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
                                         match_df = fm_db[fm_db['Frequency'] == f_val]
                                         for _, m_row in match_df.iterrows():
                                             db_call = simplify_string(m_row['Callsign'])
+                                            db_slogan = simplify_string(m_row.get('Slogan', ''))
                                             db_city = simplify_string(m_row.get('City', ''))
                                             db_state = simplify_string(m_row.get('State', ''))
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
@@ -1520,16 +1519,22 @@ with main_content:
                                             imp_city = simplify_string(clean_city)
                                             imp_state = simplify_string(clean_state)
                                             
-                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
-                                                # Standard Callsign Match
+                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO"]:
+                                                # Track 1: Standard Callsign Match
                                                 if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
                                                     is_match = True
                                                 # The Ghost Lock
                                                 elif imp_city and db_city and imp_state and db_state and (imp_city in db_city or db_city in imp_city) and imp_state == db_state:
                                                     is_match = True
+                                                # Track 3: The Slogan Match
+                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
+                                                    is_match = True
                                             else:
-                                                # International Rule
+                                                # Track 2: International City/Country Lock
                                                 if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
+                                                    is_match = True
+                                                # Track 3: The Slogan Match
+                                                elif imp_call and db_slogan and (imp_call in db_slogan or db_slogan in imp_call):
                                                     is_match = True
                                                     
                                             if is_match:
