@@ -12,6 +12,10 @@ import csv
 import urllib.request
 import unicodedata
 import streamlit.components.v1 as components
+import plotly.express as px
+import plotly.graph_objects as go
+import pydeck as pdk
+import numpy as np
 from geopy.geocoders import Nominatim
 from google.oauth2.service_account import Credentials
 from streamlit_javascript import st_javascript
@@ -23,10 +27,21 @@ st.set_page_config(
     initial_sidebar_state="expanded"
 )
 
+# EXPLICIT SESSION STATE INITIALIZATION FOR DASHBOARD
+if 'full_screen' not in st.session_state: 
+    st.session_state.full_screen = False
+if 'selected_mhz' not in st.session_state: 
+    st.session_state.selected_mhz = "TUNE..."
+if 'freq_direct_entry' not in st.session_state: 
+    st.session_state.freq_direct_entry = ""
+if 'dash_nav' not in st.session_state: 
+    st.session_state.dash_nav = "OVERVIEW"
+
 # --- 2. WARGAMES CRT CSS (CYAN ESPIONAGE EDITION) ---
 crt_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
+@import url('https://fonts.googleapis.com/css2?family=Share+Tech+Mono&display=swap');
 
 html, body, [class*="st-"] {
     background-color: #050505 !important;
@@ -97,6 +112,24 @@ input, textarea, div[data-baseweb="select"] > div {
     opacity: 0 !important;
 }
 
+/* VIRTUAL SDR LCD STYLING */
+.lcd-screen {
+    background-color: #0a1a1a;
+    color: #1bd2d4;
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 4.5rem;
+    font-weight: bold;
+    text-align: center;
+    padding: 10px;
+    border-radius: 8px;
+    border: 4px solid #139a9b;
+    box-shadow: inset 0px 0px 15px rgba(19,154,155,0.6);
+    line-height: 1.1;
+    margin-bottom: 10px;
+    text-shadow: 0px 0px 10px rgba(27,210,212,0.8);
+}
+.lcd-unit { font-size: 1.8rem; color: #139a9b; }
+
 .typewriter {
     font-size: 2.2rem;
     text-align: center;
@@ -119,13 +152,45 @@ input, textarea, div[data-baseweb="select"] > div {
     background-color: rgba(19, 154, 155, 0.05);
 }
 
+.stat-header { 
+    color: #1bd2d4; 
+    font-size: 1.2rem; 
+    font-weight: 400; 
+    margin-bottom: 5px; 
+    border-bottom: 1px solid #139a9b; 
+    letter-spacing: 1px; 
+    padding-top: 15px; 
+    text-transform: uppercase;
+}
+
+.stat-val { 
+    font-size: 2.5rem; 
+    color: #FFF; 
+    font-weight: bold; 
+    margin-top: 5px; 
+    text-shadow: 0px 0px 10px rgba(255,255,255,0.3);
+}
+
+.stat-label { 
+    font-size: 1rem; 
+    color: #139a9b; 
+    text-transform: uppercase; 
+    margin-bottom: 8px; 
+    line-height: 1.2; 
+}
+
 hr {
     border-color: #139a9b !important;
     opacity: 0.3;
 }
+
+[data-testid="stDeckGlJsonChart"] { height: 700px !important; }
 </style>
 """
 st.markdown(crt_css, unsafe_allow_html=True)
+
+if st.session_state.full_screen:
+    st.markdown("""<style>[data-testid="stSidebar"], [data-testid="stHeader"] { display: none !important; } .stMain { padding: 0 !important; }</style>""", unsafe_allow_html=True)
 
 # --- 3. BACKGROUND TASKS (LOCAL STORAGE INJECTION) ---
 if "profile_to_save" in st.session_state:
@@ -159,9 +224,9 @@ def clean_callsign(call):
     if not call or pd.isna(call): 
         return ""
     call = str(call).strip().upper()
-    call = re.sub(r'\s+R:.*$', '', call) # Remove FMList meta tags
-    call = call.replace('-FM', '')       # Safely remove -FM while preserving -LP or -2
-    call = re.sub(r'\s+FM\b', '', call)  # Remove trailing standalone FM
+    call = re.sub(r'\s+R:.*$', '', call)
+    call = call.replace('-FM', '')
+    call = re.sub(r'\s+FM\b', '', call)
     return call.strip('- ')
 
 def simplify_string(s):
@@ -178,14 +243,14 @@ def super_clean(s):
     s = str(s).upper()
     s = unicodedata.normalize('NFD', s).encode('ascii', 'ignore').decode('utf-8')
     s = re.sub(r'[^A-Z0-9]', '', s)
-    if s.endswith('FM'):
+    if s.endswith('FM'): 
         s = s[:-2]
     return s
 
 def standardize_cuban_station(call, freq, country):
-    if str(country).strip() != "Cuba" or not call or pd.isna(call):
+    if str(country).strip() != "Cuba" or not call or pd.isna(call): 
         return call
-        
+    
     call_lower = str(call).lower()
     
     try: 
@@ -194,15 +259,15 @@ def standardize_cuban_station(call, freq, country):
         freq_str = str(freq).strip()
         
     cuban_networks = {
-        r'reloj': 'Radio Reloj',
-        r'rebelde': 'Radio Rebelde',
+        r'reloj': 'Radio Reloj', 
+        r'rebelde': 'Radio Rebelde', 
         r'progres[s]*o': 'Radio Progreso',
-        r'enc[iy]clopedia': 'Radio Enciclopedia',
+        r'enc[iy]clopedia': 'Radio Enciclopedia', 
         r'music[al]*\s*nacional|cmbf': 'Radio Musical Nacional',
-        r'ciudad\s*de\s*h[ab|av]ana': 'Radio Ciudad de Habana',
+        r'ciudad\s*de\s*h[ab|av]ana': 'Radio Ciudad de Habana', 
         r'guam[aá]': 'Radio Guamá',
-        r'mart[ií]': 'Radio Martí',
-        r'victori[a]': 'Radio Victoria',
+        r'mart[ií]': 'Radio Martí', 
+        r'victori[a]': 'Radio Victoria', 
         r'cadena\s*agramonte': 'Radio Cadena Agramonte'
     }
     
@@ -214,14 +279,14 @@ def standardize_cuban_station(call, freq, country):
             
     if not std_name:
         std_name = re.sub(r'^r\.\s*', 'Radio ', str(call), flags=re.IGNORECASE)
-        if re.match(r'^CM[A-Z]{2}$', std_name.upper()):
+        if re.match(r'^CM[A-Z]{2}$', std_name.upper()): 
             std_name = std_name.upper()
-        else:
+        else: 
             std_name = std_name.title()
             
-    if freq_str and f"({freq_str})" not in std_name:
+    if freq_str and f"({freq_str})" not in std_name: 
         return f"{std_name} ({freq_str})"
-        
+    
     return std_name
 
 def format_date_import(date_str):
@@ -230,14 +295,13 @@ def format_date_import(date_str):
         if not date_str or date_str == "<Skip>": 
             return ""
         
-        # If it's WLogger format (YYYY-MM-DD), don't use dayfirst
-        if "-" in date_str and len(date_str.split("-")[0]) == 4:
+        if "-" in date_str and len(date_str.split("-")[0]) == 4: 
             d = pd.to_datetime(date_str)
-        else:
+        else: 
             d = pd.to_datetime(date_str, dayfirst=True)
             
         return d.strftime("%m/%d/%Y")
-    except Exception:
+    except Exception: 
         return date_str
 
 def format_time_import(time_str):
@@ -246,12 +310,12 @@ def format_time_import(time_str):
         if not time_str or time_str == "<Skip>": 
             return ""
             
-        if re.match(r'^\d{3,4}$', time_str):
+        if re.match(r'^\d{3,4}$', time_str): 
             return time_str.zfill(4)
             
         d = pd.to_datetime(time_str)
         return d.strftime("%H%M")
-    except Exception:
+    except Exception: 
         return time_str
 
 def map_mw_prop(prop_raw):
@@ -285,14 +349,15 @@ def map_fm_prop(prop_raw):
     return "Other"
 
 def calculate_distance(lat1, lon1, lat2, lon2):
-    if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2):
+    if pd.isna(lat1) or pd.isna(lon1) or pd.isna(lat2) or pd.isna(lon2): 
         return 0.0
     try:
         lat1 = float(lat1)
         lon1 = float(lon1)
         lat2 = float(lat2)
         lon2 = float(lon2)
-        if (lat1 == 0.0 and lon1 == 0.0) or (lat2 == 0.0 and lon2 == 0.0):
+        
+        if (lat1 == 0.0 and lon1 == 0.0) or (lat2 == 0.0 and lon2 == 0.0): 
             return 0.0
             
         R = 3958.8 
@@ -302,9 +367,8 @@ def calculate_distance(lat1, lon1, lat2, lon2):
         dlambda = math.radians(lon2 - lon1)
         
         a = math.sin(dphi/2)**2 + math.cos(phi1)*math.cos(phi2)*math.sin(dlambda/2)**2
-        dist = 2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a))
-        return round(dist, 1)
-    except Exception:
+        return round(2 * R * math.atan2(math.sqrt(a), math.sqrt(1-a)), 1)
+    except Exception: 
         return 0.0
 
 @st.cache_data(ttl=86400)
@@ -313,11 +377,11 @@ def get_lat_lon_from_city(city, country):
         geolocator = Nominatim(user_agent="dx_central_logger_v7", timeout=5)
         query = f"{city}, {country}" if city and city != "Unknown" and not pd.isna(city) else country
         loc = geolocator.geocode(query)
-        if not loc and city and city != "Unknown":
+        if not loc and city and city != "Unknown": 
             loc = geolocator.geocode(country)
-        if loc:
+        if loc: 
             return float(loc.latitude), float(loc.longitude)
-    except Exception:
+    except Exception: 
         pass
     return 0.0, 0.0
 
@@ -341,13 +405,13 @@ def reverse_geocode(lat, lon):
             addr = location.raw.get('address', {})
             found_city = ""
             for tag in ['city', 'town', 'village', 'hamlet']:
-                if tag in addr:
+                if tag in addr: 
                     found_city = addr[tag]
                     break
             st.session_state.op_city_val = found_city
             st.session_state.op_state_val = addr.get('state', addr.get('province', ''))
             st.session_state.op_country_val = addr.get('country', 'United States')
-    except Exception:
+    except Exception: 
         pass
 
 def update_from_grid():
@@ -382,19 +446,29 @@ def get_idx(guess_list, cols):
     return 0
 
 def find_col(df, possible_names):
-    # Strict Exact Match Check First
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() == str(col).lower().strip(): 
                 return col
-    # Fallback Fuzzy Check
     for n in possible_names:
         for col in df.columns:
             if str(n).lower() in str(col).lower(): 
                 return col
     return None
 
-# --- THE BULLETPROOF MW CSV PARSER (ISOLATED) ---
+def update_freq_from_input():
+    raw = st.session_state.freq_direct_entry
+    if raw:
+        val = str(raw).strip()
+        if '.' not in val and len(val) >= 3:
+            val = val[:-1] + '.' + val[-1]
+        try: 
+            st.session_state.selected_mhz = round(float(val), 1)
+        except Exception: 
+            pass
+    st.session_state.freq_direct_entry = ""
+
+# --- THE BULLETPROOF MW CSV PARSER ---
 def handle_mw_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -409,10 +483,8 @@ def handle_mw_file_upload(uploaded_file):
         raise ValueError("Unable to decode file. Encoding failure.")
         
     lines = content.splitlines()
-    
     best_row = 0
     best_sep = ","
-    
     keywords = ['khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 'qrb', 'sinpo', 'remarks', 'details']
     
     for i, line in enumerate(lines[:50]):
@@ -456,15 +528,12 @@ def handle_mw_file_upload(uploaded_file):
     for line in lines[best_row+1:]:
         if not line.strip(): 
             continue
-        
         cols = next(csv.reader([line], delimiter=best_sep))
-        
         if len(cols) > num_cols:
             merged_last = best_sep.join(cols[num_cols-1:])
             cols = cols[:num_cols-1] + [merged_last]
         elif len(cols) < num_cols:
             cols.extend([""] * (num_cols - len(cols)))
-            
         cols = [c.strip(' \'"') for c in cols]
         parsed_data.append(cols)
         
@@ -477,8 +546,7 @@ def handle_mw_file_upload(uploaded_file):
         
     return pd.DataFrame(parsed_data, columns=unique_headers)
 
-
-# --- THE HEAVYWEIGHT FM PANDAS PARSER (ISOLATED) ---
+# --- THE HEAVYWEIGHT FM/NWR PANDAS PARSER ---
 def handle_fm_file_upload(uploaded_file):
     content = ""
     for enc in ['utf-8', 'latin-1', 'cp1252']:
@@ -493,10 +561,8 @@ def handle_fm_file_upload(uploaded_file):
         raise ValueError("Unable to decode file. Encoding failure.")
         
     lines = content.splitlines()
-    
     best_row = 0
     best_sep = ","
-    
     keywords = [
         'khz', 'freq', 'mhz', 'program', 'station', 'itu', 'propa', 'date', 'utc', 'call', 
         'qrb', 'sinpo', 'remarks', 'details', 'timestamp', 'city', 'state', 'distance', 
@@ -519,17 +585,16 @@ def handle_fm_file_upload(uploaded_file):
                 best_sep = ","
             break
             
-    try:
+    try: 
         df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, engine='python', on_bad_lines='skip')
-    except Exception:
+    except Exception: 
         df = pd.read_csv(io.StringIO(content), sep=best_sep, skiprows=best_row, on_bad_lines='skip')
         
     df.columns = [str(c).strip(' \'"') for c in df.columns]
     
-    # Strip WLogger Location/Signature immediately to prevent alignment drift
-    if 'Location' in df.columns:
+    if 'Location' in df.columns: 
         df = df.drop(columns=['Location'])
-    if 'Signature' in df.columns:
+    if 'Signature' in df.columns: 
         df = df.drop(columns=['Signature'])
         
     return df
@@ -552,20 +617,20 @@ def get_full_logs_df(dxer_name, band):
         sheet = get_gsheet()
         if sheet is None: 
             return pd.DataFrame()
+            
         vals = sheet.get_all_values()
         if len(vals) < 2: 
             return pd.DataFrame()
-        
+            
         df = pd.DataFrame(vals[1:], columns=vals[0])
         
         if len(df.columns) > 4:
             name_col = df.columns[0]
             band_col = df.columns[4]
-            
             df = df[(df[name_col].str.strip().str.upper() == dxer_name.strip().upper()) & 
                     (df[band_col].str.strip().str.upper() == band.upper())]
         return df
-    except Exception:
+    except Exception: 
         return pd.DataFrame()
 
 @st.cache_data(ttl=60)
@@ -576,10 +641,11 @@ def get_logged_dict(dxer_name, band):
         sheet = get_gsheet()
         if sheet is None: 
             return {}
+            
         vals = sheet.get_all_values()
         if len(vals) < 2: 
             return {}
-        
+            
         logged = {}
         for row in vals[1:]:
             try:
@@ -598,12 +664,7 @@ def get_logged_dict(dxer_name, band):
                         
                     if freq_val not in logged: 
                         logged[freq_val] = []
-                    logged[freq_val].append({
-                        "call": call, 
-                        "city": city, 
-                        "state": state, 
-                        "country": country
-                    })
+                    logged[freq_val].append({"call": call, "city": city, "state": state, "country": country})
             except Exception: 
                 continue
         return logged
@@ -624,10 +685,10 @@ def check_is_logged_mw(freq, call, city, country, logged_dict):
                 l_ctry = simplify_string(l_dict['country'])
                 
                 if ctry_val in ["UNITEDSTATES", "CANADA", "MEXICO", "CUBA"]:
-                    if l_call and c_val and (l_call in c_val or c_val in l_call):
+                    if l_call and c_val and (l_call in c_val or c_val in l_call): 
                         return True
                 else:
-                    if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city):
+                    if l_city and city_val and ctry_val == l_ctry and (l_city in city_val or city_val in l_city): 
                         return True
     except Exception: 
         pass
@@ -648,18 +709,12 @@ def check_is_logged_fm(freq, call, slogan, city, state, country, logged_dict):
                     l_city = simplify_string(l_dict['city'])
                     l_ctry = simplify_string(l_dict['country'])
                     
-                    # Track 1: Standard Callsign Match
-                    if l_call and c_val and l_call != "UNKNOWN" and c_val != "UNKNOWN" and (l_call in c_val or c_val in l_call):
+                    if l_call and c_val and l_call != "UNKNOWN" and c_val != "UNKNOWN" and (l_call in c_val or c_val in l_call): 
                         return True
-                        
-                    # Track 2: City + Country Match
-                    elif l_city and city_val and l_city != "UNKNOWN" and city_val != "UNKNOWN" and (l_city in city_val or city_val in l_city) and l_ctry == ctry_val:
+                    elif l_city and city_val and l_city != "UNKNOWN" and city_val != "UNKNOWN" and (l_city in city_val or city_val in l_city) and l_ctry == ctry_val: 
                         return True
-                        
-                    # Track 3: Slogan Match against Slogan OR Callsign column
-                    elif l_call and slogan_val and l_call != "UNKNOWN" and slogan_val != "UNKNOWN" and (l_call in slogan_val or slogan_val in l_call):
+                    elif l_call and slogan_val and l_call != "UNKNOWN" and slogan_val != "UNKNOWN" and (l_call in slogan_val or slogan_val in l_call): 
                         return True
-                        
     except Exception: 
         pass
     return False
@@ -667,17 +722,10 @@ def check_is_logged_fm(freq, call, slogan, city, state, country, logged_dict):
 @st.cache_data
 def load_mw_intel():
     mesa_df = pd.DataFrame()
-    files_to_try = [
-        "Mesa_Mike_Enriched.csv", 
-        "Mesa_Mike_Enriched (1).csv",
-        "Mesa Mike Enriched.csv", 
-        "Mesa Mike US Station Data - Sheet1.csv"
-    ]
-    
+    files_to_try = ["Mesa_Mike_Enriched.csv", "Mesa_Mike_Enriched (1).csv", "Mesa Mike Enriched.csv", "Mesa Mike US Station Data - Sheet1.csv"]
     actual_file = None
     try:
-        files_in_dir = os.listdir('.')
-        lower_files = {f.lower(): f for f in files_in_dir}
+        lower_files = {f.lower(): f for f in os.listdir('.')}
         for name in files_to_try:
             if name.lower() in lower_files:
                 actual_file = lower_files[name.lower()]
@@ -695,10 +743,7 @@ def load_mw_intel():
                 mesa_df['Callsign'] = mesa_df['CALL'].fillna("Unknown").apply(clean_callsign)
                 mesa_df['State'] = mesa_df['STATE'].fillna("XX")
                 mesa_df['City'] = mesa_df['CITY'].fillna("Unknown")
-                if 'County' in mesa_df.columns:
-                    mesa_df['County'] = mesa_df['County'].fillna("Unknown")
-                else:
-                    mesa_df['County'] = "Unknown"
+                mesa_df['County'] = mesa_df.get('County', pd.Series(["Unknown"] * len(mesa_df))).fillna("Unknown")
                 mesa_df['LAT'] = pd.to_numeric(mesa_df['LAT'], errors='coerce')
                 mesa_df['LON'] = pd.to_numeric(mesa_df['LON'], errors='coerce')
                 mesa_df['Grid'] = mesa_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
@@ -709,16 +754,10 @@ def load_mw_intel():
             continue
             
     try:
-        intl_files = [
-            "Summer of DX - International Database - MW - International Station List.csv",
-            "Summer of DX - International Database - MW - International Station List (2).csv",
-            "International_Master_Cleaned.csv"
-        ]
-        
+        intl_files = ["Summer of DX - International Database - MW - International Station List.csv", "Summer of DX - International Database - MW - International Station List (2).csv", "International_Master_Cleaned.csv"]
         actual_intl_file = None
         try:
-            files_in_dir = os.listdir('.')
-            lower_files = {f.lower(): f for f in files_in_dir}
+            lower_files = {f.lower(): f for f in os.listdir('.')}
             for name in intl_files:
                 if name.lower() in lower_files:
                     actual_intl_file = lower_files[name.lower()]
@@ -732,7 +771,7 @@ def load_mw_intel():
         for f in actual_intl_files:
             try:
                 temp_df = pd.read_csv(f, dtype=str)
-                if not temp_df.empty:
+                if not temp_df.empty: 
                     intl_df = temp_df
                     break
             except Exception: 
@@ -755,17 +794,15 @@ def load_mw_intel():
                 intl_df['Country'] = intl_df[ctr_col].fillna("Unknown") if ctr_col else "Unknown"
                 intl_df['County'] = " - "
                 intl_df['Slogan'] = ""
-                
                 intl_df['LAT'] = pd.to_numeric(intl_df[lat_col], errors='coerce') if lat_col else 0.0
                 intl_df['LON'] = pd.to_numeric(intl_df[lon_col], errors='coerce') if lon_col else 0.0
                 intl_df['Grid'] = intl_df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
-                
                 intl_df['Callsign'] = intl_df.apply(lambda x: standardize_cuban_station(x['Callsign'], x['Frequency'], x['Country']), axis=1)
-                
                 keep_cols = ['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']
-                if not mesa_df.empty:
+                
+                if not mesa_df.empty: 
                     mesa_df = pd.concat([mesa_df[keep_cols], intl_df[keep_cols]], ignore_index=True)
-                else:
+                else: 
                     mesa_df = intl_df[keep_cols]
     except Exception: 
         pass
@@ -774,19 +811,10 @@ def load_mw_intel():
 
 @st.cache_data
 def load_fm_intel():
-    files_to_try = [
-        "WTFDA Enriched.csv",
-        "WTFDA_Enriched.csv", 
-        "WTFDA Enriched (1).csv", 
-        "WTFDA Enriched.CSV",
-        "FM Challenge - Station List and Data - WTFDA Data.csv",
-        "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"
-    ]
-    
+    files_to_try = ["WTFDA Enriched.csv", "WTFDA_Enriched.csv", "WTFDA Enriched (1).csv", "WTFDA Enriched.CSV", "FM Challenge - Station List and Data - WTFDA Data.csv", "sporadic-es-data-analysis.FMList_Data.wtfda_fips.csv"]
     actual_file = None
     try:
-        files_in_dir = os.listdir('.')
-        lower_files = {f.lower(): f for f in files_in_dir}
+        lower_files = {f.lower(): f for f in os.listdir('.')}
         for name in files_to_try:
             if name.lower() in lower_files:
                 actual_file = lower_files[name.lower()]
@@ -816,27 +844,20 @@ def load_fm_intel():
                 df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
                 df['State'] = df[st_col].fillna("XX") if st_col else "XX"
                 df['Slogan'] = df[slg_col].fillna("").apply(lambda x: str(x).strip()) if slg_col else ""
-                
                 df['PI Code'] = df[pi_col].fillna("").apply(lambda x: str(x).strip().upper()) if pi_col else ""
                 df['PI Code'] = df['PI Code'].apply(lambda x: "" if x in ["NONE", "0", "0000", ""] else x)
-                
                 df['County'] = df[co_col].fillna("Unknown") if co_col else "Unknown"
                 df['LAT'] = pd.to_numeric(df[lat_col], errors='coerce') if lat_col else 0.0
                 df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
                 df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                 
                 if ctr_col:
-                    df['Country'] = df[ctr_col].fillna("United States").apply(
-                        lambda x: itu_map.get(str(x).strip().upper(), str(x).strip().title())
-                    )
-                    df['Country'] = df['Country'].apply(
-                        lambda x: "United States" if str(x).upper() in ["USA", "UNITED STATES"] else x
-                    )
-                else:
+                    df['Country'] = df[ctr_col].fillna("United States").apply(lambda x: itu_map.get(str(x).strip().upper(), str(x).strip().title()))
+                    df['Country'] = df['Country'].apply(lambda x: "United States" if str(x).upper() in ["USA", "UNITED STATES"] else x)
+                else: 
                     df['Country'] = "United States"
                     
                 df['County'] = df.apply(lambda x: x['County'] if x['Country'] == "United States" else " - ", axis=1)
-                
                 return df
         except Exception: 
             continue
@@ -847,12 +868,11 @@ def load_fm_intel():
 def load_nwr_intel():
     text = ""
     try:
-        files_in_dir = os.listdir('.')
-        lower_files = {f.lower(): f for f in files_in_dir}
+        lower_files = {f.lower(): f for f in os.listdir('.')}
         if "ccl.js" in lower_files:
-            with open(lower_files["ccl.js"], 'r', encoding='utf-8', errors='ignore') as f:
+            with open(lower_files["ccl.js"], 'r', encoding='utf-8', errors='ignore') as f: 
                 text = f.read()
-    except Exception:
+    except Exception: 
         pass
 
     if text:
@@ -861,20 +881,18 @@ def load_nwr_intel():
             data = {}
             for line in lines:
                 line = line.strip()
-                if not line or line.startswith('var '): continue
-                
+                if not line or line.startswith('var '): 
+                    continue
                 match = re.match(r'([A-Z]+)\[(\d+)\]\s*=\s*"(.*?)";', line)
                 if match:
                     var_name = match.group(1)
                     idx = int(match.group(2))
                     val = match.group(3)
-                    
-                    if idx not in data:
+                    if idx not in data: 
                         data[idx] = {}
                     data[idx][var_name] = val
 
             df = pd.DataFrame.from_dict(data, orient='index')
-            
             if not df.empty:
                 f_col = find_col(df, ['FREQ'])
                 c_col = find_col(df, ['CALLSIGN'])
@@ -890,10 +908,7 @@ def load_nwr_intel():
                     df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
                     df['State'] = df[st_col].fillna("XX") if st_col else "XX"
                     df['Country'] = "United States"
-                    if co_col:
-                        df['County'] = df[co_col].fillna(" - ")
-                    else:
-                        df['County'] = " - "
+                    df['County'] = df[co_col].fillna(" - ") if co_col else " - "
                     df['LAT'] = pd.to_numeric(df[lat_col], errors='coerce') if lat_col else 0.0
                     df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
                     df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
@@ -901,28 +916,20 @@ def load_nwr_intel():
                     
                     df = df.dropna(subset=['Frequency'])
                     df = df[(df['Frequency'] >= 162.4) & (df['Frequency'] <= 162.55)]
-                    
                     df = df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']]
                     df = df.drop_duplicates(subset=['Callsign', 'Frequency']).reset_index(drop=True)
                     return df
-        except Exception:
+        except Exception: 
             pass
             
     return pd.DataFrame()
 
 @st.cache_data
 def load_countries():
-    files_to_try = [
-        "Summer of DX - International Database - MW - International Station List.csv",
-        "Summer of DX - International Database - MW - International Station List (2).csv",
-        "International_Master_Cleaned.csv",
-        "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"
-    ]
-    
+    files_to_try = ["Summer of DX - International Database - MW - International Station List.csv", "Summer of DX - International Database - MW - International Station List (2).csv", "International_Master_Cleaned.csv", "DX Central _ MW Frequency Challenge -All Seasons Master Logbook - Sheet64.csv"]
     actual_file = None
     try:
-        files_in_dir = os.listdir('.')
-        lower_files = {f.lower(): f for f in files_in_dir}
+        lower_files = {f.lower(): f for f in os.listdir('.')}
         for name in files_to_try:
             if name.lower() in lower_files:
                 actual_file = lower_files[name.lower()]
@@ -960,6 +967,114 @@ def get_state_list(country):
     if country == "Mexico": 
         return mex_states
     return ["DX"]
+
+# --- THE DATA FORGE (DASHBOARD SCORING ENGINE) ---
+@st.cache_data(ttl=600)
+def load_global_dashboard_data():
+    try:
+        sheet = get_gsheet()
+        if sheet is None: 
+            return pd.DataFrame()
+            
+        vals = sheet.get_all_values()
+        if len(vals) < 2: 
+            return pd.DataFrame()
+            
+        cols = [f"Col_{i}" for i in range(len(vals[1]))]
+        df = pd.DataFrame(vals[1:], columns=cols)
+        
+        c_dxer = cols[0]
+        c_dxloc = cols[1]
+        c_dxst = cols[2]
+        c_dxco = cols[3]
+        c_band = cols[4]
+        c_freqm = cols[5]
+        c_freqf = cols[6]
+        c_call = cols[7]
+        c_stcity = cols[9]
+        c_stst = cols[10]
+        c_stco = cols[11]
+        c_stgrid = cols[13]
+        c_date = cols[14]
+        c_time = cols[15]
+        c_dist = cols[16]
+        c_notes = cols[17]
+        c_rds = cols[18]
+        c_pi = cols[19]
+        c_prop = cols[20]
+        c_county = cols[21]
+        c_cat = cols[22]
+        
+        c_sdr = cols[25] if len(cols) > 25 else None
+        
+        clean_df = pd.DataFrame()
+        clean_df['DXer'] = df[c_dxer].str.strip().str.upper()
+        clean_df['DXer_City'] = df[c_dxloc]
+        clean_df['DXer_State'] = df[c_dxst]
+        clean_df['DXer_Country'] = df[c_dxco]
+        clean_df['Band'] = df[c_band].str.strip().str.upper()
+        
+        clean_df['Frequency'] = df.apply(lambda x: x[c_freqm] if x[c_band].strip().upper() == "AM" else x[c_freqf], axis=1)
+        clean_df['Freq_Num'] = pd.to_numeric(clean_df['Frequency'].str.replace(',', '.'), errors='coerce')
+        
+        clean_df['Callsign'] = df[c_call]
+        clean_df['City'] = df[c_stcity]
+        clean_df['State'] = df[c_stst]
+        clean_df['Country'] = df[c_stco]
+        clean_df['Station_Grid'] = df[c_stgrid]
+        clean_df['Date_Str'] = df[c_date]
+        clean_df['Time_Str'] = df[c_time]
+        clean_df['Distance'] = pd.to_numeric(df[c_dist], errors='coerce').fillna(0.0)
+        clean_df['Prop_Mode'] = df[c_prop]
+        clean_df['County'] = df[c_county]
+        clean_df['Category'] = df[c_cat]
+        clean_df['SDR_Used'] = df[c_sdr].str.strip().str.title() if c_sdr else "Yes"
+        
+        clean_df['Date_Obj'] = pd.to_datetime(clean_df['Date_Str'], errors='coerce')
+        clean_df['Month'] = clean_df['Date_Obj'].dt.month_name()
+        
+        clean_df['Dist_Points'] = clean_df['Distance'].apply(lambda x: math.floor(x / 100) + 1 if x >= 0 else 0)
+        clean_df['SDR_Bonus'] = clean_df['SDR_Used'].apply(lambda x: 5 if str(x) == "No" else 0)
+        clean_df['Base_Score'] = clean_df['Dist_Points'] + clean_df['SDR_Bonus']
+        
+        st_lat = []
+        st_lon = []
+        dx_lat = []
+        dx_lon = []
+        
+        mw_dict = mw_db.set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not mw_db.empty else {}
+        fm_dict = fm_db.set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not fm_db.empty else {}
+        nwr_dict = nwr_db.set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not nwr_db.empty else {}
+        
+        for _, row in clean_df.iterrows():
+            band = row['Band']
+            call = row['Callsign']
+            freq = row['Freq_Num']
+            
+            lat, lon = 0.0, 0.0
+            if band == "AM" and (call, freq) in mw_dict:
+                lat, lon = mw_dict[(call, freq)]['LAT'], mw_dict[(call, freq)]['LON']
+            elif band == "FM" and (call, freq) in fm_dict:
+                lat, lon = fm_dict[(call, freq)]['LAT'], fm_dict[(call, freq)]['LON']
+            elif band == "NWR" and (call, freq) in nwr_dict:
+                lat, lon = nwr_dict[(call, freq)]['LAT'], nwr_dict[(call, freq)]['LON']
+                
+            st_lat.append(lat)
+            st_lon.append(lon)
+            
+            dx_l, dx_ln = 0.0, 0.0
+            dx_lat.append(dx_l)
+            dx_lon.append(dx_ln)
+            
+        clean_df['ST_Lat'] = st_lat
+        clean_df['ST_Lon'] = st_lon
+        clean_df['DX_Lat'] = dx_lat
+        clean_df['DX_Lon'] = dx_lon
+        
+        return clean_df
+    except Exception as e:
+        st.error(f"Dashboard Data Forge Error: {e}")
+        return pd.DataFrame()
 
 # --- 6. SESSION STATE ROUTING & PROFILE ---
 if 'sys_state' not in st.session_state: 
@@ -1309,9 +1424,14 @@ with main_content:
                     map_ctry = c_i7.selectbox("COUNTRY / ITU", cols, index=get_idx(["itu", "countr"], cols), key="mw_map_7")
                     map_dist = c_i8.selectbox("DISTANCE", cols, index=get_idx(["qrb", "dist", "mi", "km"], cols), key="mw_map_10")
                     
-                    c_i9, c_i10 = st.columns(2)
+                    c_i9, c_i10, c_i11 = st.columns(3)
                     map_prop = c_i9.selectbox("PROPAGATION", cols, index=get_idx(["propa", "mode"], cols), key="mw_map_9")
                     map_notes = c_i10.selectbox("NOTES / DETAILS", cols, index=get_idx(["remarks", "detail", "info", "comment"], cols), key="mw_map_11")
+                    map_sdr = c_i11.selectbox("SDR USED?", cols, index=0, key="mw_map_12")
+                    
+                    st.markdown("#### DEFAULT SDR STATUS")
+                    st.caption("If a log has no mapped SDR status, apply this global default.")
+                    def_sdr = st.radio("SDR Used Default", ["Yes", "No"], horizontal=True, key="mw_def_sdr")
                     
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="mw_bulk_btn"):
                         sheet = get_gsheet()
@@ -1320,10 +1440,10 @@ with main_content:
                         else:
                             bulk_rows = []
                             op = st.session_state.operator_profile
-                            op_name_upper = op.get('name', '').strip().upper()
                             
                             vals = sheet.get_all_values()
                             existing_signatures = set()
+                            op_name_upper = op.get('name', '').strip().upper()
                             if len(vals) > 1:
                                 for r in vals[1:]:
                                     if len(r) >= 16:
@@ -1431,6 +1551,10 @@ with main_content:
                                     skipped_dupes += 1
                                     continue
                                 existing_signatures.add(row_sig)
+                                
+                                sdr_val = str(row[map_sdr]).strip().title() if map_sdr != "<Skip>" and not pd.isna(row[map_sdr]) else def_sdr
+                                if sdr_val not in ["Yes", "No"]: 
+                                    sdr_val = def_sdr
 
                                 r_data = [
                                     op.get('name', ''), 
@@ -1457,7 +1581,8 @@ with main_content:
                                     station_county, 
                                     entry_cat_val, 
                                     "", 
-                                    ""
+                                    "",
+                                    sdr_val
                                 ]
                                 bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
                                 
@@ -1474,11 +1599,13 @@ with main_content:
 
         st.markdown("#### 3. SUBMIT INTERCEPT")
         with st.form("mw_submit_form", clear_on_submit=True):
-            col_s1, col_s2 = st.columns(2)
+            col_s1, col_s2, col_s3 = st.columns([1, 1, 1])
             now = datetime.datetime.now(datetime.timezone.utc)
             
             log_date = col_s1.date_input("DATE (UTC)", value=now.date())
             log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"))
+            log_sdr = col_s3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="mw_man_sdr")
+            
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
@@ -1517,7 +1644,8 @@ with main_content:
                                 target_data.get("county", ""), 
                                 entry_cat_val, 
                                 "", 
-                                ""
+                                "",
+                                log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
@@ -1768,6 +1896,10 @@ with main_content:
                     map_prop = c_i10.selectbox("PROPAGATION", cols, index=idx_prop, key="fm_map_9")
                     map_notes = c_i11.selectbox("NOTES / DETAILS", cols, index=idx_notes, key="fm_map_11")
                     
+                    st.markdown("#### DEFAULT SDR STATUS")
+                    st.caption("If a log has no mapped SDR status, apply this global default.")
+                    def_sdr = st.radio("SDR Used Default", ["Yes", "No"], horizontal=True, key="fm_def_sdr")
+                    
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="fm_bulk_btn"):
                         sheet = get_gsheet()
                         if sheet is None: 
@@ -1860,6 +1992,7 @@ with main_content:
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
                                             
                                             is_match = False
+                                            
                                             imp_call = super_clean(clean_callsign(raw_call))
                                             imp_country = simplify_string(clean_country)
                                             imp_city = simplify_string(clean_city)
@@ -1901,6 +2034,8 @@ with main_content:
                                     skipped_dupes += 1
                                     continue
                                 existing_signatures.add(row_sig)
+                                
+                                sdr_val = def_sdr 
 
                                 r_data = [
                                     op.get('name', ''), 
@@ -1927,7 +2062,8 @@ with main_content:
                                     station_county, 
                                     entry_cat_val, 
                                     "", 
-                                    ""
+                                    "",
+                                    sdr_val
                                 ]
                                 bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
                                 
@@ -1951,10 +2087,12 @@ with main_content:
             log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="fm_tm")
             log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"])
             
-            c_p1, c_p2 = st.columns(2)
+            c_p1, c_p2, c_p3 = st.columns(3)
             log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
             default_pi = target_data["pi"] if "pi" in target_data else ""
             log_pi = c_p2.text_input("PI CODE", value=default_pi)
+            log_sdr = c_p3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="fm_man_sdr")
+            
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
@@ -1995,7 +2133,8 @@ with main_content:
                                 target_data.get("county", ""), 
                                 entry_cat_val, 
                                 "", 
-                                ""
+                                "",
+                                log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
@@ -2246,6 +2385,10 @@ with main_content:
                     map_prop = c_i10.selectbox("PROPAGATION", cols, index=idx_prop, key="nwr_map_9")
                     map_notes = c_i11.selectbox("NOTES / DETAILS", cols, index=idx_notes, key="nwr_map_11")
                     
+                    st.markdown("#### DEFAULT SDR STATUS")
+                    st.caption("If a log has no mapped SDR status, apply this global default.")
+                    def_sdr = st.radio("SDR Used Default", ["Yes", "No"], horizontal=True, key="nwr_def_sdr")
+                    
                     if st.button("> PROCESS & TRANSMIT BULK PAYLOAD", key="nwr_bulk_btn"):
                         sheet = get_gsheet()
                         if sheet is None: 
@@ -2347,6 +2490,7 @@ with main_content:
                                             db_country = simplify_string(m_row.get('Country', 'United States'))
                                             
                                             is_match = False
+                                            
                                             imp_call = super_clean(clean_callsign(raw_call))
                                             imp_country = simplify_string(clean_country)
                                             imp_city = simplify_string(clean_city)
@@ -2388,6 +2532,8 @@ with main_content:
                                     skipped_dupes += 1
                                     continue
                                 existing_signatures.add(row_sig)
+                                
+                                sdr_val = def_sdr
 
                                 r_data = [
                                     op.get('name', ''), 
@@ -2414,7 +2560,8 @@ with main_content:
                                     station_county, 
                                     entry_cat_val, 
                                     "", 
-                                    ""
+                                    "",
+                                    sdr_val
                                 ]
                                 bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
                                 
@@ -2438,6 +2585,7 @@ with main_content:
             log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="nwr_tm")
             log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"], key="nwr_prop")
             
+            log_sdr = st.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="nwr_man_sdr")
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="nwr_nts")
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
@@ -2478,7 +2626,8 @@ with main_content:
                                 target_data.get("county", ""), 
                                 entry_cat_val, 
                                 "", 
-                                ""
+                                "",
+                                log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
@@ -2529,11 +2678,151 @@ with main_content:
 
     # --- 8F. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
     elif st.session_state.sys_state == "DASHBOARD":
-        st.markdown("### [ GLOBAL INTELLIGENCE DATABANKS ]")
-        st.write("ESTABLISHING CONNECTION TO PLOTLY SERVERS...")
-        st.markdown("""
-        <div class="classified-box">
-        <strong>SYSTEM STATUS:</strong> DATA VISUALIZATION MODULES COMPILING.<br>
-        STANDBY FOR CHOROPLETH MAPS, VOLUME TIMELINES, AND OPERATOR LEADERBOARDS.
-        </div>
-        """, unsafe_allow_html=True)
+        df = load_global_dashboard_data()
+        if df.empty:
+            st.error("🚨 SYSTEM ALERT: DATABANK OFFLINE OR EMPTY.")
+            st.stop()
+            
+        st.markdown("<h1 style='text-align: center; color: #1bd2d4; text-shadow: 0px 0px 10px rgba(27,210,212,0.8);'>GLOBAL INTELLIGENCE COMMAND</h1>", unsafe_allow_html=True)
+        
+        # DASHBOARD NAVIGATION
+        d_cols = st.columns(3)
+        if d_cols[0].button("▶ OVERVIEW / SCORING", use_container_width=True): 
+            st.session_state.dash_nav = "OVERVIEW"
+            st.rerun()
+        if d_cols[1].button("▶ ES-CLOUD TRACKER", use_container_width=True): 
+            st.session_state.dash_nav = "ES_TRACKER"
+            st.rerun()
+        if d_cols[2].button("▶ FREQUENCY TUNER", use_container_width=True): 
+            st.session_state.dash_nav = "TUNER"
+            st.rerun()
+            
+        st.markdown("<hr style='margin-top: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
+        
+        # GLOBAL FILTER
+        c_f1, c_f2 = st.columns([1, 4])
+        band_filter = c_f1.selectbox("BANDWIDTH ISOLATION", ["ALL", "AM", "FM", "NWR"], index=0)
+        
+        if band_filter != "ALL": 
+            df = df[df['Band'] == band_filter]
+        
+        # --- VIEW: OVERVIEW / SCORING ---
+        if st.session_state.dash_nav == "OVERVIEW":
+            st.markdown("### 📊 MISSION OVERVIEW")
+            m = st.columns(6)
+            m[0].metric("Total Logs", f"{len(df):,}")
+            m[1].metric("Unique Stations", f"{df['Callsign'].nunique():,}")
+            m[2].metric("Unique Operators", f"{df['DXer'].nunique():,}")
+            m[3].metric("US States Heard", df[df['Country'] == 'United States']['State'].nunique())
+            m[4].metric("Countries Heard", df['Country'].nunique())
+            m[5].metric("Max Distance", f"{df['Distance'].max():,.0f} mi")
+            
+            st.markdown("---")
+            l_col, r_col = st.columns([2, 1])
+            with l_col:
+                st.markdown("### 🏆 GLOBAL SCOREBOARD")
+                scores = df.groupby('DXer').agg(
+                    Total_Logs=('Callsign', 'count'),
+                    Base_Points=('Base_Score', 'sum')
+                ).reset_index()
+                
+                bonus_df = df[df['Band'].isin(['AM', 'FM'])].groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Count')
+                bonus_df['Bonus'] = bonus_df['Count'].apply(lambda x: 100 if x >= 10 else 0)
+                bonuses = bonus_df.groupby('DXer')['Bonus'].sum().reset_index()
+                
+                scores = scores.merge(bonuses, on='DXer', how='left').fillna(0)
+                scores['Total_Score'] = scores['Base_Points'] + scores['Bonus']
+                scores = scores.sort_values('Total_Score', ascending=False)
+                scores['M'] = scores['Total_Score']
+                
+                st.dataframe(
+                    scores[['DXer', 'Total_Logs', 'Base_Points', 'Bonus', 'Total_Score', 'M']],
+                    column_config={
+                        "DXer": "Operator",
+                        "Total_Score": st.column_config.NumberColumn("Score", format="%d"),
+                        "M": st.column_config.ProgressColumn("Power Level", format="%d", min_value=0, max_value=int(scores['Total_Score'].max() if not scores.empty else 100))
+                    },
+                    hide_index=True, use_container_width=True
+                )
+            
+            with r_col:
+                st.markdown("### 🥇 THE CENTURY CLUB (GRIDS)")
+                grids = df.groupby('DXer')['Station_Grid'].nunique().reset_index(name='Grids').sort_values('Grids', ascending=False)
+                grids['Status'] = grids['Grids'].apply(lambda x: "🟢 ACHIEVED" if x >= 100 else "⏳ PENDING")
+                grids['P'] = grids['Grids'].apply(lambda x: 100 if x >= 100 else x)
+                st.dataframe(
+                    grids[['DXer', 'Grids', 'Status', 'P']],
+                    column_config={
+                        "P": st.column_config.ProgressColumn("Progress to 100", min_value=0, max_value=100, format="%d%%")
+                    }, hide_index=True, use_container_width=True
+                )
+
+        # --- VIEW: ES-CLOUD TRACKER ---
+        elif st.session_state.dash_nav == "ES_TRACKER":
+            st.markdown("### ☁️ SPORADIC-E CLOUD RADAR")
+            st.caption("Visualizing the geographic mid-points of all logs tagged as 'Sporadic E'.")
+            
+            es_df = df[df['Prop_Mode'].str.upper() == 'SPORADIC E'].copy()
+            if es_df.empty:
+                st.warning("No Sporadic E telemetry found in current filter parameters.")
+            else:
+                es_df['Mid_Lat'] = (es_df['DX_Lat'] + es_df['ST_Lat']) / 2
+                es_df['Mid_Lon'] = (es_df['DX_Lon'] + es_df['ST_Lon']) / 2
+                es_df = es_df.dropna(subset=['Mid_Lat', 'Mid_Lon'])
+                
+                layers = [pdk.Layer(
+                    'HeatmapLayer', 
+                    data=es_df[['Mid_Lat', 'Mid_Lon', 'DXer']], 
+                    get_position='[Mid_Lon, Mid_Lat]',
+                    radius_pixels=65, intensity=2.0, threshold=0.03, 
+                    color_range=[[19, 154, 155, 50], [27, 210, 212, 100], [150, 240, 240, 150], [200, 250, 250, 200], [255, 255, 255, 255]]
+                )]
+                st.pydeck_chart(pdk.Deck(map_style='https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', initial_view_state=pdk.ViewState(latitude=38, longitude=-95, zoom=3.4), layers=layers))
+                
+        # --- VIEW: FREQUENCY TUNER ---
+        elif st.session_state.dash_nav == "TUNER":
+            st.markdown("### 🎚️ SDR FREQUENCY TUNER")
+            st.caption("Use the Coarse (1.0 MHz) or Fine (0.2 MHz) buttons to tune the dial, or enter a specific frequency directly.")
+            
+            current = st.session_state.selected_mhz
+            base_freq = 87.7 if current in ["TUNE...", None] else current
+            
+            t1, t2, t3, t4, t5 = st.columns([1, 1, 3, 1, 1])
+            if t1.button("⏪ -1.0", use_container_width=True): 
+                st.session_state.selected_mhz = round(base_freq - 1.0, 1)
+                st.rerun()
+            if t2.button("◀ -0.2", use_container_width=True): 
+                st.session_state.selected_mhz = round(base_freq - 0.2, 1)
+                st.rerun()
+            
+            with t3:
+                if current in ["TUNE...", None]: 
+                    st.markdown('<div class="lcd-screen">TUNE...</div>', unsafe_allow_html=True)
+                else: 
+                    st.markdown(f'<div class="lcd-screen">{current:.1f} <span class="lcd-unit">MHz</span></div>', unsafe_allow_html=True)
+                st.text_input("DIRECT ENTRY (e.g. 921 for 92.1)", key="freq_direct_entry", on_change=update_freq_from_input)
+                
+            if t4.button("+0.2 ▶", use_container_width=True): 
+                st.session_state.selected_mhz = round(base_freq + 0.2, 1)
+                st.rerun()
+            if t5.button("+1.0 ⏩", use_container_width=True): 
+                st.session_state.selected_mhz = round(base_freq + 1.0, 1)
+                st.rerun()
+            
+            if current not in ["TUNE...", None]:
+                st.markdown("---")
+                f_df = df[df['Freq_Num'] == current]
+                if f_df.empty:
+                    st.warning("No signal intelligence recorded on this frequency.")
+                else:
+                    c1, c2, c3 = st.columns(3)
+                    c1.markdown('<div class="stat-header">TOTAL LOGS</div>', unsafe_allow_html=True)
+                    c1.markdown(f'<div class="stat-val">{len(f_df):,}</div>', unsafe_allow_html=True)
+                    
+                    c2.markdown('<div class="stat-header">UNIQUE DXERS</div>', unsafe_allow_html=True)
+                    c2.markdown(f'<div class="stat-val">{f_df["DXer"].nunique():,}</div>', unsafe_allow_html=True)
+                    
+                    c3.markdown('<div class="stat-header">UNIQUE STATIONS</div>', unsafe_allow_html=True)
+                    c3.markdown(f'<div class="stat-val">{f_df["Callsign"].nunique():,}</div>', unsafe_allow_html=True)
+                    
+                    st.dataframe(f_df[['DXer', 'Date_Str', 'Time_Str', 'Callsign', 'City', 'State', 'Distance']], hide_index=True, use_container_width=True)
