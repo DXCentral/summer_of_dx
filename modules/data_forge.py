@@ -469,7 +469,12 @@ def check_is_logged_fm(freq, call, slogan, city, state, country, logged_dict):
         pass
     return False
 
-# --- THE DATA FORGE (DASHBOARD SCORING ENGINE) ---
+# --- Initialize Databanks Globally ---
+mw_db = load_mw_intel()
+fm_db = load_fm_intel()
+nwr_db = load_nwr_intel()
+country_list = load_countries()
+
 @st.cache_data(ttl=600)
 def load_global_dashboard_data():
     try:
@@ -541,10 +546,6 @@ def load_global_dashboard_data():
         st_lon = []
         dx_lat = []
         dx_lon = []
-        
-        mw_db = load_mw_intel()
-        fm_db = load_fm_intel()
-        nwr_db = load_nwr_intel()
         
         mw_dict = mw_db.drop_duplicates(subset=['Callsign', 'Frequency']).set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not mw_db.empty else {}
         fm_dict = fm_db.drop_duplicates(subset=['Callsign', 'Frequency']).set_index(['Callsign', 'Frequency'])[['LAT', 'LON']].to_dict('index') if not fm_db.empty else {}
