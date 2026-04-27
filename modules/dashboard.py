@@ -65,10 +65,10 @@ def render_dashboard():
     /* Flyout Custom UI */
     .flyout-box { border: 1px solid #139a9b; padding: 15px; background-color: #050505; box-shadow: 0px 0px 10px rgba(19, 154, 155, 0.2); }
     .flyout-title { color: #1bd2d4; margin-top: 0; font-size: 1.8rem; text-transform: uppercase; border-bottom: 1px dashed #139a9b; padding-bottom: 5px; }
-    .flyout-header { color: #139a9b; font-size: 0.85rem; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; }
+    .flyout-header { color: #1bd2d4; font-size: 0.85rem; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; }
     .flyout-val { font-size: 1.8rem; color: #ffffff; line-height: 1.1; }
-    .flyout-sub { font-size: 0.9rem; color: #a3e8e9; margin-top: 2px; }
-    .flyout-micro { font-size: 0.8rem; color: #888888; }
+    .flyout-sub { font-size: 0.95rem; color: #ffffff; margin-top: 2px; }
+    .flyout-micro { font-size: 0.9rem; color: #ffffff; margin-top: 2px; }
     </style>
     """, unsafe_allow_html=True)
 
