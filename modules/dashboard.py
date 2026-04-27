@@ -69,6 +69,18 @@ def render_dashboard():
     .flyout-val { font-size: 1.8rem; color: #ffffff; line-height: 1.1; }
     .flyout-sub { font-size: 0.95rem; color: #ffffff; margin-top: 2px; }
     .flyout-micro { font-size: 0.9rem; color: #ffffff; margin-top: 2px; }
+    /* Terminal Pill Button CSS */
+    div[data-testid="stPills"] button {
+        background-color: #050505 !important;
+        border: 1px solid #139a9b !important;
+        color: #1bd2d4 !important;
+        font-family: 'VT323', monospace !important;
+    }
+    div[data-testid="stPills"] button[aria-checked="true"] {
+        background-color: #139a9b !important;
+        color: #050505 !important;
+        box-shadow: 0px 0px 10px rgba(27,210,212,0.6);
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -79,7 +91,6 @@ def render_dashboard():
     if 'filter_reset_key' not in st.session_state: st.session_state.filter_reset_key = 0
     if 'matrix_loc' not in st.session_state: st.session_state.matrix_loc = None
     if 'matrix_map_key' not in st.session_state: st.session_state.matrix_map_key = 2000000
-    if 'sat_sector' not in st.session_state: st.session_state.sat_sector = "North America Sector"
 
     def reset_flyouts():
         st.session_state.matrix_loc = None
@@ -363,6 +374,7 @@ def render_dashboard():
             with c_map:
                 dx_map_data = filt_df.groupby(['DXer_City', 'DXer_State', 'DXer_Country']).size().reset_index(name='Logs')
                 
+                # Dynamic Geocoding fallback for missing app.py payload coordinates
                 lats, lons = [], []
                 for _, r in dx_map_data.iterrows():
                     city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
@@ -375,7 +387,12 @@ def render_dashboard():
                 dx_map_data = dx_map_data[(dx_map_data['DX_Lat'] != 0.0) | (dx_map_data['DX_Lon'] != 0.0)]
                 
                 # --- TACTICAL SECTOR TOGGLE ---
-                sat_view = st.radio("SATELLITE UPLINK", ["North America Sector", "Global Sector"], horizontal=True, label_visibility="collapsed")
+                t_col1, t_col2 = st.columns([1.5, 3.5])
+                t_col1.markdown("<div style='color: #1bd2d4; font-size: 1.2rem; font-weight: bold; margin-top: 8px; text-shadow: 0px 0px 5px rgba(27,210,212,0.5);'>UPLINK STATUS:</div>", unsafe_allow_html=True)
+                sat_view = t_col2.pills("SATELLITE UPLINK", ["North America Sector", "Global Sector"], default="North America Sector", label_visibility="collapsed")
+                
+                if not sat_view:
+                    sat_view = "North America Sector"
                 
                 if sat_view == "North America Sector":
                     geo_scope = 'north america'
@@ -388,6 +405,7 @@ def render_dashboard():
                     lat_rng = [-55, 75]
                     lon_rng = [-160, 160]
 
+                # CRT Wireframe Vector Map (Plotly Scatter Geo)
                 fig_dx = px.scatter_geo(
                     dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
                     hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
