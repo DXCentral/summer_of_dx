@@ -898,7 +898,9 @@ def load_nwr_intel():
                     df = df.dropna(subset=['Frequency'])
                     df = df[(df['Frequency'] >= 162.4) & (df['Frequency'] <= 162.55)]
                     
-                    return df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']]
+                    df = df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']]
+                    df = df.drop_duplicates(subset=['Callsign', 'Frequency']).reset_index(drop=True)
+                    return df
         except Exception:
             pass
             
@@ -2287,8 +2289,8 @@ with main_content:
                                     format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
                                     round(dist_val, 1), 
                                     map_notes_val, 
-                                    rds_val, 
-                                    pi_val, 
+                                    "", 
+                                    "", 
                                     map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
                                     station_county, 
                                     entry_cat_val, 
