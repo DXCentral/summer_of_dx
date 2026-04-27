@@ -882,6 +882,7 @@ def load_nwr_intel():
                 st_col = find_col(df, ['ST'])
                 lat_col = find_col(df, ['LAT'])
                 lon_col = find_col(df, ['LON'])
+                co_col = find_col(df, ['COUNTY'])
                 
                 if f_col and c_col:
                     df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce')
@@ -889,7 +890,10 @@ def load_nwr_intel():
                     df['City'] = df[cty_col].fillna("Unknown") if cty_col else "Unknown"
                     df['State'] = df[st_col].fillna("XX") if st_col else "XX"
                     df['Country'] = "United States"
-                    df['County'] = " - "
+                    if co_col:
+                        df['County'] = df[co_col].fillna(" - ")
+                    else:
+                        df['County'] = " - "
                     df['LAT'] = pd.to_numeric(df[lat_col], errors='coerce') if lat_col else 0.0
                     df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
                     df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
@@ -1316,6 +1320,28 @@ with main_content:
                         else:
                             bulk_rows = []
                             op = st.session_state.operator_profile
+                            op_name_upper = op.get('name', '').strip().upper()
+                            
+                            vals = sheet.get_all_values()
+                            existing_signatures = set()
+                            if len(vals) > 1:
+                                for r in vals[1:]:
+                                    if len(r) >= 16:
+                                        r_name = str(r[0]).strip().upper()
+                                        if r_name != op_name_upper: 
+                                            continue
+                                        r_band = str(r[4]).strip().upper()
+                                        r_freq_raw = str(r[5]).strip() if r_band == "AM" else str(r[6]).strip()
+                                        try:
+                                            r_freq = str(float(r_freq_raw.replace(',', '.')))
+                                        except Exception:
+                                            r_freq = r_freq_raw
+                                        r_call = str(r[7]).strip().upper()
+                                        r_date = str(r[14]).strip()
+                                        r_time = str(r[15]).strip()
+                                        existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
+                                        
+                            skipped_dupes = 0
                             
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
@@ -1391,6 +1417,21 @@ with main_content:
                                     except Exception: 
                                         pass
 
+                                try:
+                                    sig_freq = str(float(str(raw_freq).replace(',', '.')))
+                                except Exception:
+                                    sig_freq = str(raw_freq).strip()
+                                    
+                                call_sig = str(clean_call).strip().upper()
+                                date_sig = str(format_date_import(row[map_date])).strip()
+                                time_sig = str(format_time_import(row[map_time])).strip()
+                                
+                                row_sig = f"AM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
+                                if row_sig in existing_signatures:
+                                    skipped_dupes += 1
+                                    continue
+                                existing_signatures.add(row_sig)
+
                                 r_data = [
                                     op.get('name', ''), 
                                     op.get('city', ''), 
@@ -1423,6 +1464,8 @@ with main_content:
                             try:
                                 sheet.append_rows(bulk_rows)
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                if skipped_dupes > 0:
+                                    st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
@@ -1734,6 +1777,28 @@ with main_content:
                             op = st.session_state.operator_profile
                             entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
                             
+                            vals = sheet.get_all_values()
+                            existing_signatures = set()
+                            op_name_upper = op.get('name', '').strip().upper()
+                            if len(vals) > 1:
+                                for r in vals[1:]:
+                                    if len(r) >= 16:
+                                        r_name = str(r[0]).strip().upper()
+                                        if r_name != op_name_upper: 
+                                            continue
+                                        r_band = str(r[4]).strip().upper()
+                                        r_freq_raw = str(r[5]).strip() if r_band == "AM" else str(r[6]).strip()
+                                        try:
+                                            r_freq = str(float(r_freq_raw.replace(',', '.')))
+                                        except Exception:
+                                            r_freq = r_freq_raw
+                                        r_call = str(r[7]).strip().upper()
+                                        r_date = str(r[14]).strip()
+                                        r_time = str(r[15]).strip()
+                                        existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
+                                        
+                            skipped_dupes = 0
+                            
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
                                 raw_country = str(row[map_ctry]).strip() if map_ctry != "<Skip>" and not pd.isna(row[map_ctry]) else "USA"
@@ -1822,6 +1887,21 @@ with main_content:
                                     except Exception: 
                                         pass
 
+                                try:
+                                    sig_freq = str(float(str(raw_freq).replace(',', '.')))
+                                except Exception:
+                                    sig_freq = str(raw_freq).strip()
+                                    
+                                call_sig = str(clean_call).strip().upper()
+                                date_sig = str(format_date_import(row[map_date])).strip()
+                                time_sig = str(format_time_import(row[map_time])).strip()
+                                
+                                row_sig = f"FM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
+                                if row_sig in existing_signatures:
+                                    skipped_dupes += 1
+                                    continue
+                                existing_signatures.add(row_sig)
+
                                 r_data = [
                                     op.get('name', ''), 
                                     op.get('city', ''), 
@@ -1854,6 +1934,8 @@ with main_content:
                             try:
                                 sheet.append_rows(bulk_rows)
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                if skipped_dupes > 0:
+                                    st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
@@ -2173,6 +2255,28 @@ with main_content:
                             op = st.session_state.operator_profile
                             entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
                             
+                            vals = sheet.get_all_values()
+                            existing_signatures = set()
+                            op_name_upper = op.get('name', '').strip().upper()
+                            if len(vals) > 1:
+                                for r in vals[1:]:
+                                    if len(r) >= 16:
+                                        r_name = str(r[0]).strip().upper()
+                                        if r_name != op_name_upper: 
+                                            continue
+                                        r_band = str(r[4]).strip().upper()
+                                        r_freq_raw = str(r[5]).strip() if r_band == "AM" else str(r[6]).strip()
+                                        try:
+                                            r_freq = str(float(r_freq_raw.replace(',', '.')))
+                                        except Exception:
+                                            r_freq = r_freq_raw
+                                        r_call = str(r[7]).strip().upper()
+                                        r_date = str(r[14]).strip()
+                                        r_time = str(r[15]).strip()
+                                        existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
+                                        
+                            skipped_dupes = 0
+                            
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
                                 
@@ -2270,6 +2374,21 @@ with main_content:
                                     except Exception: 
                                         pass
 
+                                try:
+                                    sig_freq = str(float(str(raw_freq).replace(',', '.')))
+                                except Exception:
+                                    sig_freq = str(raw_freq).strip()
+                                    
+                                call_sig = str(clean_call).strip().upper()
+                                date_sig = str(format_date_import(row[map_date])).strip()
+                                time_sig = str(format_time_import(row[map_time])).strip()
+                                
+                                row_sig = f"NWR_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
+                                if row_sig in existing_signatures:
+                                    skipped_dupes += 1
+                                    continue
+                                existing_signatures.add(row_sig)
+
                                 r_data = [
                                     op.get('name', ''), 
                                     op.get('city', ''), 
@@ -2302,6 +2421,8 @@ with main_content:
                             try:
                                 sheet.append_rows(bulk_rows)
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                if skipped_dupes > 0:
+                                    st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
