@@ -749,30 +749,38 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # Date & Coordinate Prep (Ensuring safe handling of timestamps and missing coords)
-        if 'Date_Obj' not in filt_df.columns:
-            filt_df['Date_Obj'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce').dt.date
-            
-        # Geocode missing DXer coordinates on the fly for the Radar module if missing
-        if 'DX_Lat' not in filt_df.columns or 'DX_Lon' not in filt_df.columns:
-            unique_locs = filt_df[['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
+        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
+        filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
+        filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
+        
+        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
+        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
+        
+        # Universal Geocoder Override to eliminate Null Island drops
+        mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
+        if mask.any():
+            missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
             lats, lons = [], []
-            for _, r in unique_locs.iterrows():
-                city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
-                lat, lon = get_lat_lon_from_city(city_query, r['DXer_Country'])
+            for _, r in missing_locs.iterrows():
+                city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') != '' else r['DXer_City']
+                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
                 lats.append(lat)
                 lons.append(lon)
-            unique_locs['DX_Lat'] = lats
-            unique_locs['DX_Lon'] = lons
-            # Merge back into the master filter set
-            filt_df = filt_df.merge(unique_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
-
+            missing_locs['New_Lat'] = lats
+            missing_locs['New_Lon'] = lons
+            
+            filt_df = filt_df.merge(missing_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
+            filt_df['DX_Lat'] = filt_df['DX_Lat'].where(~mask, filt_df['New_Lat'])
+            filt_df['DX_Lon'] = filt_df['DX_Lon'].where(~mask, filt_df['New_Lon'])
+            filt_df.drop(columns=['New_Lat', 'New_Lon'], inplace=True)
+            
         if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
         if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
         
         filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
         filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
         
+        # --- 2. TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
@@ -788,13 +796,16 @@ def render_dashboard():
                 if len(avail_days) > 0:
                     if not range_on:
                         date_sel = st.date_input("Select Event Date", value=avail_days[-1], min_value=avail_days[0], max_value=avail_days[-1])
-                        v_df = filt_df[filt_df['Date_Obj'] == date_sel]
+                        ts_sel = pd.to_datetime(date_sel)
+                        v_df = filt_df[filt_df['Date_TS'] == ts_sel]
                     else:
                         date_range = st.date_input("Select Date Range", value=(avail_days[0], avail_days[-1]), min_value=avail_days[0], max_value=avail_days[-1])
                         if len(date_range) == 2: 
-                            v_df = filt_df[(filt_df['Date_Obj'] >= date_range[0]) & (filt_df['Date_Obj'] <= date_range[1])]
+                            ts_start, ts_end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+                            v_df = filt_df[(filt_df['Date_TS'] >= ts_start) & (filt_df['Date_TS'] <= ts_end)]
                         else: 
-                            v_df = filt_df[filt_df['Date_Obj'] == date_range[0]]
+                            ts_sel = pd.to_datetime(date_range[0])
+                            v_df = filt_df[filt_df['Date_TS'] == ts_sel]
                 else:
                     st.warning("No dates available.")
                     
@@ -825,7 +836,6 @@ def render_dashboard():
                     st.info("NO TELEMETRY VECTORS DETECTED FOR CURRENT PARAMETERS.")
                     
         elif radar_tab == "ES-CLOUD RADAR":
-            # Hard filter for FM/NWR Sporadic E
             es_df = filt_df[(filt_df['Band'].isin(['FM', 'NWR'])) & (filt_df['Prop_Mode'] == 'Sporadic E')].copy()
             
             if es_df.empty:
@@ -838,13 +848,16 @@ def render_dashboard():
                     
                     if not range_on:
                         date_sel = st.date_input("Select Event Date", value=avail_days[-1], min_value=avail_days[0], max_value=avail_days[-1], key="es_d1")
-                        map_df = es_df[es_df['Date_Obj'] == date_sel]
+                        ts_sel = pd.to_datetime(date_sel)
+                        map_df = es_df[es_df['Date_TS'] == ts_sel]
                     else:
                         date_range = st.date_input("Select Date Range", value=(avail_days[0], avail_days[-1]), min_value=avail_days[0], max_value=avail_days[-1], key="es_d2")
                         if len(date_range) == 2: 
-                            map_df = es_df[(es_df['Date_Obj'] >= date_range[0]) & (es_df['Date_Obj'] <= date_range[1])]
+                            ts_start, ts_end = pd.to_datetime(date_range[0]), pd.to_datetime(date_range[1])
+                            map_df = es_df[(es_df['Date_TS'] >= ts_start) & (es_df['Date_TS'] <= ts_end)]
                         else: 
-                            map_df = es_df[es_df['Date_Obj'] == date_range[0]]
+                            ts_sel = pd.to_datetime(date_range[0])
+                            map_df = es_df[es_df['Date_TS'] == ts_sel]
                             
                     speed_sets = {"1x": {"delay": 0.2, "step": 1}, "2x": {"delay": 0.1, "step": 2}, "3x": {"delay": 0.05, "step": 3}, "4x": {"delay": 0.01, "step": 4}}
                     play_speed = st.selectbox("Playback Speed", options=list(speed_sets.keys()), index=1)
@@ -879,7 +892,6 @@ def render_dashboard():
                     else:
                         display_date = f"{cur_date} | " if cur_date != "N/A" else ""
                         pb_txt.write(f"## 🕒 {display_date}{cur_time}")
-                        # 30 minute persistence strobe logic
                         try:
                             lookback_time_str = (datetime.datetime.strptime(cur_time, '%H:%M') - datetime.timedelta(minutes=30)).strftime('%H:%M')
                         except:
@@ -935,10 +947,13 @@ def render_dashboard():
             with col_m:
                 st.markdown("#### TACTICAL TARGETING SYSTEM")
                 if selected_log is not None:
-                    # Draw Tactical Map
                     dx_lat, dx_lon = selected_log['DX_Lat'], selected_log['DX_Lon']
                     st_lat, st_lon = selected_log['ST_Lat'], selected_log['ST_Lon']
                     dist = selected_log['Distance']
+                    
+                    # Calculate true geometric center to frame the shot perfectly
+                    mid_lat = (dx_lat + st_lat) / 2
+                    mid_lon = (dx_lon + st_lon) / 2
                     
                     target_fig = go.Figure()
                     
@@ -953,7 +968,7 @@ def render_dashboard():
                         hoverinfo="skip"
                     ))
                     
-                    # 2. Intercept Vector Line (Solid to prevent Mapbox error)
+                    # 2. Intercept Vector Line (Solid mapbox line override)
                     target_fig.add_trace(go.Scattermapbox(
                         mode="lines",
                         lon=[dx_lon, st_lon],
@@ -983,15 +998,19 @@ def render_dashboard():
                         hoverinfo="text"
                     ))
                     
-                    # Zoom dynamic logic based on distance
-                    zoom_lvl = 3
-                    if dist < 100: zoom_lvl = 6
-                    elif dist < 500: zoom_lvl = 5
-                    elif dist < 1000: zoom_lvl = 4
+                    # Dynamic Zoom Logic based on ring radius
+                    zoom_lvl = 3.5
+                    if dist < 100: zoom_lvl = 6.5
+                    elif dist < 300: zoom_lvl = 5.5
+                    elif dist < 600: zoom_lvl = 4.5
+                    elif dist < 1000: zoom_lvl = 3.8
+                    elif dist < 1500: zoom_lvl = 3.2
+                    elif dist < 2500: zoom_lvl = 2.5
+                    else: zoom_lvl = 2.0
                     
                     target_fig.update_layout(
                         mapbox_style="carto-darkmatter",
-                        mapbox=dict(center=dict(lat=dx_lat, lon=dx_lon), zoom=zoom_lvl),
+                        mapbox=dict(center=dict(lat=mid_lat, lon=mid_lon), zoom=zoom_lvl),
                         margin={"r":0,"t":0,"l":0,"b":0}, height=500,
                         paper_bgcolor='rgba(0,0,0,0)', showlegend=False
                     )
@@ -1012,7 +1031,6 @@ def render_dashboard():
                     """, unsafe_allow_html=True)
 
                 else:
-                    # Blank map if nothing selected
                     fig_blank = go.Figure(go.Scattermapbox())
                     fig_blank.update_layout(mapbox_style="carto-darkmatter", mapbox=dict(center=dict(lat=38, lon=-95), zoom=3), margin={"r":0,"t":0,"l":0,"b":0}, height=500, paper_bgcolor='rgba(0,0,0,0)')
                     st.plotly_chart(fig_blank, use_container_width=True)
