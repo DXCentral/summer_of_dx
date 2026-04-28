@@ -591,7 +591,7 @@ def render_dashboard():
                 )
                 fig_dx.update_layout(height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 
-                ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"m_dx_{st.session_state.matrix_map_key}")
+                ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"m_dx_{st.session_state.matrix_map_key}", config={'scrollZoom': True})
                 
                 if ev_dx and ev_dx.get("selection") and ev_dx["selection"].get("points"):
                     pt = ev_dx["selection"]["points"][0]
@@ -718,7 +718,7 @@ def render_dashboard():
                 )
                 fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
                 
-                ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_geo_us_{st.session_state.geo_map_key}")
+                ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_geo_us_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
                     n_state = ev_st["selection"]["points"][0]["location"]
@@ -753,7 +753,7 @@ def render_dashboard():
                 )
                 fig_w.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
                 
-                ev_w = st.plotly_chart(fig_w, use_container_width=True, on_select="rerun", key=f"m_geo_intl_{st.session_state.geo_map_key}")
+                ev_w = st.plotly_chart(fig_w, use_container_width=True, on_select="rerun", key=f"m_geo_intl_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 
                 if ev_w and ev_w.get("selection") and ev_w["selection"].get("points"):
                     n_ctry = ev_w["selection"]["points"][0]["location"]
@@ -793,7 +793,7 @@ def render_dashboard():
                 )
                 fig_can.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 
-                ev_can = st.plotly_chart(fig_can, use_container_width=True, on_select="rerun", key=f"m_geo_can_{st.session_state.geo_map_key}")
+                ev_can = st.plotly_chart(fig_can, use_container_width=True, on_select="rerun", key=f"m_geo_can_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 
                 if ev_can and ev_can.get("selection") and ev_can["selection"].get("points"):
                     full_name = ev_can["selection"]["points"][0]["location"]
@@ -842,7 +842,7 @@ def render_dashboard():
                 else:
                     fig_co = go.Figure()
                     
-                ev_co = st.plotly_chart(fig_co, use_container_width=True, on_select="rerun", key=f"m_geo_co_{st.session_state.geo_map_key}")
+                ev_co = st.plotly_chart(fig_co, use_container_width=True, on_select="rerun", key=f"m_geo_co_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 
                 if ev_co and ev_co.get("selection") and ev_co["selection"].get("points"):
                     pt = ev_co["selection"]["points"][0]
@@ -889,7 +889,7 @@ def render_dashboard():
                 else:
                     fig_g = go.Figure()
                     
-                ev_g = st.plotly_chart(fig_g, use_container_width=True, on_select="rerun", key=f"m_geo_grid_{st.session_state.geo_map_key}")
+                ev_g = st.plotly_chart(fig_g, use_container_width=True, on_select="rerun", key=f"m_geo_grid_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 
                 if ev_g and ev_g.get("selection") and ev_g["selection"].get("points"):
                     pt = ev_g["selection"]["points"][0]
@@ -935,7 +935,7 @@ def render_dashboard():
                 else:
                     fig_st = go.Figure()
                     
-                ev_st = st.plotly_chart(fig_st, use_container_width=True, on_select="rerun", key=f"m_geo_st_{st.session_state.geo_map_key}")
+                ev_st = st.plotly_chart(fig_st, use_container_width=True, on_select="rerun", key=f"m_geo_st_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
                     pt = ev_st["selection"]["points"][0]
