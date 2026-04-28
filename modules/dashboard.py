@@ -873,13 +873,14 @@ def render_dashboard():
                     # Force a solid 'Yes' value so the choropleth draws pure cyan instead of a heatmap
                     grid_counts['Active'] = 'Yes'
                     
+                    # Using rgba(27, 210, 212, 0.4) injects the 40% transparency natively into the fill color
                     fig_g = px.choropleth(
                         grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id',
-                        color='Active', color_discrete_map={'Yes': '#1bd2d4'}, hover_name='Grid4', 
+                        color='Active', color_discrete_map={'Yes': 'rgba(27, 210, 212, 0.4)'}, hover_name='Grid4', 
                         hover_data={'Active':False, 'Grid4':False, 'Logs':True}, scope='north america', template="plotly_dark"
                     )
-                    # 40% transparency fill with black borders (GridTracker Style)
-                    fig_g.update_traces(marker_line_width=1, marker_line_color='#050505', opacity=0.4)
+                    
+                    fig_g.update_traces(marker_line_width=1, marker_line_color='#050505')
                     fig_g.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[15, 65], lonaxis_range=[-130, -55], bgcolor='#050505')
                     fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
                 else:
