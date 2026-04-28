@@ -91,9 +91,22 @@ def render_dashboard():
     if 'filter_reset_key' not in st.session_state: st.session_state.filter_reset_key = 0
     if 'matrix_loc' not in st.session_state: st.session_state.matrix_loc = None
     if 'matrix_map_key' not in st.session_state: st.session_state.matrix_map_key = 2000000
+    
+    # Geo Intel Session States
+    if 'geo_us_state' not in st.session_state: st.session_state.geo_us_state = None
+    if 'geo_intl_ctry' not in st.session_state: st.session_state.geo_intl_ctry = None
+    if 'geo_can_prov' not in st.session_state: st.session_state.geo_can_prov = None
+    if 'geo_county' not in st.session_state: st.session_state.geo_county = None
+    if 'geo_grid' not in st.session_state: st.session_state.geo_grid = None
+    if 'geo_map_key' not in st.session_state: st.session_state.geo_map_key = 3000000
 
     def reset_flyouts():
         st.session_state.matrix_loc = None
+        st.session_state.geo_us_state = None
+        st.session_state.geo_intl_ctry = None
+        st.session_state.geo_can_prov = None
+        st.session_state.geo_county = None
+        st.session_state.geo_grid = None
 
     def reset_filters():
         st.session_state.filter_reset_key += 1
@@ -173,7 +186,6 @@ def render_dashboard():
         if target_df.empty: return pd.DataFrame(columns=['DXer', 'Total'])
         s = target_df.groupby('DXer')['Base_Score'].sum().reset_index()
         
-        # Calculate consistency bonus for AM/FM
         bonus_eligible = target_df[target_df['Band'].isin(['AM', 'FM'])]
         if not bonus_eligible.empty:
             b_counts = bonus_eligible.groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Logs')
@@ -191,6 +203,101 @@ def render_dashboard():
         if s.empty: return "N/A", "0 pts"
         leader = s.iloc[0]
         return leader['DXer'], f"{int(leader['Total']):,} pts"
+
+    # --- TACTICAL FLYOUT ENGINE (GEOGRAPHIC INTEL) ---
+    def render_geo_flyout(title_prefix, location_name, loc_df):
+        st.markdown("<div class='flyout-box'>", unsafe_allow_html=True)
+        st.markdown(f"<div class='flyout-title'>📍 {title_prefix}: {location_name}</div>", unsafe_allow_html=True)
+        
+        if st.button("❌ CLOSE INTEL", use_container_width=True, key=f"close_flyout_{title_prefix}"):
+            reset_flyouts()
+            st.session_state.geo_map_key += 1
+            st.rerun()
+
+        # Volume Metrics
+        tot_v = len(loc_df)
+        mw_v = len(loc_df[loc_df['Band'] == 'AM'])
+        fm_v = len(loc_df[loc_df['Band'] == 'FM'])
+        nwr_v = len(loc_df[loc_df['Band'] == 'NWR'])
+        pct_vol = (tot_v / len(filt_df)) * 100 if len(filt_df) > 0 else 0
+        
+        st.markdown("<div class='flyout-header'>LOG VOLUME (RECEIVED FROM REGION)</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='flyout-val'>{tot_v:,} Logs</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='flyout-micro'>MW: {mw_v:,} | FM: {fm_v:,} | NWR: {nwr_v:,}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='flyout-sub'>{pct_vol:.2f}% of Total Global Volume</div>", unsafe_allow_html=True)
+
+        # Unique Stations
+        tot_s = loc_df['Callsign'].nunique()
+        mw_s = loc_df[loc_df['Band'] == 'AM']['Callsign'].nunique()
+        fm_s = loc_df[loc_df['Band'] == 'FM']['Callsign'].nunique()
+        nwr_s = loc_df[loc_df['Band'] == 'NWR']['Callsign'].nunique()
+        
+        st.markdown("<div class='flyout-header'>UNIQUE STATIONS IN REGION</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='flyout-val'>{tot_s:,}</div>", unsafe_allow_html=True)
+        st.markdown(f"<div class='flyout-micro'>MW: {mw_s:,} | FM: {fm_s:,} | NWR: {nwr_s:,}</div>", unsafe_allow_html=True)
+        
+        # Most Heard Station
+        if not loc_df.empty:
+            st.markdown("<div class='flyout-header'>MOST HEARD STATION (OVERALL)</div>", unsafe_allow_html=True)
+            most_heard = loc_df.groupby(['Freq_Num', 'Callsign', 'City', 'State']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).iloc[0]
+            st.markdown(f"<div class='flyout-val'>{most_heard['Callsign']}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='flyout-micro'>{most_heard['Freq_Num']} MHz • {most_heard['City']}, {most_heard['State']} • {most_heard['Logs']} Logs</div>", unsafe_allow_html=True)
+
+        # Gridsquares & Counties
+        c1, c2 = st.columns(2)
+        with c1:
+            st.markdown("<div class='flyout-header'>GRIDSQUARES</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='flyout-sub'>{loc_df['Station_Grid'].nunique():,}</div>", unsafe_allow_html=True)
+        with c2:
+            st.markdown("<div class='flyout-header'>COUNTIES</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='flyout-sub'>{loc_df['County'].nunique():,}</div>", unsafe_allow_html=True)
+
+        # Top Heard Stations (By Band)
+        st.markdown("<div class='flyout-header'>TOP 5 HEARD STATIONS</div>", unsafe_allow_html=True)
+        for b in ['AM', 'FM', 'NWR']:
+            b_df = loc_df[loc_df['Band'] == b]
+            if not b_df.empty:
+                st.markdown(f"<div class='flyout-micro' style='color:#139a9b; margin-top:5px;'>{b} BAND</div>", unsafe_allow_html=True)
+                top_s = b_df.groupby(['Freq_Num', 'Callsign', 'City']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
+                st.dataframe(top_s, hide_index=True, use_container_width=True)
+
+        # Top Intercepting Agents
+        st.markdown("<div class='flyout-header'>TOP INTERCEPTING AGENTS</div>", unsafe_allow_html=True)
+        top_agents = loc_df.groupby('DXer').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(3)
+        st.dataframe(top_agents, hide_index=True, use_container_width=True)
+
+        # Top Intercepting Locations (By Band)
+        st.markdown("<div class='flyout-header'>TOP 5 RECEIVING LOCATIONS</div>", unsafe_allow_html=True)
+        for b in ['AM', 'FM', 'NWR']:
+            b_df = loc_df[loc_df['Band'] == b]
+            if not b_df.empty:
+                st.markdown(f"<div class='flyout-micro' style='color:#139a9b; margin-top:5px;'>{b} BAND</div>", unsafe_allow_html=True)
+                top_l = b_df.groupby('DXer_City').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
+                st.dataframe(top_l, hide_index=True, use_container_width=True)
+
+        # Top Intercepting States & Countries
+        st.markdown("<div class='flyout-header'>TOP INTERCEPTING STATES</div>", unsafe_allow_html=True)
+        t_st_mw = loc_df[loc_df['Band'] == 'AM']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'AM'].empty else "N/A"
+        t_st_fm = loc_df[loc_df['Band'] == 'FM']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'FM'].empty else "N/A"
+        t_st_nwr = loc_df[loc_df['Band'] == 'NWR']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'NWR'].empty else "N/A"
+        st.markdown(f"<div class='flyout-micro'><b>MW:</b> {t_st_mw} | <b>FM:</b> {t_st_fm} | <b>NWR:</b> {t_st_nwr}</div>", unsafe_allow_html=True)
+
+        st.markdown("<div class='flyout-header'>TOP INTERCEPTING COUNTRIES</div>", unsafe_allow_html=True)
+        t_co_mw = loc_df[loc_df['Band'] == 'AM']['DXer_Country'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'AM'].empty else "N/A"
+        t_co_fm = loc_df[loc_df['Band'] == 'FM']['DXer_Country'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'FM'].empty else "N/A"
+        st.markdown(f"<div class='flyout-micro'><b>MW:</b> {t_co_mw} | <b>FM:</b> {t_co_fm}</div>", unsafe_allow_html=True)
+
+        # Furthest Receptions Breakdown
+        st.markdown("<div class='flyout-header'>FURTHEST RECEPTIONS</div>", unsafe_allow_html=True)
+        for b in ['AM', 'FM', 'NWR']:
+            b_df = loc_df[loc_df['Band'] == b]
+            if not b_df.empty:
+                f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
+                st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']})<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+
+        st.markdown("</div>", unsafe_allow_html=True)
+
 
     # =====================================================================
     # VIEW 1: MISSION OVERVIEW
@@ -523,10 +630,155 @@ def render_dashboard():
                     st.markdown("</div>", unsafe_allow_html=True)
 
     # =====================================================================
-    # STUBS
+    # VIEW 3: GEOGRAPHIC INTELLIGENCE
     # =====================================================================
     elif st.session_state.dash_nav == "GEOGRAPHY":
-        st.info("GEOGRAPHIC INTELLIGENCE MODULE: AWAITING DEPLOYMENT")
+        st.markdown("### 🗺️ GEOSPATIAL ANALYSIS")
+        
+        geo_tab = st.pills("GEOGRAPHIC SECTOR", ["US STATES", "INTERNATIONAL", "CANADA", "US COUNTIES", "GRIDSQUARES"], default="US STATES")
+        
+        if geo_tab == "US STATES":
+            b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_us")
+            map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            us_df = map_df[map_df['Country'] == 'United States']
+            
+            cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_us_state else st.columns([1, 0.001])
+            with cm1:
+                state_counts = us_df.groupby('State').size().reset_index(name='Logs')
+                fig_us = px.choropleth(state_counts, locations='State', locationmode="USA-states", color='Logs', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
+                fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', geo=dict(bgcolor='rgba(0,0,0,0)', lakecolor='#050505'), margin={"r":0,"t":0,"l":0,"b":0}, height=500)
+                ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_geo_us_{st.session_state.geo_map_key}")
+                
+                if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
+                    n_state = ev_st["selection"]["points"][0]["location"]
+                    if st.session_state.geo_us_state != n_state:
+                        st.session_state.geo_us_state = n_state
+                        st.rerun()
+                        
+            if st.session_state.geo_us_state:
+                with cm2:
+                    render_geo_flyout("STATE", st.session_state.geo_us_state, filt_df[(filt_df['Country'] == 'United States') & (filt_df['State'] == st.session_state.geo_us_state)])
+
+        elif geo_tab == "INTERNATIONAL":
+            b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM"], default="ALL BANDS", key="b_intl")
+            map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            
+            cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_intl_ctry else st.columns([1, 0.001])
+            with cm1:
+                world_counts = map_df.groupby('Country').size().reset_index(name='Logs')
+                fig_w = px.choropleth(world_counts, locations='Country', locationmode="country names", color='Logs', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
+                fig_w.update_geos(projection_type="equirectangular", visible=True, lataxis_range=[-45, 75], lonaxis_range=[-130, 20])
+                fig_w.update_layout(paper_bgcolor='rgba(0,0,0,0)', geo=dict(bgcolor='rgba(0,0,0,0)', lakecolor='#050505'), margin={"r":0,"t":0,"l":0,"b":0}, height=500)
+                ev_w = st.plotly_chart(fig_w, use_container_width=True, on_select="rerun", key=f"m_geo_intl_{st.session_state.geo_map_key}")
+                
+                if ev_w and ev_w.get("selection") and ev_w["selection"].get("points"):
+                    n_ctry = ev_w["selection"]["points"][0]["location"]
+                    if st.session_state.geo_intl_ctry != n_ctry:
+                        st.session_state.geo_intl_ctry = n_ctry
+                        st.rerun()
+
+            if st.session_state.geo_intl_ctry:
+                with cm2:
+                    render_geo_flyout("COUNTRY", st.session_state.geo_intl_ctry, filt_df[filt_df['Country'] == st.session_state.geo_intl_ctry])
+
+        elif geo_tab == "CANADA":
+            b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM"], default="ALL BANDS", key="b_can")
+            map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            can_df = map_df[map_df['Country'] == 'Canada']
+            
+            cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_can_prov else st.columns([1, 0.001])
+            with cm1:
+                prov_counts = can_df.groupby('State').size().reset_index(name='Logs')
+                
+                # Plotly lacks native Canadian province mode without external GeoJSON. 
+                # To maintain the CRT aesthetic and prevent FIPS errors, we use our vector engine.
+                if not can_df.empty:
+                    prov_coords = can_df.groupby('State').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
+                    fig_can = px.scatter_geo(prov_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='State', scope='north america', size_max=25)
+                    fig_can.update_traces(marker=dict(symbol='square', color='#1bd2d4', line=dict(color='#ffffff', width=1), opacity=0.9))
+                    fig_can.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505')
+                    fig_can.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
+                else:
+                    fig_can = go.Figure()
+                    
+                ev_can = st.plotly_chart(fig_can, use_container_width=True, on_select="rerun", key=f"m_geo_can_{st.session_state.geo_map_key}")
+                
+                if ev_can and ev_can.get("selection") and ev_can["selection"].get("points"):
+                    pt = ev_can["selection"]["points"][0]
+                    if "hovertext" in pt:
+                        n_prov = pt["hovertext"]
+                        if st.session_state.geo_can_prov != n_prov:
+                            st.session_state.geo_can_prov = n_prov
+                            st.rerun()
+
+            if st.session_state.geo_can_prov:
+                with cm2:
+                    render_geo_flyout("PROVINCE", st.session_state.geo_can_prov, filt_df[(filt_df['Country'] == 'Canada') & (filt_df['State'] == st.session_state.geo_can_prov)])
+
+        elif geo_tab == "US COUNTIES":
+            b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_co")
+            map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            us_c_df = map_df[(map_df['Country'] == 'United States') & (map_df['County'] != 'Unknown') & (map_df['County'] != ' - ')]
+            
+            cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
+            with cm1:
+                # Rendering counties as dense CRT squares via scatter_geo to prevent external GeoJSON/FIPS reliance
+                if not us_c_df.empty:
+                    county_coords = us_c_df.groupby('County').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
+                    fig_co = px.scatter_geo(county_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='County', scope='usa', size_max=12)
+                    fig_co.update_traces(marker=dict(symbol='square', color='#1bd2d4', line=dict(color='#ffffff', width=0), opacity=0.8))
+                    fig_co.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
+                    fig_co.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
+                else:
+                    fig_co = go.Figure()
+                    
+                ev_co = st.plotly_chart(fig_co, use_container_width=True, on_select="rerun", key=f"m_geo_co_{st.session_state.geo_map_key}")
+                
+                if ev_co and ev_co.get("selection") and ev_co["selection"].get("points"):
+                    pt = ev_co["selection"]["points"][0]
+                    if "hovertext" in pt:
+                        n_co = pt["hovertext"]
+                        if st.session_state.geo_county != n_co:
+                            st.session_state.geo_county = n_co
+                            st.rerun()
+
+            if st.session_state.geo_county:
+                with cm2:
+                    render_geo_flyout("COUNTY", st.session_state.geo_county, filt_df[(filt_df['Country'] == 'United States') & (filt_df['County'] == st.session_state.geo_county)])
+
+        elif geo_tab == "GRIDSQUARES":
+            b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_grid")
+            map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            grid_df = map_df[(map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')]
+            
+            cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_grid else st.columns([1, 0.001])
+            with cm1:
+                if not grid_df.empty:
+                    grid_coords = grid_df.groupby('Station_Grid').agg({'ST_Lat':'mean', 'ST_Lon':'mean'}).reset_index()
+                    fig_g = px.scatter_geo(grid_coords, lat='ST_Lat', lon='ST_Lon', hover_name='Station_Grid', scope='north america')
+                    fig_g.update_traces(marker=dict(symbol='square', color='#1bd2d4', size=8, line=dict(color='#1bd2d4', width=1), opacity=0.7))
+                    fig_g.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[15, 65], lonaxis_range=[-130, -55], bgcolor='#050505')
+                    fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
+                else:
+                    fig_g = go.Figure()
+                    
+                ev_g = st.plotly_chart(fig_g, use_container_width=True, on_select="rerun", key=f"m_geo_grid_{st.session_state.geo_map_key}")
+                
+                if ev_g and ev_g.get("selection") and ev_g["selection"].get("points"):
+                    pt = ev_g["selection"]["points"][0]
+                    if "hovertext" in pt:
+                        n_grid = pt["hovertext"]
+                        if st.session_state.geo_grid != n_grid:
+                            st.session_state.geo_grid = n_grid
+                            st.rerun()
+
+            if st.session_state.geo_grid:
+                with cm2:
+                    render_geo_flyout("GRIDSQUARE", st.session_state.geo_grid, filt_df[filt_df['Station_Grid'] == st.session_state.geo_grid])
+
+    # =====================================================================
+    # STUBS
+    # =====================================================================
     elif st.session_state.dash_nav == "ES_TRACKER":
         st.info("TIMELAPSE & ES-CLOUD RADAR MODULE: AWAITING DEPLOYMENT")
     elif st.session_state.dash_nav == "TUNER":
