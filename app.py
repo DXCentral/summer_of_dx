@@ -22,6 +22,15 @@ from modules.data_forge import (
 )
 from modules.dashboard import render_dashboard
 
+# --- BULLETPROOF IMPORT FAILSAFE ---
+try:
+    from modules.awards import check_thresholds, award_popup
+    AWARDS_ACTIVE = True
+except ImportError as e:
+    AWARDS_ACTIVE = False
+    def check_thresholds(*args, **kwargs): return None
+    def award_popup(): pass
+
 # --- 1. CORE CONFIGURATION ---
 st.set_page_config(
     page_title="SUMMER OF DX: DEFCON 6", 
@@ -347,6 +356,8 @@ with main_content:
         st.markdown('<div class="typewriter">GREETINGS, FELLOW SIGNAL TRAVELER.<br>WOULD YOU LIKE TO PLAY A GAME?<span class="blink">_</span></div>', unsafe_allow_html=True)
         if "gcp_service_account" not in st.secrets:
             st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
+        if not AWARDS_ACTIVE:
+            st.warning("⚠️ AWARDS MODULE OFFLINE. Ensure 'modules/awards.py' is deployed to activate Century Club notifications.")
         st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
 
     # --- PROTOCOLS ---
@@ -355,24 +366,31 @@ with main_content:
         st.markdown("---")
         st.markdown("""
         <div style='font-size:1.2rem; color:#ffffff; line-height: 1.6;'>
-        Welcome to the Summer of DX. Your mission parameters are as follows:
+        <b style='color:#1bd2d4; font-size:1.4rem;'>MISSION BRIEFING</b><br>
+        Welcome to the 2026 Summer of DX. Your mission is to monitor, intercept, and catalog distant radio transmissions across the Medium Wave (MW), FM Broadcast Band II (FM), and US-based NOAA Weather Radio (NWR) spectrums. For this operation, we have completely overhauled the Global Intelligence Command. Registration is no longer required. The terminal is live, the databanks are primed, and the spectrum is yours.
         <br><br>
-        <b style='color:#1bd2d4;'>1. DISTANCE SCORING:</b><br>
-        1 point is awarded for every 100 miles of distance (e.g., 250 miles = 3 points). 
+        <b style='color:#1bd2d4; font-size:1.4rem;'>OPERATIONAL WINDOW</b><br>
+        <b>Intercept Window:</b> Saturday, May 2, 2026 @ 0100 UTC through Monday, August 31, 2026 @ 2359 UTC. All telemetry must be captured within this timeframe.<br>
+        <b>Uplink Window:</b> The Terminal opens for data submission on Friday, May 1, 2026 @ 2300 UTC. The Terminal permanently severs external connections on Wednesday, September 30, 2026 @ 2359 UTC. This provides a 30-day grace period for post-operation audio review and data transmission.
         <br><br>
-        <b style='color:#1bd2d4;'>2. HARDWARE MULTIPLIERS:</b><br>
-        Using traditional hardware (Non-SDR) yields an automatic +5 Base Point bonus per intercept.
+        <b style='color:#1bd2d4; font-size:1.4rem;'>THE SCORING MATRIX</b><br>
+        Your intercepts are actively graded by the Central Forge using the following parameters per band (MW, FM, NWR are scored independently):<br>
+        <b>1. Base Distance:</b> 1 point awarded per 100 miles of signal travel (e.g., 283 miles = 2 pts, 1398 miles = 13 pts).<br>
+        <b>2. Hardware Bonus:</b> +5 points awarded to any intercept captured using legacy or traditional hardware (Non-SDR).<br>
+        <b>3. Geographic Multipliers (NEW):</b> Your base score is exponentially amplified by your geographic footprint. Every unique US State, Canadian Province, and International Country you log acts as a 1x multiplier for your score on that band. (Example: 1,000 base points x [35 States + 3 Provinces + 10 Countries] = 48,000 Total Points).<br>
+        <b>4. Consistency Bonus:</b> Agents who successfully transmit 10+ intercepts in a single calendar month on a specific band receive a flat +100 Point tactical bonus.
         <br><br>
-        <b style='color:#1bd2d4;'>3. GEOGRAPHIC MULTIPLIERS:</b><br>
-        Your base score for a specific band is heavily impacted by your geographic footprint. 
-        Every unique US State, Canadian Province, and International Country you intercept acts as a <b>1x multiplier</b> for your base score on that specific band. 
-        <i>(Example: 1000 base points * 35 States * 3 Provinces * 10 Countries = 48,000 Points)</i>
+        <b style='color:#1bd2d4; font-size:1.4rem;'>SPECIAL OPERATIONS & COMMENDATIONS</b><br>
+        <b>The John Cereghin Century Club (UPDATED):</b> Track down 100 unique US Maidenhead Grids on MW or FM, 20 on NWR to achieve Century Club status and earn an exclusive commendation certificate. Endorsements are awarded for every 50 subsequent grids (10 for NWR).<br>
+        <b>The County Hunter Protocol (NEW):</b> A new forensic tracker monitors your intercepts across all US Counties and Parishes. Maximize your coverage area to climb the newly established County Ledgers.<br>
+        <b>The Rover Directive (NEW):</b> Agents are encouraged to go mobile to activate empty grids and counties. Select "ROVER" during your intercept log and provide your active operating Grid Square or County/Parish. The more dedicated Rovers will receive special recognition from High Command for their efforts.<br>
+        <b>Bounty Hunts (NEW):</b> A highly classified "mission" will be issued every two weeks. To acquire your target dossier, you must intercept the cryptographic codeword broadcasted on DX Radio (thisisprobablydxradio.com). Timing details will be communicated from High Command through the Terminal.
         <br><br>
-        <b style='color:#1bd2d4;'>4. CONSISTENCY BONUS:</b><br>
-        Agents who successfully transmit 10+ intercepts in a single calendar month on a specific band receive a flat +100 Point tactical bonus.
-        <br><br>
-        <b style='color:#1bd2d4;'>5. THE ROVER DIRECTIVE:</b><br>
-        If you operate away from your Home QTH, you must select "ROVER" during your intercept log and provide your active operating Grid Square to ensure precise telemetry calibration.
+        <b style='color:#1bd2d4; font-size:1.4rem;'>RULES OF ENGAGEMENT</b><br>
+        <b>Target Validation:</b> Only licensed stations broadcasting on their primary frequency count (no images, spurs, or harmonics). For MW, TIS/HAR and Pirate stations may be submitted, but they will not count toward Grid or County chases.<br>
+        <b>Singular Intercepts:</b> A specific station may only be logged once per band for the duration of the DX event. A station can be submitted for multiple events on FM and NWR to demonstrate ionospheric performance and characteristics. Duplicate entries (a single station logged at the same date/time) will be purged. (Logging an FM HD sub-channel does not count as a new log; omit "-HD" or "-FM" from callsigns. -LP is acceptable, per High Command).<br>
+        <b>Hardware Restrictions:</b> Equipment used must be your own (or equipment you maintain). The use of remote online receivers (other than your own) is strictly prohibited for logging, though they may be used for target identification assistance.<br>
+        <b>Data Ingestion:</b> Manual entry is no longer required for listed targets. Agents can now use the Terminal's Database Search (for click-to-log targeting) or the Bulk Infiltration tool (supporting seamless CSV uploads from FMList, MWList, and WLogger). Manual Entry is still available for those situations where the other methods fail to allow capture for a station.
         </div>
         """, unsafe_allow_html=True)
 
@@ -1806,7 +1824,7 @@ with main_content:
                                 
                             try:
                                 sheet.append_rows(bulk_rows)
-                                # Force cache clear
+                                # Force cache clear 
                                 try:
                                     get_full_logs_df.clear()
                                     get_logged_dict.clear()
