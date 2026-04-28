@@ -209,16 +209,6 @@ def render_dashboard():
             else:
                 st.toast("🚨 FREQUENCY OUT OF BAND LIMITS", icon="⚠️")
         st.session_state.direct_freq_input = ""
-
-    # --- DASHBOARD NAVIGATION ---
-    d_cols = st.columns(5)
-    nav_btns = ["MISSION OVERVIEW", "CLASSIFICATION MATRIX", "GEOGRAPHIC INTEL", "RADAR & TELEMETRY", "FREQUENCY TUNER"]
-    nav_keys = ["OVERVIEW", "MATRIX", "GEOGRAPHY", "RADAR", "TUNER"]
-    for i, label in enumerate(nav_btns):
-        if d_cols[i].button(f"▶ {label}", use_container_width=True):
-            st.session_state.dash_nav = nav_keys[i]
-            reset_flyouts()
-            st.rerun()
         
     st.markdown("<hr style='margin-top: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
     
@@ -246,6 +236,18 @@ def render_dashboard():
 
     st.button("[ RESET ALL FILTERS ]", on_click=reset_filters, key=f"btn_reset_{fk}")
 
+    # Pre-process dates and geometry for the entire dataframe run
+    df['Date_TS'] = pd.to_datetime(df['Date_Str'], errors='coerce')
+    df['Date_Obj'] = df['Date_TS'].dt.date
+    
+    # Fallback geometry if missing
+    if 'DX_Lat' not in df.columns: df['DX_Lat'] = 0.0
+    if 'DX_Lon' not in df.columns: df['DX_Lon'] = 0.0
+    if 'ST_Lat' not in df.columns: df['ST_Lat'] = 0.0
+    if 'ST_Lon' not in df.columns: df['ST_Lon'] = 0.0
+    df['Mid_Lat'] = (df['DX_Lat'] + df['ST_Lat']) / 2
+    df['Mid_Lon'] = (df['DX_Lon'] + df['ST_Lon']) / 2
+
     # Apply Filters
     filt_df = df.copy()
     if f_dxer != "ALL": filt_df = filt_df[filt_df['DXer'] == f_dxer]
@@ -267,17 +269,42 @@ def render_dashboard():
         st.warning("NO TELEMETRY MATCHES CURRENT FILTER PARAMETERS.")
         st.stop()
 
+    # --- THE MULTIPLIER SCORING ENGINE ---
     def calculate_scores(target_df):
-        if target_df.empty: return pd.DataFrame(columns=['DXer', 'Total'])
-        s = target_df.groupby('DXer')['Base_Score'].sum().reset_index()
+        if target_df.empty: 
+            return pd.DataFrame(columns=['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total'])
+        
+        # 1. Calculate Base and Multipliers strictly PER BAND first
+        pb = target_df.groupby(['DXer', 'Band']).agg(
+            Band_Base=('Base_Score', 'sum'),
+            U_States=('State', 'nunique'),
+            U_Ctry=('Country', 'nunique')
+        ).reset_index()
+        
+        # 2. Combine Multipliers (States + Countries) per band
+        pb['Band_Mult'] = pb['U_States'] + pb['U_Ctry']
+        pb['Band_Mult'] = pb['Band_Mult'].apply(lambda x: x if x > 0 else 1) # Fallback to 1x to prevent 0 scores
+        pb['Band_Total_Base'] = pb['Band_Base'] * pb['Band_Mult']
+        
+        # 3. Roll up mathematically to the Operator Level
+        s = pb.groupby('DXer').agg(
+            Base_Score=('Band_Base', 'sum'),
+            Multiplier=('Band_Mult', 'sum'), 
+            Base_x_Mult=('Band_Total_Base', 'sum')
+        ).reset_index()
+        
+        # 4. Calculate Consistency Bonuses (10+ logs in a month per band)
         bonus_eligible = target_df[target_df['Band'].isin(['AM', 'FM'])]
         if not bonus_eligible.empty:
             b_counts = bonus_eligible.groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Logs')
             b_counts['Bonus'] = b_counts['Logs'].apply(lambda x: 100 if x >= 10 else 0)
             b_sum = b_counts.groupby('DXer')['Bonus'].sum().reset_index()
             s = s.merge(b_sum, on='DXer', how='left').fillna(0)
-            s['Total'] = s['Base_Score'] + s['Bonus']
-        else: s['Total'] = s['Base_Score']
+            s['Total'] = s['Base_x_Mult'] + s['Bonus']
+        else:
+            s['Bonus'] = 0
+            s['Total'] = s['Base_x_Mult']
+            
         return s.sort_values('Total', ascending=False)
 
     def get_leader_data(band_target):
@@ -419,23 +446,30 @@ def render_dashboard():
             return brd
 
         if mx_tab == "SCORE LEDGER":
-            c1, c2, c3, c4 = st.columns(4)
+            c1, c2 = st.columns(2)
+            c3, c4 = st.columns(2)
+            
+            def render_score_df(b_target):
+                df_slice = filt_df if b_target == "ALL" else filt_df[filt_df['Band'] == b_target]
+                s_df = calculate_scores(df_slice).head(10)
+                if not s_df.empty:
+                    # Rename columns for the tactical HUD
+                    disp = s_df[['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total']].rename(columns={'Base_Score': 'Base', 'Multiplier': 'Mult (x)'})
+                    return disp
+                return pd.DataFrame()
+
             with c1:
                 st.markdown("#### TOTAL SCORE")
-                s_all = calculate_scores(filt_df).head(10)
-                st.dataframe(s_all[['DXer', 'Total']], hide_index=True, use_container_width=True)
+                st.dataframe(render_score_df("ALL"), hide_index=True, use_container_width=True)
             with c2:
                 st.markdown("#### MW SCORE")
-                s_am = calculate_scores(filt_df[filt_df['Band'] == 'AM']).head(10)
-                st.dataframe(s_am[['DXer', 'Total']], hide_index=True, use_container_width=True)
+                st.dataframe(render_score_df("AM"), hide_index=True, use_container_width=True)
             with c3:
                 st.markdown("#### FM SCORE")
-                s_fm = calculate_scores(filt_df[filt_df['Band'] == 'FM']).head(10)
-                st.dataframe(s_fm[['DXer', 'Total']], hide_index=True, use_container_width=True)
+                st.dataframe(render_score_df("FM"), hide_index=True, use_container_width=True)
             with c4:
                 st.markdown("#### NWR SCORE")
-                s_nwr = calculate_scores(filt_df[filt_df['Band'] == 'NWR']).head(10)
-                st.dataframe(s_nwr[['DXer', 'Total']], hide_index=True, use_container_width=True)
+                st.dataframe(render_score_df("NWR"), hide_index=True, use_container_width=True)
 
         elif mx_tab == "GRID LEDGER":
             c1, c2 = st.columns(2)
@@ -575,7 +609,7 @@ def render_dashboard():
                             f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
                             prop_str = f" • Prop: {f_r['Prop_Mode']}" if b in ['FM', 'NWR'] and f_r['Prop_Mode'] not in ['', ' - '] else ""
                             st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']}){prop_str}<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']}){prop_str}<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
     # =====================================================================
@@ -749,14 +783,12 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
         filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
         filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
         
         if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
         if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
         
-        # Universal Geocoder Override to eliminate Null Island drops
         mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
         if mask.any():
             missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
@@ -780,7 +812,6 @@ def render_dashboard():
         filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
         filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
         
-        # --- 2. TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
@@ -951,13 +982,11 @@ def render_dashboard():
                     st_lat, st_lon = selected_log['ST_Lat'], selected_log['ST_Lon']
                     dist = selected_log['Distance']
                     
-                    # Calculate true geometric center to frame the shot perfectly
                     mid_lat = (dx_lat + st_lat) / 2
                     mid_lon = (dx_lon + st_lon) / 2
                     
                     target_fig = go.Figure()
                     
-                    # 1. Targeting Ring
                     circle_pts = get_target_circle(dx_lat, dx_lon, dist)
                     target_fig.add_trace(go.Scattermapbox(
                         mode="lines",
@@ -968,7 +997,6 @@ def render_dashboard():
                         hoverinfo="skip"
                     ))
                     
-                    # 2. Intercept Vector Line (Solid mapbox line override)
                     target_fig.add_trace(go.Scattermapbox(
                         mode="lines",
                         lon=[dx_lon, st_lon],
@@ -978,7 +1006,6 @@ def render_dashboard():
                         hoverinfo="skip"
                     ))
                     
-                    # 3. DXer Point (Cyan)
                     target_fig.add_trace(go.Scattermapbox(
                         mode="markers",
                         lon=[dx_lon], lat=[dx_lat],
@@ -988,7 +1015,6 @@ def render_dashboard():
                         hoverinfo="text"
                     ))
                     
-                    # 4. Station Point (Red Target)
                     target_fig.add_trace(go.Scattermapbox(
                         mode="markers",
                         lon=[st_lon], lat=[st_lat],
@@ -998,7 +1024,6 @@ def render_dashboard():
                         hoverinfo="text"
                     ))
                     
-                    # Dynamic Zoom Logic based on ring radius
                     zoom_lvl = 3.5
                     if dist < 100: zoom_lvl = 6.5
                     elif dist < 300: zoom_lvl = 5.5
@@ -1017,7 +1042,6 @@ def render_dashboard():
                     
                     st.plotly_chart(target_fig, use_container_width=True, config={'scrollZoom': True})
                     
-                    # Tactical Dossier Card
                     prop_str = f" • Prop: {selected_log['Prop_Mode']}" if selected_log['Band'] in ['FM', 'NWR'] and selected_log['Prop_Mode'] not in ['', ' - '] else ""
                     st.markdown(f"""
                     <div style='border: 1px solid #139a9b; padding: 15px; background-color: #050505; border-left: 5px solid #1bd2d4;'>
