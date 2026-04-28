@@ -511,15 +511,15 @@ def render_dashboard():
         elif mx_tab == "INTERCEPT LEDGER":
             def build_log_board(b_target=None):
                 t_df = filt_df if not b_target else filt_df[filt_df['Band'] == b_target]
-                return t_df.groupby('DXer').size().reset_index(name='Total Logs').sort_values('Total Logs', ascending=False)
+                return t_df.groupby('DXer')['Callsign'].nunique().reset_index(name='Unique Stations').sort_values('Unique Stations', ascending=False)
             c1, c2, c3, c4 = st.columns(4)
-            c1.markdown("#### TOTAL LOGS")
+            c1.markdown("#### TOTAL STATIONS")
             c1.dataframe(build_log_board(), hide_index=True, use_container_width=True)
-            c2.markdown("#### MW LOGS")
+            c2.markdown("#### MW STATIONS")
             c2.dataframe(build_log_board('AM'), hide_index=True, use_container_width=True)
-            c3.markdown("#### FM LOGS")
+            c3.markdown("#### FM STATIONS")
             c3.dataframe(build_log_board('FM'), hide_index=True, use_container_width=True)
-            c4.markdown("#### NWR LOGS")
+            c4.markdown("#### NWR STATIONS")
             c4.dataframe(build_log_board('NWR'), hide_index=True, use_container_width=True)
 
         elif mx_tab == "STATE LEDGER":
