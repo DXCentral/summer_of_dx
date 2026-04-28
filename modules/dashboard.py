@@ -155,6 +155,7 @@ def render_dashboard():
     if 'geo_can_prov' not in st.session_state: st.session_state.geo_can_prov = None
     if 'geo_county' not in st.session_state: st.session_state.geo_county = None
     if 'geo_grid' not in st.session_state: st.session_state.geo_grid = None
+    if 'geo_st_loc' not in st.session_state: st.session_state.geo_st_loc = None
     if 'geo_map_key' not in st.session_state: st.session_state.geo_map_key = 3000000
 
     def reset_flyouts():
@@ -164,6 +165,7 @@ def render_dashboard():
         st.session_state.geo_can_prov = None
         st.session_state.geo_county = None
         st.session_state.geo_grid = None
+        st.session_state.geo_st_loc = None
 
     def reset_filters():
         st.session_state.filter_reset_key += 1
@@ -692,7 +694,7 @@ def render_dashboard():
     elif st.session_state.dash_nav == "GEOGRAPHY":
         st.markdown("### 🗺️ GEOSPATIAL ANALYSIS")
         
-        geo_tab = st.pills("GEOGRAPHIC SECTOR", ["US STATES", "INTERNATIONAL", "CANADA", "US COUNTIES", "GRIDSQUARES"], default="US STATES")
+        geo_tab = st.pills("GEOGRAPHIC SECTOR", ["US STATES", "INTERNATIONAL", "CANADA", "US COUNTIES", "GRIDSQUARES", "STATION LOCATIONS"], default="US STATES")
         
         if geo_tab == "US STATES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_us")
@@ -870,18 +872,19 @@ def render_dashboard():
                     grid_geojson = generate_grid_geojson(grids_unique)
                     grid_counts = grid_df.groupby('Grid4').size().reset_index(name='Logs')
                     
-                    # Force a solid 'Yes' value so the choropleth draws pure cyan instead of a heatmap
+                    # Force a solid 'Yes' value to map to our RGBA cyan color
                     grid_counts['Active'] = 'Yes'
                     
-                    # Using rgba(27, 210, 212, 0.4) injects the 40% transparency natively into the fill color
-                    fig_g = px.choropleth(
+                    # MAPBOX ENGINE OVERRIDE: Using choropleth_mapbox forces WebGL rendering
+                    # We pass the alpha channel (0.4) directly inside the rgba color code to avoid opacity crashes
+                    fig_g = px.choropleth_mapbox(
                         grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id',
                         color='Active', color_discrete_map={'Yes': 'rgba(27, 210, 212, 0.4)'}, hover_name='Grid4', 
-                        hover_data={'Active':False, 'Grid4':False, 'Logs':True}, scope='north america', template="plotly_dark"
+                        hover_data={'Active':False, 'Grid4':False, 'Logs':True},
+                        mapbox_style="carto-darkmatter", center=dict(lat=40, lon=-95), zoom=2.5
                     )
                     
-                    fig_g.update_traces(marker_line_width=1, marker_line_color='#050505')
-                    fig_g.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[15, 65], lonaxis_range=[-130, -55], bgcolor='#050505')
+                    fig_g.update_traces(marker_line_width=1.5, marker_line_color='#050505')
                     fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
                 else:
                     fig_g = go.Figure()
@@ -901,6 +904,55 @@ def render_dashboard():
                     # Filter all logs whose 6-char grid starts with the 4-char grid
                     g_df = filt_df[filt_df['Station_Grid'].str.upper().str.startswith(st.session_state.geo_grid)]
                     render_geo_flyout("GRIDSQUARE", st.session_state.geo_grid, g_df)
+                    
+        elif geo_tab == "STATION LOCATIONS":
+            b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_st_loc")
+            map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            
+            cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_st_loc else st.columns([1, 0.001])
+            with cm1:
+                if not map_df.empty:
+                    st_map_data = map_df.groupby(['City', 'State', 'Country', 'ST_Lat', 'ST_Lon', 'Band']).size().reset_index(name='Logs')
+                    
+                    # Smart Location string depending on country
+                    st_map_data['Loc_Name'] = st_map_data.apply(lambda x: f"{x['City']}, {x['State']}" if x['Country'] in ['United States', 'Canada'] else f"{x['City']}, {x['Country']}", axis=1)
+                    
+                    # Hardcoded Tactical Legend Palette
+                    band_colors = {'AM': '#1bd2d4', 'FM': '#39ff14', 'NWR': '#ffa500'}
+                    
+                    fig_st = px.scatter_mapbox(
+                        st_map_data, lat='ST_Lat', lon='ST_Lon', size='Logs', color='Band',
+                        color_discrete_map=band_colors, hover_name='Loc_Name',
+                        hover_data={'ST_Lat':False, 'ST_Lon':False, 'Band':True, 'Logs':True},
+                        mapbox_style="carto-darkmatter", zoom=3.5, center=dict(lat=38, lon=-95),
+                        size_max=15
+                    )
+                    fig_st.update_layout(
+                        margin={"r":0,"t":30,"l":0,"b":0}, 
+                        legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), 
+                        paper_bgcolor='rgba(0,0,0,0)'
+                    )
+                else:
+                    fig_st = go.Figure()
+                    
+                ev_st = st.plotly_chart(fig_st, use_container_width=True, on_select="rerun", key=f"m_geo_st_{st.session_state.geo_map_key}")
+                
+                if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
+                    pt = ev_st["selection"]["points"][0]
+                    if "hovertext" in pt:
+                        n_loc = pt["hovertext"] # Exact string match to Loc_Name
+                        if st.session_state.geo_st_loc != n_loc:
+                            st.session_state.geo_st_loc = n_loc
+                            st.rerun()
+
+            if st.session_state.geo_st_loc:
+                with cm2:
+                    # Dynamically rebuild the Loc_Name in the main dataframe to ensure a perfect match for the flyout filter
+                    f_loc_df = filt_df.copy()
+                    f_loc_df['Loc_Name'] = f_loc_df.apply(lambda x: f"{x['City']}, {x['State']}" if x['Country'] in ['United States', 'Canada'] else f"{x['City']}, {x['Country']}", axis=1)
+                    
+                    s_df = f_loc_df[f_loc_df['Loc_Name'] == st.session_state.geo_st_loc]
+                    render_geo_flyout("STATION HUB", st.session_state.geo_st_loc, s_df)
 
     # =====================================================================
     # STUBS
