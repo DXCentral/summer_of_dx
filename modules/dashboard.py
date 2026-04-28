@@ -43,15 +43,12 @@ def get_custom_county_geojson():
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
             state_abbr = FIPS_TO_ABBR.get(state_fips, "")
             county_name = str(feature['properties'].get('NAME', '')).strip()
-            
-            # Inject a custom unified ID to bypass FIPS requirement (e.g. TX_Jefferson)
             map_id = f"{state_abbr}_{county_name}"
             feature['id'] = map_id
         return geojson
     except Exception:
         return None
 
-# Leading underscore prevents Streamlit from trying to hash the array, stopping UnhashableParamError
 @st.cache_data
 def generate_grid_geojson(_grids):
     features = []
@@ -59,7 +56,6 @@ def generate_grid_geojson(_grids):
         if len(g) >= 4:
             g4 = g[:4].upper()
             try:
-                # Maidenhead 4-char coordinate math to construct exact bounding boxes
                 lon = (ord(g4[0]) - ord('A')) * 20 - 180 + int(g4[2]) * 2
                 lat = (ord(g4[1]) - ord('A')) * 10 - 90 + int(g4[3]) * 1
                 features.append({
@@ -84,72 +80,31 @@ def render_dashboard():
         
     st.markdown("""
     <style>
-    /* Force Center DataFrame Headers and Cells */
-    [data-testid="stDataFrame"] th {
-        text-align: center !important;
-    }
-    [data-testid="stDataFrame"] td {
-        text-align: center !important;
-    }
-    /* Eradicate Streamlit Toolbar */
-    [data-testid="stElementToolbar"] {
-        display: none !important;
-    }
-    /* Score Leader Custom UI */
-    .leader-box {
-        border: 1px solid #139a9b;
-        padding: 10px;
-        background-color: #050505;
-        text-align: center;
-        box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1);
-    }
-    .leader-title {
-        color: #139a9b;
-        font-size: 0.85rem;
-        text-transform: uppercase;
-        letter-spacing: 1px;
-        margin-bottom: 5px;
-    }
-    .leader-name {
-        color: #ffffff;
-        font-size: 1.4rem;
-        line-height: 1.2;
-    }
-    .leader-score {
-        color: #1bd2d4;
-        font-size: 1.1rem;
-    }
-    /* Flyout Custom UI */
+    [data-testid="stDataFrame"] th { text-align: center !important; }
+    [data-testid="stDataFrame"] td { text-align: center !important; }
+    [data-testid="stElementToolbar"] { display: none !important; }
+    .leader-box { border: 1px solid #139a9b; padding: 10px; background-color: #050505; text-align: center; box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1); }
+    .leader-title { color: #139a9b; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
+    .leader-name { color: #ffffff; font-size: 1.4rem; line-height: 1.2; }
+    .leader-score { color: #1bd2d4; font-size: 1.1rem; }
     .flyout-box { border: 1px solid #139a9b; padding: 15px; background-color: #050505; box-shadow: 0px 0px 10px rgba(19, 154, 155, 0.2); }
     .flyout-title { color: #1bd2d4; margin-top: 0; font-size: 1.8rem; text-transform: uppercase; border-bottom: 1px dashed #139a9b; padding-bottom: 5px; }
     .flyout-header { color: #1bd2d4; font-size: 0.85rem; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; }
     .flyout-val { font-size: 1.8rem; color: #ffffff; line-height: 1.1; }
     .flyout-sub { font-size: 0.95rem; color: #ffffff; margin-top: 2px; }
     .flyout-micro { font-size: 0.9rem; color: #ffffff; margin-top: 2px; }
-    /* Terminal Pill Button CSS */
-    div[data-testid="stPills"] button {
-        background-color: #050505 !important;
-        border: 1px solid #139a9b !important;
-        color: #1bd2d4 !important;
-        font-family: 'VT323', monospace !important;
-    }
-    div[data-testid="stPills"] button[aria-checked="true"] {
-        background-color: #139a9b !important;
-        color: #050505 !important;
-        box-shadow: 0px 0px 10px rgba(27,210,212,0.6);
-    }
+    div[data-testid="stPills"] button { background-color: #050505 !important; border: 1px solid #139a9b !important; color: #1bd2d4 !important; font-family: 'VT323', monospace !important; }
+    div[data-testid="stPills"] button[aria-checked="true"] { background-color: #139a9b !important; color: #050505 !important; box-shadow: 0px 0px 10px rgba(27,210,212,0.6); }
     </style>
     """, unsafe_allow_html=True)
 
     st.markdown("<h1 style='text-align: center; color: #1bd2d4; text-shadow: 0px 0px 10px rgba(27,210,212,0.8);'>GLOBAL INTELLIGENCE COMMAND</h1>", unsafe_allow_html=True)
     
-    # --- SESSION STATE INITIALIZATION ---
     if 'dash_nav' not in st.session_state: st.session_state.dash_nav = "OVERVIEW"
     if 'filter_reset_key' not in st.session_state: st.session_state.filter_reset_key = 0
     if 'matrix_loc' not in st.session_state: st.session_state.matrix_loc = None
     if 'matrix_map_key' not in st.session_state: st.session_state.matrix_map_key = 2000000
     
-    # Geo Intel Session States
     if 'geo_us_state' not in st.session_state: st.session_state.geo_us_state = None
     if 'geo_intl_ctry' not in st.session_state: st.session_state.geo_intl_ctry = None
     if 'geo_can_prov' not in st.session_state: st.session_state.geo_can_prov = None
@@ -170,7 +125,6 @@ def render_dashboard():
     def reset_filters():
         st.session_state.filter_reset_key += 1
 
-    # --- DASHBOARD NAVIGATION ---
     d_cols = st.columns(5)
     if d_cols[0].button("▶ MISSION OVERVIEW", use_container_width=True): 
         st.session_state.dash_nav = "OVERVIEW"
@@ -195,7 +149,6 @@ def render_dashboard():
         
     st.markdown("<hr style='margin-top: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
     
-    # --- GLOBAL FILTERS ---
     fk = st.session_state.filter_reset_key
     st.markdown("<div style='color:#139a9b; margin-bottom: 5px;'>[ GLOBAL INTERCEPT FILTERS ]</div>", unsafe_allow_html=True)
     
@@ -203,7 +156,7 @@ def render_dashboard():
     f_dxer = c_f1.selectbox("DXer Name", ["ALL"] + sorted(df['DXer'].dropna().unique().tolist()), key=f"f_dxer_{fk}")
     f_dx_state = c_f2.selectbox("DXer State/Prov", ["ALL"] + sorted(df['DXer_State'].dropna().unique().tolist()), key=f"f_dx_st_{fk}")
     f_dx_ctry = c_f3.selectbox("DXer Country", ["ALL"] + sorted(df['DXer_Country'].dropna().unique().tolist()), key=f"f_dx_co_{fk}")
-    f_band = c_f4.selectbox("Band", ["ALL", "AM", "FM", "NWR"], index=0, key=f"f_band_{fk}")
+    f_band = f_band = c_f4.selectbox("Band", ["ALL", "AM", "FM", "NWR"], index=0, key=f"f_band_{fk}")
 
     c_f5, c_f6, c_f7, c_f8 = st.columns(4)
     f_prop = c_f5.selectbox("Propagation (FM/NWR)", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], key=f"f_prop_{fk}")
@@ -219,7 +172,6 @@ def render_dashboard():
 
     st.button("[ RESET ALL FILTERS ]", on_click=reset_filters, key=f"btn_reset_{fk}")
 
-    # Apply Filters
     filt_df = df.copy()
     if f_dxer != "ALL": filt_df = filt_df[filt_df['DXer'] == f_dxer]
     if f_dx_state != "ALL": filt_df = filt_df[filt_df['DXer_State'] == f_dx_state]
@@ -240,11 +192,9 @@ def render_dashboard():
         st.warning("NO TELEMETRY MATCHES CURRENT FILTER PARAMETERS.")
         st.stop()
 
-    # --- SCORE CALCULATION HELPER ---
     def calculate_scores(target_df):
         if target_df.empty: return pd.DataFrame(columns=['DXer', 'Total'])
         s = target_df.groupby('DXer')['Base_Score'].sum().reset_index()
-        
         bonus_eligible = target_df[target_df['Band'].isin(['AM', 'FM'])]
         if not bonus_eligible.empty:
             b_counts = bonus_eligible.groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Logs')
@@ -263,55 +213,34 @@ def render_dashboard():
         leader = s.iloc[0]
         return leader['DXer'], f"{int(leader['Total']):,} pts"
 
-    # --- TACTICAL FLYOUT ENGINE (GEOGRAPHIC INTEL) ---
     def render_geo_flyout(title_prefix, location_name, loc_df):
         st.markdown("<div class='flyout-box'>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-title'>📍 {title_prefix}: {location_name}</div>", unsafe_allow_html=True)
-        
         if st.button("❌ CLOSE INTEL", use_container_width=True, key=f"close_flyout_{title_prefix}"):
             reset_flyouts()
             st.session_state.geo_map_key += 1
             st.rerun()
-
-        # Volume Metrics
         tot_v = len(loc_df)
         mw_v = len(loc_df[loc_df['Band'] == 'AM'])
         fm_v = len(loc_df[loc_df['Band'] == 'FM'])
         nwr_v = len(loc_df[loc_df['Band'] == 'NWR'])
         pct_vol = (tot_v / len(filt_df)) * 100 if len(filt_df) > 0 else 0
-        
         st.markdown("<div class='flyout-header'>LOG VOLUME (RECEIVED FROM REGION)</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-val'>{tot_v:,} Logs</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-micro'>MW: {mw_v:,} | FM: {fm_v:,} | NWR: {nwr_v:,}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-sub'>{pct_vol:.2f}% of Total Global Volume</div>", unsafe_allow_html=True)
-
-        # Unique Stations
         tot_s = loc_df['Callsign'].nunique()
         mw_s = loc_df[loc_df['Band'] == 'AM']['Callsign'].nunique()
         fm_s = loc_df[loc_df['Band'] == 'FM']['Callsign'].nunique()
         nwr_s = loc_df[loc_df['Band'] == 'NWR']['Callsign'].nunique()
-        
         st.markdown("<div class='flyout-header'>UNIQUE STATIONS IN REGION</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-val'>{tot_s:,}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-micro'>MW: {mw_s:,} | FM: {fm_s:,} | NWR: {nwr_s:,}</div>", unsafe_allow_html=True)
-        
-        # Most Heard Station
         if not loc_df.empty:
             st.markdown("<div class='flyout-header'>MOST HEARD STATION (OVERALL)</div>", unsafe_allow_html=True)
             most_heard = loc_df.groupby(['Freq_Num', 'Callsign', 'City', 'State']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).iloc[0]
             st.markdown(f"<div class='flyout-val'>{most_heard['Callsign']}</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='flyout-micro'>{most_heard['Freq_Num']} MHz • {most_heard['City']}, {most_heard['State']} • {most_heard['Logs']} Logs</div>", unsafe_allow_html=True)
-
-        # Gridsquares & Counties
-        c1, c2 = st.columns(2)
-        with c1:
-            st.markdown("<div class='flyout-header'>GRIDSQUARES</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='flyout-sub'>{loc_df['Station_Grid'].nunique():,}</div>", unsafe_allow_html=True)
-        with c2:
-            st.markdown("<div class='flyout-header'>COUNTIES</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='flyout-sub'>{loc_df['County'].nunique():,}</div>", unsafe_allow_html=True)
-
-        # Top Heard Stations (By Band)
         st.markdown("<div class='flyout-header'>TOP 5 HEARD STATIONS</div>", unsafe_allow_html=True)
         for b in ['AM', 'FM', 'NWR']:
             b_df = loc_df[loc_df['Band'] == b]
@@ -319,13 +248,9 @@ def render_dashboard():
                 st.markdown(f"<div class='flyout-micro' style='color:#139a9b; margin-top:5px;'>{b} BAND</div>", unsafe_allow_html=True)
                 top_s = b_df.groupby(['Freq_Num', 'Callsign', 'City']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
                 st.dataframe(top_s, hide_index=True, use_container_width=True)
-
-        # Top Intercepting Agents
         st.markdown("<div class='flyout-header'>TOP INTERCEPTING AGENTS</div>", unsafe_allow_html=True)
         top_agents = loc_df.groupby('DXer').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(3)
         st.dataframe(top_agents, hide_index=True, use_container_width=True)
-
-        # Top Intercepting Locations (By Band)
         st.markdown("<div class='flyout-header'>TOP 5 RECEIVING LOCATIONS</div>", unsafe_allow_html=True)
         for b in ['AM', 'FM', 'NWR']:
             b_df = loc_df[loc_df['Band'] == b]
@@ -333,95 +258,47 @@ def render_dashboard():
                 st.markdown(f"<div class='flyout-micro' style='color:#139a9b; margin-top:5px;'>{b} BAND</div>", unsafe_allow_html=True)
                 top_l = b_df.groupby('DXer_City').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
                 st.dataframe(top_l, hide_index=True, use_container_width=True)
-
-        # Top Intercepting States & Countries
-        st.markdown("<div class='flyout-header'>TOP INTERCEPTING STATES</div>", unsafe_allow_html=True)
-        t_st_mw = loc_df[loc_df['Band'] == 'AM']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'AM'].empty else "N/A"
-        t_st_fm = loc_df[loc_df['Band'] == 'FM']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'FM'].empty else "N/A"
-        t_st_nwr = loc_df[loc_df['Band'] == 'NWR']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'NWR'].empty else "N/A"
-        st.markdown(f"<div class='flyout-micro'><b>MW:</b> {t_st_mw} | <b>FM:</b> {t_st_fm} | <b>NWR:</b> {t_st_nwr}</div>", unsafe_allow_html=True)
-
-        st.markdown("<div class='flyout-header'>TOP INTERCEPTING COUNTRIES</div>", unsafe_allow_html=True)
-        t_co_mw = loc_df[loc_df['Band'] == 'AM']['DXer_Country'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'AM'].empty else "N/A"
-        t_co_fm = loc_df[loc_df['Band'] == 'FM']['DXer_Country'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'FM'].empty else "N/A"
-        st.markdown(f"<div class='flyout-micro'><b>MW:</b> {t_co_mw} | <b>FM:</b> {t_co_fm}</div>", unsafe_allow_html=True)
-
-        # Furthest Receptions Breakdown
-        st.markdown("<div class='flyout-header'>FURTHEST RECEPTIONS</div>", unsafe_allow_html=True)
         for b in ['AM', 'FM', 'NWR']:
             b_df = loc_df[loc_df['Band'] == b]
             if not b_df.empty:
                 f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
                 st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']})<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
-
+                st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']})<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
-
-    # =====================================================================
-    # VIEW 1: MISSION OVERVIEW
-    # =====================================================================
     if st.session_state.dash_nav == "OVERVIEW":
         st.markdown("### 📊 OPERATIONAL OVERVIEW")
-        
         m1, m2, m3, m4 = st.columns(4)
         m1.metric("Total Logs", f"{len(filt_df):,}")
         m2.metric("Total Unique Stations", f"{filt_df['Callsign'].nunique():,}")
         m3.metric("Total Unique DXers", f"{filt_df['DXer'].nunique():,}")
         m4.metric("Furthest Reception", f"{filt_df['Distance'].max():,.0f} mi")
-        
         m5, m6, m7, m8 = st.columns(4)
         us_only = filt_df[filt_df['Country'] == 'United States']
         m5.metric("US States Heard (Inc DC)", us_only['State'].nunique())
         m6.metric("Countries Heard", filt_df['Country'].nunique())
         m7.metric("Unique Gridsquares", filt_df['Station_Grid'].nunique())
         m8.metric("Unique Counties/Parishes", filt_df['County'].nunique())
-
         am_name, am_score = get_leader_data('AM')
         fm_name, fm_score = get_leader_data('FM')
         nwr_name, nwr_score = get_leader_data('NWR')
-
         m9, m10, m11 = st.columns(3)
         m9.markdown(f"<div class='leader-box'><div class='leader-title'>MW Score Leader</div><div class='leader-name'>{am_name}</div><div class='leader-score'>{am_score}</div></div>", unsafe_allow_html=True)
         m10.markdown(f"<div class='leader-box'><div class='leader-title'>FM Score Leader</div><div class='leader-name'>{fm_name}</div><div class='leader-score'>{fm_score}</div></div>", unsafe_allow_html=True)
         m11.markdown(f"<div class='leader-box'><div class='leader-title'>NWR Score Leader</div><div class='leader-name'>{nwr_name}</div><div class='leader-score'>{nwr_score}</div></div>", unsafe_allow_html=True)
-
         st.markdown("---")
         st.markdown("### 📡 SUBMITTED LOGGINGS")
-        
         table_df = filt_df.copy()
         table_df['Prop_Mode'] = table_df.apply(lambda x: " - " if x['Band'] == "AM" else x['Prop_Mode'], axis=1)
         table_df['Station_Grid'] = table_df.apply(lambda x: " - " if x['Country'] != "United States" else x['Station_Grid'], axis=1)
         table_df['County'] = table_df.apply(lambda x: " - " if x['Country'] != "United States" else x['County'], axis=1)
-        
-        display_cols = [
-            'DXer', 'Date_Str', 'Time_Str', 'Band', 'Freq_Num', 'Callsign', 
-            'City', 'State', 'Country', 'Station_Grid', 'County', 'Distance', 'Prop_Mode'
-        ]
-        
-        rename_map = {
-            'Date_Str': 'Date', 'Time_Str': 'Time', 'Freq_Num': 'Frequency',
-            'Callsign': 'Station', 'Station_Grid': 'Gridsquare', 'Prop_Mode': 'Propagation'
-        }
-        
+        display_cols = ['DXer', 'Date_Str', 'Time_Str', 'Band', 'Freq_Num', 'Callsign', 'City', 'State', 'Country', 'Station_Grid', 'County', 'Distance', 'Prop_Mode']
+        rename_map = {'Date_Str': 'Date', 'Time_Str': 'Time', 'Freq_Num': 'Frequency', 'Callsign': 'Station', 'Station_Grid': 'Gridsquare', 'Prop_Mode': 'Propagation'}
         view_df = table_df[display_cols].rename(columns=rename_map)
-        
-        st.dataframe(
-            view_df, 
-            hide_index=True, 
-            use_container_width=True,
-            column_config={
-                "Distance": st.column_config.NumberColumn("Distance (mi)", format="%.1f")
-            }
-        )
+        st.dataframe(view_df, hide_index=True, use_container_width=True, column_config={"Distance": st.column_config.NumberColumn("Distance (mi)", format="%.1f")})
 
-    # =====================================================================
-    # VIEW 2: CLASSIFICATION MATRIX
-    # =====================================================================
     elif st.session_state.dash_nav == "MATRIX":
         st.markdown("### 🗄️ CLASSIFICATION MATRIX")
-        st.caption("Detailed breakdown of operator intelligence and geographic distribution.")
-        
         mx_tab = st.pills("MATRIX SECTOR", ["SCORE LEDGER", "GRID LEDGER", "COUNTY/PARISH LEDGER", "INTERCEPT LEDGER", "STATE LEDGER", "COUNTRY LEDGER", "AGENT LOCATION MAP"], default="SCORE LEDGER")
         
         def build_progress_board(target_df, group_col, metric_col, target_goal):
@@ -432,167 +309,47 @@ def render_dashboard():
             return brd
 
         if mx_tab == "SCORE LEDGER":
-            c1, c2 = st.columns(2)
-            c3, c4 = st.columns(2)
-            
+            c1, c2, c3, c4 = st.columns(4)
             with c1:
-                st.markdown("#### TOTAL SCORE (ALL BANDS)")
+                st.markdown("#### TOTAL SCORE")
                 s_all = calculate_scores(filt_df).head(10)
-                st.dataframe(s_all[['DXer', 'Total']], hide_index=True, use_container_width=True, column_config={"Total": st.column_config.NumberColumn("Points", format="%d")})
+                st.dataframe(s_all[['DXer', 'Total']], hide_index=True, use_container_width=True)
             with c2:
                 st.markdown("#### MW SCORE")
                 s_am = calculate_scores(filt_df[filt_df['Band'] == 'AM']).head(10)
-                st.dataframe(s_am[['DXer', 'Total']], hide_index=True, use_container_width=True, column_config={"Total": st.column_config.NumberColumn("Points", format="%d")})
+                st.dataframe(s_am[['DXer', 'Total']], hide_index=True, use_container_width=True)
             with c3:
                 st.markdown("#### FM SCORE")
                 s_fm = calculate_scores(filt_df[filt_df['Band'] == 'FM']).head(10)
-                st.dataframe(s_fm[['DXer', 'Total']], hide_index=True, use_container_width=True, column_config={"Total": st.column_config.NumberColumn("Points", format="%d")})
+                st.dataframe(s_fm[['DXer', 'Total']], hide_index=True, use_container_width=True)
             with c4:
                 st.markdown("#### NWR SCORE")
                 s_nwr = calculate_scores(filt_df[filt_df['Band'] == 'NWR']).head(10)
-                st.dataframe(s_nwr[['DXer', 'Total']], hide_index=True, use_container_width=True, column_config={"Total": st.column_config.NumberColumn("Points", format="%d")})
-
-        elif mx_tab == "GRID LEDGER":
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("#### MW GRID MASTERS")
-                df_g_am = build_progress_board(filt_df[filt_df['Band'] == 'AM'], 'DXer', 'Station_Grid', 100)
-                st.dataframe(df_g_am, hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
-            with c2:
-                st.markdown("#### FM GRID MASTERS")
-                df_g_fm = build_progress_board(filt_df[filt_df['Band'] == 'FM'], 'DXer', 'Station_Grid', 100)
-                st.dataframe(df_g_fm, hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
-            
-            st.markdown("---")
-            c3, c4 = st.columns(2)
-            with c3:
-                st.markdown("#### NWR GRID MASTERS")
-                df_g_nwr = build_progress_board(filt_df[filt_df['Band'] == 'NWR'], 'DXer', 'Station_Grid', 25)
-                st.dataframe(df_g_nwr, hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 25", min_value=0, max_value=25)})
-
-        elif mx_tab == "COUNTY/PARISH LEDGER":
-            us_df = filt_df[filt_df['Country'] == 'United States']
-            c1, c2 = st.columns(2)
-            with c1:
-                st.markdown("#### MW COUNTY MASTERS")
-                df_c_am = build_progress_board(us_df[us_df['Band'] == 'AM'], 'DXer', 'County', 100)
-                st.dataframe(df_c_am, hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
-            with c2:
-                st.markdown("#### FM COUNTY MASTERS")
-                df_c_fm = build_progress_board(us_df[us_df['Band'] == 'FM'], 'DXer', 'County', 100)
-                st.dataframe(df_c_fm, hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
-            
-            st.markdown("---")
-            c3, c4 = st.columns(2)
-            with c3:
-                st.markdown("#### NWR COUNTY MASTERS")
-                df_c_nwr = build_progress_board(us_df[us_df['Band'] == 'NWR'], 'DXer', 'County', 25)
-                st.dataframe(df_c_nwr, hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("To 25", min_value=0, max_value=25)})
-
-        elif mx_tab == "INTERCEPT LEDGER":
-            def build_log_board(b_target=None):
-                t_df = filt_df if not b_target else filt_df[filt_df['Band'] == b_target]
-                return t_df.groupby('DXer').size().reset_index(name='Total Logs').sort_values('Total Logs', ascending=False)
-            
-            c1, c2, c3, c4 = st.columns(4)
-            c1.markdown("#### TOTAL LOGS (ALL)")
-            c1.dataframe(build_log_board(), hide_index=True, use_container_width=True)
-            c2.markdown("#### TOTAL LOGS (MW)")
-            c2.dataframe(build_log_board('AM'), hide_index=True, use_container_width=True)
-            c3.markdown("#### TOTAL LOGS (FM)")
-            c3.dataframe(build_log_board('FM'), hide_index=True, use_container_width=True)
-            c4.markdown("#### TOTAL LOGS (NWR)")
-            c4.dataframe(build_log_board('NWR'), hide_index=True, use_container_width=True)
-
-        elif mx_tab == "STATE LEDGER":
-            st.caption("Tracking unique US States logged (Includes DC).")
-            us_df = filt_df[filt_df['Country'] == 'United States']
-            def build_state_board(b_target=None):
-                t_df = us_df if not b_target else us_df[us_df['Band'] == b_target]
-                return t_df.groupby('DXer')['State'].nunique().reset_index(name='States Heard').sort_values('States Heard', ascending=False)
-            
-            c1, c2, c3, c4 = st.columns(4)
-            c1.markdown("#### STATES (ALL BANDS)")
-            c1.dataframe(build_state_board(), hide_index=True, use_container_width=True)
-            c2.markdown("#### STATES (MW)")
-            c2.dataframe(build_state_board('AM'), hide_index=True, use_container_width=True)
-            c3.markdown("#### STATES (FM)")
-            c3.dataframe(build_state_board('FM'), hide_index=True, use_container_width=True)
-            c4.markdown("#### STATES (NWR)")
-            c4.dataframe(build_state_board('NWR'), hide_index=True, use_container_width=True)
-
-        elif mx_tab == "COUNTRY LEDGER":
-            def build_ctry_board(b_target=None):
-                t_df = filt_df if not b_target else filt_df[filt_df['Band'] == b_target]
-                return t_df.groupby('DXer')['Country'].nunique().reset_index(name='Countries Heard').sort_values('Countries Heard', ascending=False)
-            
-            c1, c2, c3 = st.columns(3)
-            c1.markdown("#### COUNTRIES (ALL BANDS)")
-            c1.dataframe(build_ctry_board(), hide_index=True, use_container_width=True)
-            c2.markdown("#### COUNTRIES (MW)")
-            c2.dataframe(build_ctry_board('AM'), hide_index=True, use_container_width=True)
-            c3.markdown("#### COUNTRIES (FM)")
-            c3.dataframe(build_ctry_board('FM'), hide_index=True, use_container_width=True)
+                st.dataframe(s_nwr[['DXer', 'Total']], hide_index=True, use_container_width=True)
 
         elif mx_tab == "AGENT LOCATION MAP":
             c_map, c_fly = st.columns([3, 2]) if st.session_state.matrix_loc else st.columns([1, 0.001])
-            
             with c_map:
                 dx_map_data = filt_df.groupby(['DXer_City', 'DXer_State', 'DXer_Country']).size().reset_index(name='Logs')
-                
-                # Dynamic Geocoding fallback for missing app.py payload coordinates
                 lats, lons = [], []
                 for _, r in dx_map_data.iterrows():
                     city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
                     lat, lon = get_lat_lon_from_city(city_query, r['DXer_Country'])
                     lats.append(lat)
                     lons.append(lon)
-                    
-                dx_map_data['DX_Lat'] = lats
-                dx_map_data['DX_Lon'] = lons
+                dx_map_data['DX_Lat'], dx_map_data['DX_Lon'] = lats, lons
                 dx_map_data = dx_map_data[(dx_map_data['DX_Lat'] != 0.0) | (dx_map_data['DX_Lon'] != 0.0)]
-                
-                # --- TACTICAL SECTOR TOGGLE ---
                 t_col1, t_col2 = st.columns([1.5, 3.5])
-                t_col1.markdown("<div style='color: #1bd2d4; font-size: 1.2rem; font-weight: bold; margin-top: 8px; text-shadow: 0px 0px 5px rgba(27,210,212,0.5);'>UPLINK STATUS:</div>", unsafe_allow_html=True)
+                t_col1.markdown("<div style='color: #1bd2d4; font-size: 1.2rem; font-weight: bold; margin-top: 8px;'>UPLINK STATUS:</div>", unsafe_allow_html=True)
                 sat_view = t_col2.pills("SATELLITE UPLINK", ["North America Sector", "Global Sector"], default="North America Sector", label_visibility="collapsed")
-                
-                if not sat_view:
-                    sat_view = "North America Sector"
-                
-                if sat_view == "North America Sector":
-                    geo_scope = 'north america'
-                    geo_res = 50
-                    lat_rng = [15, 65]
-                    lon_rng = [-130, -55]
-                else:
-                    geo_scope = 'world'
-                    geo_res = 110
-                    lat_rng = [-55, 75]
-                    lon_rng = [-160, 160]
-
-                # CRT Wireframe Vector Map
-                fig_dx = px.scatter_geo(
-                    dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
-                    hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
-                    scope=geo_scope, size_max=16
-                )
-                fig_dx.update_traces(marker_symbol='diamond', marker_color='#1bd2d4', marker_line_color='#ffffff', marker_line_width=1, marker_sizemin=12, opacity=0.9)
-                fig_dx.update_geos(
-                    resolution=geo_res,
-                    showcoastlines=True, coastlinecolor="#139a9b",
-                    showland=True, landcolor="#050505",
-                    showocean=True, oceancolor="#050505",
-                    showlakes=True, lakecolor="#050505",
-                    showcountries=True, countrycolor="#1bd2d4",
-                    showsubunits=True, subunitcolor="#139a9b",
-                    lataxis_range=lat_rng, lonaxis_range=lon_rng,
-                    bgcolor='#050505'
-                )
+                geo_scope = 'north america' if sat_view == "North America Sector" else 'world'
+                geo_res = 50 if sat_view == "North America Sector" else 110
+                lat_rng, lon_rng = ([15, 65], [-130, -55]) if sat_view == "North America Sector" else ([-55, 75], [-160, 160])
+                fig_dx = px.scatter_geo(dx_map_data, lat='DX_Lat', lon='DX_Lon', hover_name='DXer_City', scope=geo_scope)
+                fig_dx.update_traces(marker=dict(symbol='diamond', color='#1bd2d4', size=14, line=dict(color='#ffffff', width=1), opacity=0.9))
+                fig_dx.update_geos(resolution=geo_res, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", lataxis_range=lat_rng, lonaxis_range=lon_rng, bgcolor='#050505')
                 fig_dx.update_layout(height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
-                
                 ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"m_dx_{st.session_state.matrix_map_key}", config={'scrollZoom': True})
-                
                 if ev_dx and ev_dx.get("selection") and ev_dx["selection"].get("points"):
                     pt = ev_dx["selection"]["points"][0]
                     if "hovertext" in pt:
@@ -600,132 +357,39 @@ def render_dashboard():
                         if st.session_state.matrix_loc != new_loc:
                             st.session_state.matrix_loc = new_loc
                             st.rerun()
-                            
             if st.session_state.matrix_loc:
                 with c_fly:
                     loc = st.session_state.matrix_loc
                     loc_df = filt_df[filt_df['DXer_City'] == loc]
-                    
                     st.markdown("<div class='flyout-box'>", unsafe_allow_html=True)
                     st.markdown(f"<div class='flyout-title'>📍 {loc}</div>", unsafe_allow_html=True)
-                    
                     if st.button("❌ CLOSE INTEL", use_container_width=True):
                         st.session_state.matrix_loc = None
-                        st.session_state.matrix_map_key += 1
                         st.rerun()
-
-                    # Volume Metrics
-                    tot_v = len(loc_df)
-                    mw_v = len(loc_df[loc_df['Band'] == 'AM'])
-                    fm_v = len(loc_df[loc_df['Band'] == 'FM'])
-                    nwr_v = len(loc_df[loc_df['Band'] == 'NWR'])
-                    pct_vol = (tot_v / len(filt_df)) * 100 if len(filt_df) > 0 else 0
-                    
-                    st.markdown("<div class='flyout-header'>LOG VOLUME</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-val'>{tot_v:,} Logs</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-micro'>MW: {mw_v:,} | FM: {fm_v:,} | NWR: {nwr_v:,}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-sub'>{pct_vol:.2f}% of Total Global Volume</div>", unsafe_allow_html=True)
-
-                    # Unique Stations
-                    tot_s = loc_df['Callsign'].nunique()
-                    mw_s = loc_df[loc_df['Band'] == 'AM']['Callsign'].nunique()
-                    fm_s = loc_df[loc_df['Band'] == 'FM']['Callsign'].nunique()
-                    nwr_s = loc_df[loc_df['Band'] == 'NWR']['Callsign'].nunique()
-                    
-                    st.markdown("<div class='flyout-header'>UNIQUE STATIONS</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-val'>{tot_s:,}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-micro'>MW: {mw_s:,} | FM: {fm_s:,} | NWR: {nwr_s:,}</div>", unsafe_allow_html=True)
-
-                    # Gridsquares
-                    tot_g = loc_df['Station_Grid'].nunique()
-                    mw_g = loc_df[loc_df['Band'] == 'AM']['Station_Grid'].nunique()
-                    fm_g = loc_df[loc_df['Band'] == 'FM']['Station_Grid'].nunique()
-                    nwr_g = loc_df[loc_df['Band'] == 'NWR']['Station_Grid'].nunique()
-                    
-                    st.markdown("<div class='flyout-header'>UNIQUE GRIDSQUARES</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-val'>{tot_g:,}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-micro'>MW: {mw_g:,} | FM: {fm_g:,} | NWR: {nwr_g:,}</div>", unsafe_allow_html=True)
-
-                    # Counties
-                    loc_us = loc_df[loc_df['Country'] == 'United States']
-                    tot_c = loc_us['County'].nunique()
-                    mw_c = loc_us[loc_us['Band'] == 'AM']['County'].nunique()
-                    fm_c = loc_us[loc_us['Band'] == 'FM']['County'].nunique()
-                    nwr_c = loc_us[loc_us['Band'] == 'NWR']['County'].nunique()
-                    
-                    st.markdown("<div class='flyout-header'>US COUNTIES/PARISHES</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-val'>{tot_c:,}</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-micro'>MW: {mw_c:,} | FM: {fm_c:,} | NWR: {nwr_c:,}</div>", unsafe_allow_html=True)
-
-                    # Local Agents
-                    st.markdown("<div class='flyout-header'>TOP LOCAL AGENTS</div>", unsafe_allow_html=True)
-                    top_agents = loc_df.groupby('DXer').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(3)
-                    for _, row in top_agents.iterrows():
-                        st.markdown(f"<div class='flyout-sub'>• {row['DXer']} ({row['Logs']} logs)</div>", unsafe_allow_html=True)
-
-                    # Top Heard States
-                    st.markdown("<div class='flyout-header'>TOP STATES HEARD</div>", unsafe_allow_html=True)
-                    top_st_mw = loc_us[loc_us['Band'] == 'AM']['State'].mode().iloc[0] if not loc_us[loc_us['Band'] == 'AM'].empty else "N/A"
-                    top_st_fm = loc_us[loc_us['Band'] == 'FM']['State'].mode().iloc[0] if not loc_us[loc_us['Band'] == 'FM'].empty else "N/A"
-                    top_st_nwr = loc_us[loc_us['Band'] == 'NWR']['State'].mode().iloc[0] if not loc_us[loc_us['Band'] == 'NWR'].empty else "N/A"
-                    st.markdown(f"<div class='flyout-micro'><b>MW:</b> {top_st_mw} | <b>FM:</b> {top_st_fm} | <b>NWR:</b> {top_st_nwr}</div>", unsafe_allow_html=True)
-
-                    # Top Heard Countries
-                    loc_intl = loc_df[loc_df['Country'] != 'United States']
-                    st.markdown("<div class='flyout-header'>TOP COUNTRIES HEARD</div>", unsafe_allow_html=True)
-                    top_co_mw = loc_intl[loc_intl['Band'] == 'AM']['Country'].mode().iloc[0] if not loc_intl[loc_intl['Band'] == 'AM'].empty else "N/A"
-                    top_co_fm = loc_intl[loc_intl['Band'] == 'FM']['Country'].mode().iloc[0] if not loc_intl[loc_intl['Band'] == 'FM'].empty else "N/A"
-                    st.markdown(f"<div class='flyout-micro'><b>MW:</b> {top_co_mw} | <b>FM:</b> {top_co_fm}</div>", unsafe_allow_html=True)
-
-                    # Furthest Receptions Breakdown
-                    st.markdown("<div class='flyout-header'>FURTHEST RECEPTIONS</div>", unsafe_allow_html=True)
-                    for b in ['AM', 'FM', 'NWR']:
-                        b_df = loc_df[loc_df['Band'] == b]
-                        if not b_df.empty:
-                            f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
-                            st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']})<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
-
+                    st.markdown(f"<div class='flyout-val'>{len(loc_df):,} Logs</div>", unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
-    # =====================================================================
-    # VIEW 3: GEOGRAPHIC INTELLIGENCE
-    # =====================================================================
     elif st.session_state.dash_nav == "GEOGRAPHY":
         st.markdown("### 🗺️ GEOSPATIAL ANALYSIS")
-        
         geo_tab = st.pills("GEOGRAPHIC SECTOR", ["US STATES", "INTERNATIONAL", "CANADA", "US COUNTIES", "GRIDSQUARES", "STATION LOCATIONS"], default="US STATES")
         
         if geo_tab == "US STATES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_us")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
             us_df = map_df[map_df['Country'] == 'United States']
-            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_us_state else st.columns([1, 0.001])
             with cm1:
                 state_counts = us_df.groupby('State').size().reset_index(name='Logs')
                 fig_us = px.choropleth(state_counts, locations='State', locationmode="USA-states", color='Logs', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
-                
                 fig_us.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_us.update_geos(
-                    resolution=50,
-                    showcoastlines=True, coastlinecolor="#139a9b",
-                    showland=True, landcolor="#050505",
-                    showocean=True, oceancolor="#050505",
-                    showlakes=True, lakecolor="#050505",
-                    showsubunits=True, subunitcolor="#139a9b",
-                    bgcolor='#050505'
-                )
+                fig_us.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
                 fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
-                
                 ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_geo_us_{st.session_state.geo_map_key}", config={'scrollZoom': True})
-                
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
                     n_state = ev_st["selection"]["points"][0]["location"]
                     if st.session_state.geo_us_state != n_state:
                         st.session_state.geo_us_state = n_state
                         st.rerun()
-                        
             if st.session_state.geo_us_state:
                 with cm2:
                     render_geo_flyout("STATE", st.session_state.geo_us_state, filt_df[(filt_df['Country'] == 'United States') & (filt_df['State'] == st.session_state.geo_us_state)])
@@ -733,34 +397,19 @@ def render_dashboard():
         elif geo_tab == "INTERNATIONAL":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM"], default="ALL BANDS", key="b_intl")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
-            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_intl_ctry else st.columns([1, 0.001])
             with cm1:
                 world_counts = map_df.groupby('Country').size().reset_index(name='Logs')
                 fig_w = px.choropleth(world_counts, locations='Country', locationmode="country names", color='Logs', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
-                
                 fig_w.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_w.update_geos(
-                    projection_type="equirectangular",
-                    lataxis_range=[-45, 75], lonaxis_range=[-130, 20],
-                    resolution=50,
-                    showcoastlines=True, coastlinecolor="#139a9b",
-                    showland=True, landcolor="#050505",
-                    showocean=True, oceancolor="#050505",
-                    showlakes=True, lakecolor="#050505",
-                    showcountries=True, countrycolor="#139a9b",
-                    bgcolor='#050505'
-                )
+                fig_w.update_geos(projection_type="equirectangular", lataxis_range=[-45, 75], lonaxis_range=[-130, 20], resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showcountries=True, countrycolor="#139a9b", bgcolor='#050505')
                 fig_w.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
-                
                 ev_w = st.plotly_chart(fig_w, use_container_width=True, on_select="rerun", key=f"m_geo_intl_{st.session_state.geo_map_key}", config={'scrollZoom': True})
-                
                 if ev_w and ev_w.get("selection") and ev_w["selection"].get("points"):
                     n_ctry = ev_w["selection"]["points"][0]["location"]
                     if st.session_state.geo_intl_ctry != n_ctry:
                         st.session_state.geo_intl_ctry = n_ctry
                         st.rerun()
-
             if st.session_state.geo_intl_ctry:
                 with cm2:
                     render_geo_flyout("COUNTRY", st.session_state.geo_intl_ctry, filt_df[filt_df['Country'] == st.session_state.geo_intl_ctry])
@@ -769,32 +418,17 @@ def render_dashboard():
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM"], default="ALL BANDS", key="b_can")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
             can_df = map_df[map_df['Country'] == 'Canada'].copy()
-            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_can_prov else st.columns([1, 0.001])
             with cm1:
                 prov_counts = can_df.groupby('State').size().reset_index(name='Logs')
-                
-                # Dictionary to map abbreviations to full names for the GeoJSON
                 cam = {'ON':'Ontario','QC':'Quebec','NS':'Nova Scotia','NB':'New Brunswick','MB':'Manitoba','BC':'British Columbia','PE':'Prince Edward Island','SK':'Saskatchewan','AB':'Alberta','NL':'Newfoundland and Labrador','NU':'Nunavut','NT':'Northwest Territories','YT':'Yukon'}
                 prov_counts['MapLoc'] = prov_counts['State'].map(cam)
-                
                 gj_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson"
-                
-                fig_can = px.choropleth(
-                    prov_counts, geojson=gj_url, locations='MapLoc', featureidkey='properties.name', 
-                    color='Logs', scope='north america', color_continuous_scale=CYAN_SCALE, template="plotly_dark"
-                )
+                fig_can = px.choropleth(prov_counts, geojson=gj_url, locations='MapLoc', featureidkey='properties.name', color='Logs', scope='north america', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_can.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_can.update_geos(
-                    resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", 
-                    showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", 
-                    showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", 
-                    lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505'
-                )
+                fig_can.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505')
                 fig_can.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
-                
                 ev_can = st.plotly_chart(fig_can, use_container_width=True, on_select="rerun", key=f"m_geo_can_{st.session_state.geo_map_key}", config={'scrollZoom': True})
-                
                 if ev_can and ev_can.get("selection") and ev_can["selection"].get("points"):
                     full_name = ev_can["selection"]["points"][0]["location"]
                     inv_cam = {v: k for k, v in cam.items()}
@@ -802,7 +436,6 @@ def render_dashboard():
                     if st.session_state.geo_can_prov != n_prov:
                         st.session_state.geo_can_prov = n_prov
                         st.rerun()
-
             if st.session_state.geo_can_prov:
                 with cm2:
                     render_geo_flyout("PROVINCE", st.session_state.geo_can_prov, filt_df[(filt_df['Country'] == 'Canada') & (filt_df['State'] == st.session_state.geo_can_prov)])
@@ -811,47 +444,30 @@ def render_dashboard():
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_co")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
             us_c_df = map_df[(map_df['Country'] == 'United States') & (map_df['County'] != 'Unknown') & (map_df['County'] != ' - ')].copy()
-            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
                 if not us_c_df.empty:
-                    # Strip " County" and " Parish" from the logs to match GeoJSON strict naming exactly
                     us_c_df['Clean_County'] = us_c_df['County'].str.replace(' County', '', case=False).str.replace(' Parish', '', case=False).str.strip()
                     us_c_df['Map_ID'] = us_c_df['State'].str.strip() + "_" + us_c_df['Clean_County']
-                    
                     county_counts = us_c_df.groupby(['Map_ID', 'County', 'State']).size().reset_index(name='Logs')
                     county_counts['HoverName'] = county_counts['County'] + ", " + county_counts['State']
-                    
-                    # Fetch custom intercepted GeoJSON that utilizes State_CountyName as the master ID
                     c_gj = get_custom_county_geojson()
-                    
                     if c_gj:
-                        fig_co = px.choropleth(
-                            county_counts, geojson=c_gj, locations='Map_ID', featureidkey='id', color='Logs', 
-                            hover_name='HoverName', hover_data={'Map_ID':False, 'County':False, 'State':False},
-                            scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark"
-                        )
+                        fig_co = px.choropleth(county_counts, geojson=c_gj, locations='Map_ID', featureidkey='id', color='Logs', hover_name='HoverName', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                         fig_co.update_traces(marker_line_width=0.5, marker_line_color='#050505')
                     else:
-                        # Absolute Failsafe: Revert to vector map if Github GeoJSON ping fails
-                        fig_co = px.scatter_geo(county_counts, scope='usa') 
-                        st.error("GEOJSON UPLINK FAILED. MAP REDUCED TO DOTS.")
-
+                        fig_co = px.scatter_geo(county_counts, scope='usa')
                     fig_co.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
                     fig_co.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
-                else:
-                    fig_co = go.Figure()
-                    
+                else: fig_co = go.Figure()
                 ev_co = st.plotly_chart(fig_co, use_container_width=True, on_select="rerun", key=f"m_geo_co_{st.session_state.geo_map_key}", config={'scrollZoom': True})
-                
                 if ev_co and ev_co.get("selection") and ev_co["selection"].get("points"):
                     pt = ev_co["selection"]["points"][0]
                     if "hovertext" in pt:
-                        n_co = pt["hovertext"] # Matches 'County, State'
+                        n_co = pt["hovertext"]
                         if st.session_state.geo_county != n_co:
                             st.session_state.geo_county = n_co
                             st.rerun()
-
             if st.session_state.geo_county:
                 with cm2:
                     co_df = filt_df[(filt_df['Country'] == 'United States') & ((filt_df['County'] + ", " + filt_df['State']) == st.session_state.geo_county)]
@@ -861,36 +477,18 @@ def render_dashboard():
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_grid")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
             grid_df = map_df[(map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')].copy()
-            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_grid else st.columns([1, 0.001])
             with cm1:
                 if not grid_df.empty:
-                    # Truncate to 4-character grid
                     grid_df['Grid4'] = grid_df['Station_Grid'].str[:4].str.upper()
-                    grids_unique = list(grid_df['Grid4'].unique())
-                    
-                    grid_geojson = generate_grid_geojson(grids_unique)
+                    grid_geojson = generate_grid_geojson(list(grid_df['Grid4'].unique()))
                     grid_counts = grid_df.groupby('Grid4').size().reset_index(name='Logs')
-                    
-                    # Force a solid 'Yes' value to map to our RGBA cyan color
                     grid_counts['Active'] = 'Yes'
-                    
-                    # MAPBOX ENGINE OVERRIDE: Using choropleth_mapbox forces WebGL rendering
-                    # We pass the alpha channel (0.4) directly inside the rgba color code to avoid opacity crashes
-                    fig_g = px.choropleth_mapbox(
-                        grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id',
-                        color='Active', color_discrete_map={'Yes': 'rgba(27, 210, 212, 0.4)'}, hover_name='Grid4', 
-                        hover_data={'Active':False, 'Grid4':False, 'Logs':True},
-                        mapbox_style="carto-darkmatter", center=dict(lat=40, lon=-95), zoom=2.5
-                    )
-                    
+                    fig_g = px.choropleth_mapbox(grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id', color='Active', color_discrete_map={'Yes': 'rgba(27, 210, 212, 0.4)'}, hover_name='Grid4', mapbox_style="carto-darkmatter", center=dict(lat=40, lon=-95), zoom=2.5)
                     fig_g.update_traces(marker_line_width=1.5, marker_line_color='#050505')
                     fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
-                else:
-                    fig_g = go.Figure()
-                    
+                else: fig_g = go.Figure()
                 ev_g = st.plotly_chart(fig_g, use_container_width=True, on_select="rerun", key=f"m_geo_grid_{st.session_state.geo_map_key}", config={'scrollZoom': True})
-                
                 if ev_g and ev_g.get("selection") and ev_g["selection"].get("points"):
                     pt = ev_g["selection"]["points"][0]
                     if "hovertext" in pt:
@@ -898,67 +496,39 @@ def render_dashboard():
                         if st.session_state.geo_grid != n_grid:
                             st.session_state.geo_grid = n_grid
                             st.rerun()
-
             if st.session_state.geo_grid:
                 with cm2:
-                    # Filter all logs whose 6-char grid starts with the 4-char grid
                     g_df = filt_df[filt_df['Station_Grid'].str.upper().str.startswith(st.session_state.geo_grid)]
                     render_geo_flyout("GRIDSQUARE", st.session_state.geo_grid, g_df)
                     
         elif geo_tab == "STATION LOCATIONS":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_st_loc")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
-            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_st_loc else st.columns([1, 0.001])
             with cm1:
                 if not map_df.empty:
                     st_map_data = map_df.groupby(['City', 'State', 'Country', 'ST_Lat', 'ST_Lon', 'Band']).size().reset_index(name='Logs')
-                    
-                    # Smart Location string depending on country
                     st_map_data['Loc_Name'] = st_map_data.apply(lambda x: f"{x['City']}, {x['State']}" if x['Country'] in ['United States', 'Canada'] else f"{x['City']}, {x['Country']}", axis=1)
-                    
-                    # Hardcoded Tactical Legend Palette
                     band_colors = {'AM': '#1bd2d4', 'FM': '#39ff14', 'NWR': '#ffa500'}
-                    
-                    fig_st = px.scatter_mapbox(
-                        st_map_data, lat='ST_Lat', lon='ST_Lon', size='Logs', color='Band',
-                        color_discrete_map=band_colors, hover_name='Loc_Name',
-                        hover_data={'ST_Lat':False, 'ST_Lon':False, 'Band':True, 'Logs':True},
-                        mapbox_style="carto-darkmatter", zoom=3.5, center=dict(lat=38, lon=-95),
-                        size_max=15
-                    )
-                    
-                    fig_st.update_traces(marker_sizemin=8)
-                    fig_st.update_layout(
-                        margin={"r":0,"t":30,"l":0,"b":0}, 
-                        legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), 
-                        paper_bgcolor='rgba(0,0,0,0)'
-                    )
-                else:
-                    fig_st = go.Figure()
-                    
+                    fig_st = px.scatter_mapbox(st_map_data, lat='ST_Lat', lon='ST_Lon', color='Band', color_discrete_map=band_colors, hover_name='Loc_Name', mapbox_style="carto-darkmatter", zoom=3.5, center=dict(lat=38, lon=-95))
+                    fig_st.update_traces(marker=dict(size=10))
+                    fig_st.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), paper_bgcolor='rgba(0,0,0,0)')
+                else: fig_st = go.Figure()
                 ev_st = st.plotly_chart(fig_st, use_container_width=True, on_select="rerun", key=f"m_geo_st_{st.session_state.geo_map_key}", config={'scrollZoom': True})
-                
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
                     pt = ev_st["selection"]["points"][0]
                     if "hovertext" in pt:
-                        n_loc = pt["hovertext"] # Exact string match to Loc_Name
+                        n_loc = pt["hovertext"]
                         if st.session_state.geo_st_loc != n_loc:
                             st.session_state.geo_st_loc = n_loc
                             st.rerun()
-
             if st.session_state.geo_st_loc:
                 with cm2:
-                    # Dynamically rebuild the Loc_Name in the main dataframe to ensure a perfect match for the flyout filter
                     f_loc_df = filt_df.copy()
                     f_loc_df['Loc_Name'] = f_loc_df.apply(lambda x: f"{x['City']}, {x['State']}" if x['Country'] in ['United States', 'Canada'] else f"{x['City']}, {x['Country']}", axis=1)
-                    
                     s_df = f_loc_df[f_loc_df['Loc_Name'] == st.session_state.geo_st_loc]
                     render_geo_flyout("STATION HUB", st.session_state.geo_st_loc, s_df)
 
-    # =====================================================================
-    # STUBS
-    # =====================================================================
     elif st.session_state.dash_nav == "ES_TRACKER":
         st.info("TIMELAPSE & ES-CLOUD RADAR MODULE: AWAITING DEPLOYMENT")
     elif st.session_state.dash_nav == "TUNER":
