@@ -10,7 +10,6 @@ import requests
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 
 # --- CYAN ESPIONAGE AESTHETIC ---
-# Base scale starts at dark cyan so lowest values remain visible against black background
 CYAN_SCALE = [
     '#0a4040', 
     '#139a9b', 
@@ -19,21 +18,19 @@ CYAN_SCALE = [
     '#ffffff'
 ]
 
-# --- STATE FIPS DICTIONARY FOR COUNTY MAPPING ---
-STATE_FIPS = {
-    '01': 'Alabama', '02': 'Alaska', '04': 'Arizona', '05': 'Arkansas', '06': 'California',
-    '08': 'Colorado', '09': 'Connecticut', '10': 'Delaware', '11': 'District of Columbia',
-    '12': 'Florida', '13': 'Georgia', '15': 'Hawaii', '16': 'Idaho', '17': 'Illinois',
-    '18': 'Indiana', '19': 'Iowa', '20': 'Kansas', '21': 'Kentucky', '22': 'Louisiana',
-    '23': 'Maine', '24': 'Maryland', '25': 'Massachusetts', '26': 'Michigan',
-    '27': 'Minnesota', '28': 'Mississippi', '29': 'Missouri', '30': 'Montana',
-    '31': 'Nebraska', '32': 'Nevada', '33': 'New Hampshire', '34': 'New Jersey',
-    '35': 'New Mexico', '36': 'New York', '37': 'North Carolina', '38': 'North Dakota',
-    '39': 'Ohio', '40': 'Oklahoma', '41': 'Oregon', '42': 'Pennsylvania',
-    '44': 'Rhode Island', '45': 'South Carolina', '46': 'South Dakota',
-    '47': 'Tennessee', '48': 'Texas', '49': 'Utah', '50': 'Vermont',
-    '51': 'Virginia', '53': 'Washington', '54': 'West Virginia',
-    '55': 'Wisconsin', '56': 'Wyoming'
+# --- STATE FIPS DICTIONARY FOR COUNTY MAPPING (ABBREVIATIONS) ---
+FIPS_TO_ABBR = {
+    '01': 'AL', '02': 'AK', '04': 'AZ', '05': 'AR', '06': 'CA',
+    '08': 'CO', '09': 'CT', '10': 'DE', '11': 'DC', '12': 'FL',
+    '13': 'GA', '15': 'HI', '16': 'ID', '17': 'IL', '18': 'IN',
+    '19': 'IA', '20': 'KS', '21': 'KY', '22': 'LA', '23': 'ME',
+    '24': 'MD', '25': 'MA', '26': 'MI', '27': 'MN', '28': 'MS',
+    '29': 'MO', '30': 'MT', '31': 'NE', '32': 'NV', '33': 'NH',
+    '34': 'NJ', '35': 'NM', '36': 'NY', '37': 'NC', '38': 'ND',
+    '39': 'OH', '40': 'OK', '41': 'OR', '42': 'PA', '44': 'RI',
+    '45': 'SC', '46': 'SD', '47': 'TN', '48': 'TX', '49': 'UT',
+    '50': 'VT', '51': 'VA', '53': 'WA', '54': 'WV', '55': 'WI',
+    '56': 'WY'
 }
 
 @st.cache_data
@@ -44,19 +41,17 @@ def get_custom_county_geojson():
         geojson = resp.json()
         for feature in geojson['features']:
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
-            state_name = STATE_FIPS.get(state_fips, "")
+            state_abbr = FIPS_TO_ABBR.get(state_fips, "")
             county_name = str(feature['properties'].get('NAME', '')).strip()
             
-            # Inject a custom unified ID to bypass FIPS requirement
-            map_id = f"{state_name}_{county_name}"
+            # Inject a custom unified ID to bypass FIPS requirement (e.g. TX_Jefferson)
+            map_id = f"{state_abbr}_{county_name}"
             feature['id'] = map_id
-            feature['properties']['Map_ID'] = map_id
-            
         return geojson
     except Exception:
         return None
 
-# The leading underscore tells Streamlit NOT to hash the complex pandas array, preventing crashes.
+# Leading underscore prevents Streamlit from trying to hash the array, stopping UnhashableParamError
 @st.cache_data
 def generate_grid_geojson(_grids):
     features = []
@@ -709,6 +704,7 @@ def render_dashboard():
                 state_counts = us_df.groupby('State').size().reset_index(name='Logs')
                 fig_us = px.choropleth(state_counts, locations='State', locationmode="USA-states", color='Logs', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 
+                fig_us.update_traces(marker_line_width=0.5, marker_line_color='#050505')
                 fig_us.update_geos(
                     resolution=50,
                     showcoastlines=True, coastlinecolor="#139a9b",
@@ -741,6 +737,7 @@ def render_dashboard():
                 world_counts = map_df.groupby('Country').size().reset_index(name='Logs')
                 fig_w = px.choropleth(world_counts, locations='Country', locationmode="country names", color='Logs', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 
+                fig_w.update_traces(marker_line_width=0.5, marker_line_color='#050505')
                 fig_w.update_geos(
                     projection_type="equirectangular",
                     lataxis_range=[-45, 75], lonaxis_range=[-130, 20],
@@ -785,6 +782,7 @@ def render_dashboard():
                     prov_counts, geojson=gj_url, locations='MapLoc', featureidkey='properties.name', 
                     color='Logs', scope='north america', color_continuous_scale=CYAN_SCALE, template="plotly_dark"
                 )
+                fig_can.update_traces(marker_line_width=0.5, marker_line_color='#050505')
                 fig_can.update_geos(
                     resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", 
                     showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", 
@@ -827,10 +825,11 @@ def render_dashboard():
                     
                     if c_gj:
                         fig_co = px.choropleth(
-                            county_counts, geojson=c_gj, locations='Map_ID', featureidkey='properties.Map_ID', color='Logs', 
+                            county_counts, geojson=c_gj, locations='Map_ID', featureidkey='id', color='Logs', 
                             hover_name='HoverName', hover_data={'Map_ID':False, 'County':False, 'State':False},
                             scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark"
                         )
+                        fig_co.update_traces(marker_line_width=0.5, marker_line_color='#050505')
                     else:
                         # Absolute Failsafe: Revert to vector map if Github GeoJSON ping fails
                         fig_co = px.scatter_geo(county_counts, scope='usa') 
@@ -875,10 +874,12 @@ def render_dashboard():
                     grid_counts['Active'] = 'Yes'
                     
                     fig_g = px.choropleth(
-                        grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='properties.Grid4',
+                        grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id',
                         color='Active', color_discrete_map={'Yes': '#1bd2d4'}, hover_name='Grid4', 
                         hover_data={'Active':False, 'Grid4':False, 'Logs':True}, scope='north america', template="plotly_dark"
                     )
+                    # 40% transparency fill with black borders (GridTracker Style)
+                    fig_g.update_traces(marker_line_width=1, marker_line_color='#050505', opacity=0.4)
                     fig_g.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[15, 65], lonaxis_range=[-130, -55], bgcolor='#050505')
                     fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
                 else:
