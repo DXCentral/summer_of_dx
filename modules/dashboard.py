@@ -6,10 +6,11 @@ import plotly.graph_objects as go
 import numpy as np
 import datetime
 import time
+import urllib.request
+import json
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 
 # --- CYAN ESPIONAGE AESTHETIC ---
-# Base scale starts at dark cyan so lowest values remain visible against black background
 CYAN_SCALE = [
     '#0a4040', 
     '#139a9b', 
@@ -17,6 +18,61 @@ CYAN_SCALE = [
     '#a3e8e9', 
     '#ffffff'
 ]
+
+# --- STATE FIPS DICTIONARY FOR COUNTY MAPPING ---
+STATE_FIPS = {
+    '01': 'Alabama', '02': 'Alaska', '04': 'Arizona', '05': 'Arkansas', '06': 'California',
+    '08': 'Colorado', '09': 'Connecticut', '10': 'Delaware', '11': 'District of Columbia',
+    '12': 'Florida', '13': 'Georgia', '15': 'Hawaii', '16': 'Idaho', '17': 'Illinois',
+    '18': 'Indiana', '19': 'Iowa', '20': 'Kansas', '21': 'Kentucky', '22': 'Louisiana',
+    '23': 'Maine', '24': 'Maryland', '25': 'Massachusetts', '26': 'Michigan',
+    '27': 'Minnesota', '28': 'Mississippi', '29': 'Missouri', '30': 'Montana',
+    '31': 'Nebraska', '32': 'Nevada', '33': 'New Hampshire', '34': 'New Jersey',
+    '35': 'New Mexico', '36': 'New York', '37': 'North Carolina', '38': 'North Dakota',
+    '39': 'Ohio', '40': 'Oklahoma', '41': 'Oregon', '42': 'Pennsylvania',
+    '44': 'Rhode Island', '45': 'South Carolina', '46': 'South Dakota',
+    '47': 'Tennessee', '48': 'Texas', '49': 'Utah', '50': 'Vermont',
+    '51': 'Virginia', '53': 'Washington', '54': 'West Virginia',
+    '55': 'Wisconsin', '56': 'Wyoming'
+}
+
+@st.cache_data
+def get_custom_county_geojson():
+    url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
+    try:
+        with urllib.request.urlopen(url) as response:
+            geojson = json.loads(response.read().decode())
+        for feature in geojson['features']:
+            state_fips = feature['properties']['STATE']
+            state_name = STATE_FIPS.get(state_fips, "")
+            county_name = feature['properties']['NAME']
+            # Inject a custom ID (State_CountyName) to bypass FIPS requirement
+            feature['id'] = f"{state_name}_{county_name}"
+        return geojson
+    except Exception:
+        return None
+
+@st.cache_data
+def generate_grid_geojson(grids):
+    features = []
+    for g in grids:
+        if len(g) >= 4:
+            g4 = g[:4].upper()
+            try:
+                lon = (ord(g4[0]) - ord('A')) * 20 - 180 + int(g4[2]) * 2
+                lat = (ord(g4[1]) - ord('A')) * 10 - 90 + int(g4[3]) * 1
+                features.append({
+                    "type": "Feature",
+                    "id": g4,
+                    "geometry": {
+                        "type": "Polygon",
+                        "coordinates": [[[lon, lat], [lon + 2, lat], [lon + 2, lat + 1], [lon, lat + 1], [lon, lat]]]
+                    },
+                    "properties": {"Grid4": g4}
+                })
+            except Exception:
+                pass
+    return {"type": "FeatureCollection", "features": features}
 
 def render_dashboard():
     df = load_global_dashboard_data()
@@ -717,7 +773,6 @@ def render_dashboard():
                 cam = {'ON':'Ontario','QC':'Quebec','NS':'Nova Scotia','NB':'New Brunswick','MB':'Manitoba','BC':'British Columbia','PE':'Prince Edward Island','SK':'Saskatchewan','AB':'Alberta','NL':'Newfoundland and Labrador','NU':'Nunavut','NT':'Northwest Territories','YT':'Yukon'}
                 prov_counts['MapLoc'] = prov_counts['State'].map(cam)
                 
-                # External GeoJSON required to color Canadian provinces natively in Plotly
                 gj_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson"
                 
                 fig_can = px.choropleth(
@@ -736,7 +791,6 @@ def render_dashboard():
                 
                 if ev_can and ev_can.get("selection") and ev_can["selection"].get("points"):
                     full_name = ev_can["selection"]["points"][0]["location"]
-                    # Reverse map the full name back to the abbreviation for the flyout
                     inv_cam = {v: k for k, v in cam.items()}
                     n_prov = inv_cam.get(full_name, full_name)
                     if st.session_state.geo_can_prov != n_prov:
@@ -754,13 +808,28 @@ def render_dashboard():
             
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
-                # Grouping by State AND County prevents identical county names (e.g. Jefferson) from averaging together
                 if not us_c_df.empty:
-                    county_coords = us_c_df.groupby(['State', 'County']).agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
-                    county_coords['HoverName'] = county_coords['County'] + ", " + county_coords['State']
+                    # Strip " County" and " Parish" from the logs to match GeoJSON strict naming
+                    us_c_df['Clean_County'] = us_c_df['County'].str.replace(r' County$| Parish$', '', regex=True)
+                    us_c_df['Map_ID'] = us_c_df['State'] + "_" + us_c_df['Clean_County']
                     
-                    fig_co = px.scatter_geo(county_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='HoverName', scope='usa', size_max=12)
-                    fig_co.update_traces(marker=dict(symbol='square', color='#1bd2d4', line=dict(color='#ffffff', width=0), opacity=0.8))
+                    county_counts = us_c_df.groupby(['Map_ID', 'County', 'State']).size().reset_index(name='Logs')
+                    county_counts['HoverName'] = county_counts['County'] + ", " + county_counts['State']
+                    
+                    # Fetching custom intercepted GeoJSON that utilizes State_CountyName as the master ID
+                    c_gj = get_custom_county_geojson()
+                    
+                    if c_gj:
+                        fig_co = px.choropleth(
+                            county_counts, geojson=c_gj, locations='Map_ID', color='Logs', 
+                            hover_name='HoverName', hover_data={'Map_ID':False, 'County':False, 'State':False},
+                            scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark"
+                        )
+                    else:
+                        # Absolute Failsafe: Revert to vector map if Github GeoJSON ping fails
+                        fig_co = px.scatter_geo(county_counts, scope='usa') 
+                        st.error("GEOJSON UPLINK FAILED. MAP REDUCED.")
+
                     fig_co.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
                     fig_co.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 else:
@@ -771,14 +840,13 @@ def render_dashboard():
                 if ev_co and ev_co.get("selection") and ev_co["selection"].get("points"):
                     pt = ev_co["selection"]["points"][0]
                     if "hovertext" in pt:
-                        n_co = pt["hovertext"]
+                        n_co = pt["hovertext"] # Matches 'County, State'
                         if st.session_state.geo_county != n_co:
                             st.session_state.geo_county = n_co
                             st.rerun()
 
             if st.session_state.geo_county:
                 with cm2:
-                    # Filter matching "County, State" format
                     co_df = filt_df[(filt_df['Country'] == 'United States') & ((filt_df['County'] + ", " + filt_df['State']) == st.session_state.geo_county)]
                     render_geo_flyout("COUNTY", st.session_state.geo_county, co_df)
 
@@ -790,14 +858,23 @@ def render_dashboard():
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_grid else st.columns([1, 0.001])
             with cm1:
                 if not grid_df.empty:
-                    # Truncate to 4-character grid before grouping
+                    # Truncate to 4-character grid
                     grid_df['Grid4'] = grid_df['Station_Grid'].str[:4].str.upper()
-                    grid_coords = grid_df.groupby('Grid4').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
+                    grids_unique = grid_df['Grid4'].unique()
                     
-                    fig_g = px.scatter_geo(grid_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='Grid4', scope='north america', size_max=16)
-                    fig_g.update_traces(marker=dict(symbol='square', color='#1bd2d4', line=dict(color='#1bd2d4', width=1), opacity=0.7))
+                    grid_geojson = generate_grid_geojson(grids_unique)
+                    grid_counts = grid_df.groupby('Grid4').size().reset_index(name='Logs')
+                    
+                    # Force a solid 'Yes' value so the choropleth draws pure cyan instead of a heatmap
+                    grid_counts['Active'] = 'Yes'
+                    
+                    fig_g = px.choropleth(
+                        grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='properties.Grid4',
+                        color='Active', color_discrete_map={'Yes': '#1bd2d4'}, hover_name='Grid4', 
+                        hover_data={'Active':False, 'Grid4':False, 'Logs':True}, scope='north america', template="plotly_dark"
+                    )
                     fig_g.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[15, 65], lonaxis_range=[-130, -55], bgcolor='#050505')
-                    fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
+                    fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
                 else:
                     fig_g = go.Figure()
                     
