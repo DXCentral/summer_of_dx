@@ -13,7 +13,8 @@ def check_thresholds(db_df, dxer_name, new_grid, new_county, band):
     """
     if db_df.empty: return None
     
-    user_logs = db_df[db_df['DXer'] == dxer_name]
+    # Force case-insensitive match just in case
+    user_logs = db_df[db_df['DXer'].astype(str).str.upper() == str(dxer_name).upper()]
     
     # Calculate Grids
     grids = set(user_logs['Station_Grid'].replace(['', ' - ', 'Unknown'], pd.NA).dropna().str[:4].str.upper().tolist())
@@ -29,36 +30,56 @@ def check_thresholds(db_df, dxer_name, new_grid, new_county, band):
 
     # Dynamic Band Thresholds
     if band == "NWR":
-        base_target = 20
-        step = 10
+        base_target, step = 20, 10
     else:
-        base_target = 100
-        step = 50
+        base_target, step = 100, 50
 
     try:
-        # Pull the existing claims to ensure we don't spam the user
         main_sheet = get_gsheet()
-        award_sheet = main_sheet.spreadsheet.worksheet("Award_Claims")
+        if main_sheet is None: 
+            st.toast("🚨 Award Check Bypassed: Streamlit Secrets Not Configured.", icon="⚠️")
+            return None
+            
+        try:
+            award_sheet = main_sheet.spreadsheet.worksheet("Award_Claims")
+        except Exception:
+            st.toast("🚨 Admin Alert: 'Award_Claims' tab is missing in the Google Sheet!", icon="⚠️")
+            return None
+            
         claims = award_sheet.get_all_records()
         
-        claimed_grid_levels = [int(row['Level']) for row in claims if str(row['DXer']).upper() == dxer_name.upper() and row['Band'] == band and row['Category'] == 'Grids']
-        claimed_county_levels = [int(row['Level']) for row in claims if str(row['DXer']).upper() == dxer_name.upper() and row['Band'] == band and row['Category'] == 'Counties']
+        claimed_grid_levels = []
+        claimed_county_levels = []
         
-        # Check Grid Thresholds (Reverse order to catch bulk upload jumps)
+        for row in claims:
+            r_dxer = str(row.get('DXer', '')).strip().upper()
+            r_band = str(row.get('Band', '')).strip().upper()
+            r_cat = str(row.get('Category', '')).strip().title()
+            
+            if r_dxer == str(dxer_name).upper() and r_band == band:
+                try:
+                    lvl_str = str(row.get('Level', '')).strip()
+                    if lvl_str: # Ignore empty strings from blank GSheet rows
+                        lvl = int(lvl_str)
+                        if r_cat == 'Grids': claimed_grid_levels.append(lvl)
+                        elif r_cat == 'Counties': claimed_county_levels.append(lvl)
+                except ValueError:
+                    pass
+        
+        # Check Grid Thresholds
         grid_levels = [x for x in range(base_target, grid_count + 1, step)]
         for lvl in reversed(grid_levels):
             if lvl not in claimed_grid_levels:
-                return {"band": band, "category": "Grids", "level": lvl}
+                return {"band": band, "category": "Grids", "level": lvl, "count": grid_count}
                 
         # Check County Thresholds
         county_levels = [x for x in range(base_target, county_count + 1, step)]
         for lvl in reversed(county_levels):
             if lvl not in claimed_county_levels:
-                return {"band": band, "category": "Counties", "level": lvl}
+                return {"band": band, "category": "Counties", "level": lvl, "count": county_count}
                 
     except Exception as e:
-        print(f"Award Check Failed (Ensure 'Award_Claims' tab exists): {e}")
-        pass
+        st.toast(f"🚨 Award Engine Error: {e}", icon="⚠️")
         
     return None
 
@@ -144,19 +165,27 @@ def award_popup():
         email_input = st.text_input("SECURE EMAIL UPLINK (OPTIONAL)", placeholder="Leave blank to use previous email")
 
     st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("🔴 TRANSMIT TO HIGH COMMAND", use_container_width=True):
+    
+    c1, c2 = st.columns([1, 1])
+    if c1.button("🔴 TRANSMIT TO HIGH COMMAND", use_container_width=True):
         if is_base_level and not email_input:
             st.error("EMAIL UPLINK REQUIRED FOR INITIAL CERTIFICATE.")
         else:
             final_email = email_input if email_input else "ON_FILE"
-            # Transmit Emails
-            send_award_emails(final_email, dxer, band, category, level)
             
-            # Log to Sheet to prevent duplicate popups
-            main_sheet = get_gsheet()
-            if main_sheet:
-                award_sheet = main_sheet.spreadsheet.worksheet("Award_Claims")
-                award_sheet.append_row([str(datetime.datetime.now(datetime.timezone.utc)), dxer, band, category, level, final_email])
+            # Show processing state
+            with st.spinner("Encrypting transmission..."):
+                send_award_emails(final_email, dxer, band, category, level)
+                
+                # Log to Sheet to prevent duplicate popups
+                main_sheet = get_gsheet()
+                if main_sheet:
+                    award_sheet = main_sheet.spreadsheet.worksheet("Award_Claims")
+                    award_sheet.append_row([str(datetime.datetime.now(datetime.timezone.utc)), dxer, band, category, level, final_email])
             
             st.session_state.pending_award = None
             st.rerun()
+
+    if c2.button("DISMISS (SKIP FOR NOW)", use_container_width=True):
+        st.session_state.pending_award = None
+        st.rerun()
