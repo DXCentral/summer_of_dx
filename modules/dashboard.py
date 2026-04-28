@@ -353,7 +353,7 @@ def render_dashboard():
             if not b_df.empty:
                 f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
                 st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']})<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']})<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
 
         st.markdown("</div>", unsafe_allow_html=True)
 
@@ -575,9 +575,9 @@ def render_dashboard():
                 fig_dx = px.scatter_geo(
                     dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
                     hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
-                    scope=geo_scope, size_max=12
+                    scope=geo_scope, size_max=16
                 )
-                fig_dx.update_traces(marker=dict(symbol='diamond', color='#1bd2d4', line=dict(color='#ffffff', width=1), opacity=0.9))
+                fig_dx.update_traces(marker_symbol='diamond', marker_color='#1bd2d4', marker_line_color='#ffffff', marker_line_width=1, marker_sizemin=12, opacity=0.9)
                 fig_dx.update_geos(
                     resolution=geo_res,
                     showcoastlines=True, coastlinecolor="#139a9b",
@@ -927,6 +927,8 @@ def render_dashboard():
                         mapbox_style="carto-darkmatter", zoom=3.5, center=dict(lat=38, lon=-95),
                         size_max=15
                     )
+                    
+                    fig_st.update_traces(marker_sizemin=8)
                     fig_st.update_layout(
                         margin={"r":0,"t":30,"l":0,"b":0}, 
                         legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), 
