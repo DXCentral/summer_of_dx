@@ -9,13 +9,13 @@ import time
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 
 # --- CYAN ESPIONAGE AESTHETIC ---
+# Base scale starts at dark cyan so lowest values remain visible against black background
 CYAN_SCALE = [
-    [0.0, '#050505'], 
-    [0.01, '#0a4040'], 
-    [0.25, '#139a9b'], 
-    [0.5, '#1bd2d4'], 
-    [0.75, '#a3e8e9'], 
-    [1.0, '#ffffff']
+    '#0a4040', 
+    '#139a9b', 
+    '#1bd2d4', 
+    '#a3e8e9', 
+    '#ffffff'
 ]
 
 def render_dashboard():
@@ -481,7 +481,6 @@ def render_dashboard():
             with c_map:
                 dx_map_data = filt_df.groupby(['DXer_City', 'DXer_State', 'DXer_Country']).size().reset_index(name='Logs')
                 
-                # Dynamic Geocoding fallback for missing app.py payload coordinates
                 lats, lons = [], []
                 for _, r in dx_map_data.iterrows():
                     city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
@@ -512,7 +511,7 @@ def render_dashboard():
                     lat_rng = [-55, 75]
                     lon_rng = [-160, 160]
 
-                # CRT Wireframe Vector Map (Plotly Scatter Geo)
+                # CRT Wireframe Vector Map
                 fig_dx = px.scatter_geo(
                     dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
                     hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
@@ -625,7 +624,7 @@ def render_dashboard():
                         if not b_df.empty:
                             f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
                             st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']})<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']})<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
 
                     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -646,7 +645,18 @@ def render_dashboard():
             with cm1:
                 state_counts = us_df.groupby('State').size().reset_index(name='Logs')
                 fig_us = px.choropleth(state_counts, locations='State', locationmode="USA-states", color='Logs', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
-                fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', geo=dict(bgcolor='rgba(0,0,0,0)', lakecolor='#050505'), margin={"r":0,"t":0,"l":0,"b":0}, height=500)
+                
+                fig_us.update_geos(
+                    resolution=50,
+                    showcoastlines=True, coastlinecolor="#139a9b",
+                    showland=True, landcolor="#050505",
+                    showocean=True, oceancolor="#050505",
+                    showlakes=True, lakecolor="#050505",
+                    showsubunits=True, subunitcolor="#139a9b",
+                    bgcolor='#050505'
+                )
+                fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
+                
                 ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_geo_us_{st.session_state.geo_map_key}")
                 
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
@@ -667,8 +677,20 @@ def render_dashboard():
             with cm1:
                 world_counts = map_df.groupby('Country').size().reset_index(name='Logs')
                 fig_w = px.choropleth(world_counts, locations='Country', locationmode="country names", color='Logs', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
-                fig_w.update_geos(projection_type="equirectangular", visible=True, lataxis_range=[-45, 75], lonaxis_range=[-130, 20])
-                fig_w.update_layout(paper_bgcolor='rgba(0,0,0,0)', geo=dict(bgcolor='rgba(0,0,0,0)', lakecolor='#050505'), margin={"r":0,"t":0,"l":0,"b":0}, height=500)
+                
+                fig_w.update_geos(
+                    projection_type="equirectangular",
+                    lataxis_range=[-45, 75], lonaxis_range=[-130, 20],
+                    resolution=50,
+                    showcoastlines=True, coastlinecolor="#139a9b",
+                    showland=True, landcolor="#050505",
+                    showocean=True, oceancolor="#050505",
+                    showlakes=True, lakecolor="#050505",
+                    showcountries=True, countrycolor="#139a9b",
+                    bgcolor='#050505'
+                )
+                fig_w.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
+                
                 ev_w = st.plotly_chart(fig_w, use_container_width=True, on_select="rerun", key=f"m_geo_intl_{st.session_state.geo_map_key}")
                 
                 if ev_w and ev_w.get("selection") and ev_w["selection"].get("points"):
@@ -690,8 +712,6 @@ def render_dashboard():
             with cm1:
                 prov_counts = can_df.groupby('State').size().reset_index(name='Logs')
                 
-                # Plotly lacks native Canadian province mode without external GeoJSON. 
-                # To maintain the CRT aesthetic and prevent FIPS errors, we use our vector engine.
                 if not can_df.empty:
                     prov_coords = can_df.groupby('State').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
                     fig_can = px.scatter_geo(prov_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='State', scope='north america', size_max=25)
@@ -722,7 +742,6 @@ def render_dashboard():
             
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
-                # Rendering counties as dense CRT squares via scatter_geo to prevent external GeoJSON/FIPS reliance
                 if not us_c_df.empty:
                     county_coords = us_c_df.groupby('County').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
                     fig_co = px.scatter_geo(county_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='County', scope='usa', size_max=12)
