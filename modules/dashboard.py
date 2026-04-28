@@ -6,11 +6,11 @@ import plotly.graph_objects as go
 import numpy as np
 import datetime
 import time
-import urllib.request
-import json
+import requests
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 
 # --- CYAN ESPIONAGE AESTHETIC ---
+# Base scale starts at dark cyan so lowest values remain visible against black background
 CYAN_SCALE = [
     '#0a4040', 
     '#139a9b', 
@@ -40,25 +40,31 @@ STATE_FIPS = {
 def get_custom_county_geojson():
     url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
     try:
-        with urllib.request.urlopen(url) as response:
-            geojson = json.loads(response.read().decode())
+        resp = requests.get(url, timeout=10)
+        geojson = resp.json()
         for feature in geojson['features']:
-            state_fips = feature['properties']['STATE']
+            state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
             state_name = STATE_FIPS.get(state_fips, "")
-            county_name = feature['properties']['NAME']
-            # Inject a custom ID (State_CountyName) to bypass FIPS requirement
-            feature['id'] = f"{state_name}_{county_name}"
+            county_name = str(feature['properties'].get('NAME', '')).strip()
+            
+            # Inject a custom unified ID to bypass FIPS requirement
+            map_id = f"{state_name}_{county_name}"
+            feature['id'] = map_id
+            feature['properties']['Map_ID'] = map_id
+            
         return geojson
     except Exception:
         return None
 
+# The leading underscore tells Streamlit NOT to hash the complex pandas array, preventing crashes.
 @st.cache_data
-def generate_grid_geojson(grids):
+def generate_grid_geojson(_grids):
     features = []
-    for g in grids:
+    for g in _grids:
         if len(g) >= 4:
             g4 = g[:4].upper()
             try:
+                # Maidenhead 4-char coordinate math to construct exact bounding boxes
                 lon = (ord(g4[0]) - ord('A')) * 20 - 180 + int(g4[2]) * 2
                 lat = (ord(g4[1]) - ord('A')) * 10 - 90 + int(g4[3]) * 1
                 features.append({
@@ -681,7 +687,7 @@ def render_dashboard():
                         if not b_df.empty:
                             f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
                             st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']})<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']})<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
 
                     st.markdown("</div>", unsafe_allow_html=True)
 
@@ -809,26 +815,26 @@ def render_dashboard():
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
                 if not us_c_df.empty:
-                    # Strip " County" and " Parish" from the logs to match GeoJSON strict naming
-                    us_c_df['Clean_County'] = us_c_df['County'].str.replace(r' County$| Parish$', '', regex=True)
-                    us_c_df['Map_ID'] = us_c_df['State'] + "_" + us_c_df['Clean_County']
+                    # Strip " County" and " Parish" from the logs to match GeoJSON strict naming exactly
+                    us_c_df['Clean_County'] = us_c_df['County'].str.replace(' County', '', case=False).str.replace(' Parish', '', case=False).str.strip()
+                    us_c_df['Map_ID'] = us_c_df['State'].str.strip() + "_" + us_c_df['Clean_County']
                     
                     county_counts = us_c_df.groupby(['Map_ID', 'County', 'State']).size().reset_index(name='Logs')
                     county_counts['HoverName'] = county_counts['County'] + ", " + county_counts['State']
                     
-                    # Fetching custom intercepted GeoJSON that utilizes State_CountyName as the master ID
+                    # Fetch custom intercepted GeoJSON that utilizes State_CountyName as the master ID
                     c_gj = get_custom_county_geojson()
                     
                     if c_gj:
                         fig_co = px.choropleth(
-                            county_counts, geojson=c_gj, locations='Map_ID', color='Logs', 
+                            county_counts, geojson=c_gj, locations='Map_ID', featureidkey='properties.Map_ID', color='Logs', 
                             hover_name='HoverName', hover_data={'Map_ID':False, 'County':False, 'State':False},
                             scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark"
                         )
                     else:
                         # Absolute Failsafe: Revert to vector map if Github GeoJSON ping fails
                         fig_co = px.scatter_geo(county_counts, scope='usa') 
-                        st.error("GEOJSON UPLINK FAILED. MAP REDUCED.")
+                        st.error("GEOJSON UPLINK FAILED. MAP REDUCED TO DOTS.")
 
                     fig_co.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
                     fig_co.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
@@ -860,7 +866,7 @@ def render_dashboard():
                 if not grid_df.empty:
                     # Truncate to 4-character grid
                     grid_df['Grid4'] = grid_df['Station_Grid'].str[:4].str.upper()
-                    grids_unique = grid_df['Grid4'].unique()
+                    grids_unique = list(grid_df['Grid4'].unique())
                     
                     grid_geojson = generate_grid_geojson(grids_unique)
                     grid_counts = grid_df.groupby('Grid4').size().reset_index(name='Logs')
