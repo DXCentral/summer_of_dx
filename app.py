@@ -263,7 +263,7 @@ spacer_left, main_content, spacer_right = st.columns([1, 8, 1])
 
 with main_content:
     
-    # 🚨 AWARD LISTENER: Automatically triggers if a threshold was crossed during log submission
+    # 🚨 AWARD LISTENER: Automatically triggers if a threshold was crossed during log submission (Fallback)
     if st.session_state.get('pending_award'):
         award_popup()
     
@@ -764,15 +764,23 @@ with main_content:
                                 
                             try:
                                 sheet.append_rows(bulk_rows)
+                                # Force cache clear to ensure immediate award recognition
+                                try:
+                                    get_full_logs_df.clear()
+                                    get_logged_dict.clear()
+                                except Exception: pass
+                                
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
                                 
-                                # Check for Awards after Bulk
+                                # Award Check Trigger
                                 full_logs = get_full_logs_df(op.get('name', ''), "AM")
                                 award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "AM")
-                                if award_triggered: st.session_state.pending_award = award_triggered
+                                if award_triggered: 
+                                    st.session_state.pending_award = award_triggered
+                                    award_popup()
                                 
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
@@ -834,12 +842,21 @@ with main_content:
                                 log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                            
+                            # Force cache clear to ensure immediate award recognition
+                            try:
+                                get_full_logs_df.clear()
+                                get_logged_dict.clear()
+                            except Exception: pass
+                            
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                             
-                            # Award Check
+                            # Award Check Trigger
                             full_logs = get_full_logs_df(op.get('name', ''), "AM")
                             award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "AM")
-                            if award_triggered: st.session_state.pending_award = award_triggered
+                            if award_triggered: 
+                                st.session_state.pending_award = award_triggered
+                                award_popup()
                             
                         except Exception as e: 
                             st.error(f"TRANSMISSION FAILED: {e}")
@@ -1280,16 +1297,24 @@ with main_content:
                                 
                             try:
                                 sheet.append_rows(bulk_rows)
+                                # Force cache clear to ensure immediate award recognition
+                                try:
+                                    get_full_logs_df.clear()
+                                    get_logged_dict.clear()
+                                except Exception: pass
+                                
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
                                 
-                                # Check for Awards after Bulk
+                                # Award Check Trigger
                                 full_logs = get_full_logs_df(op.get('name', ''), "FM")
                                 award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "FM")
-                                if award_triggered: st.session_state.pending_award = award_triggered
-                                
+                                if award_triggered: 
+                                    st.session_state.pending_award = award_triggered
+                                    award_popup()
+                                    
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
@@ -1358,13 +1383,22 @@ with main_content:
                                 log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                            
+                            # Force cache clear to ensure immediate award recognition
+                            try:
+                                get_full_logs_df.clear()
+                                get_logged_dict.clear()
+                            except Exception: pass
+                            
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                             
-                            # Award Check
+                            # Award Check Trigger
                             full_logs = get_full_logs_df(op.get('name', ''), "FM")
                             award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "FM")
-                            if award_triggered: st.session_state.pending_award = award_triggered
-                            
+                            if award_triggered: 
+                                st.session_state.pending_award = award_triggered
+                                award_popup()
+                                
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
 
@@ -1805,16 +1839,24 @@ with main_content:
                                 
                             try:
                                 sheet.append_rows(bulk_rows)
+                                # Force cache clear to ensure immediate award recognition
+                                try:
+                                    get_full_logs_df.clear()
+                                    get_logged_dict.clear()
+                                except Exception: pass
+                                
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
                                 
-                                # Check for Awards after Bulk
+                                # Award Check Trigger
                                 full_logs = get_full_logs_df(op.get('name', ''), "NWR")
                                 award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "NWR")
-                                if award_triggered: st.session_state.pending_award = award_triggered
-                                
+                                if award_triggered: 
+                                    st.session_state.pending_award = award_triggered
+                                    award_popup()
+                                    
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
@@ -1878,13 +1920,22 @@ with main_content:
                                 log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                            
+                            # Force cache clear to ensure immediate award recognition
+                            try:
+                                get_full_logs_df.clear()
+                                get_logged_dict.clear()
+                            except Exception: pass
+                            
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                             
-                            # Award Check
+                            # Award Check Trigger
                             full_logs = get_full_logs_df(op.get('name', ''), "NWR")
                             award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "NWR")
-                            if award_triggered: st.session_state.pending_award = award_triggered
-                            
+                            if award_triggered: 
+                                st.session_state.pending_award = award_triggered
+                                award_popup()
+                                
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
 
