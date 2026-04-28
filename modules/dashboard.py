@@ -20,6 +20,15 @@ CYAN_SCALE = [
     '#ffffff'
 ]
 
+# RGB Scale for PyDeck Heatmap
+CYAN_RGB_SCALE = [
+    [10, 64, 64], 
+    [19, 154, 155], 
+    [27, 210, 212], 
+    [163, 232, 233], 
+    [255, 255, 255]
+]
+
 # --- STATE FIPS DICTIONARY FOR COUNTY MAPPING (ABBREVIATIONS) ---
 FIPS_TO_ABBR = {
     '01': 'AL', '02': 'AK', '04': 'AZ', '05': 'AR', '06': 'CA',
@@ -167,7 +176,6 @@ def render_dashboard():
     if 'transmit_active' not in st.session_state: st.session_state.transmit_active = False
     if 'direct_freq_input' not in st.session_state: st.session_state.direct_freq_input = ""
     
-    # Radar States
     if 'radar_playing' not in st.session_state: st.session_state.radar_playing = False
     if 'radar_p_idx' not in st.session_state: st.session_state.radar_p_idx = 0
 
@@ -237,16 +245,6 @@ def render_dashboard():
     f_month = c_f12.selectbox("Month", ["ALL"] + sorted(df['Month'].dropna().unique().tolist()), key=f"f_month_{fk}")
 
     st.button("[ RESET ALL FILTERS ]", on_click=reset_filters, key=f"btn_reset_{fk}")
-
-    # Pre-process dates and geometry for the entire dataframe run
-    df['Date_Obj'] = pd.to_datetime(df['Date_Str'], errors='coerce').dt.date
-    # Fallback geometry if missing
-    if 'DX_Lat' not in df.columns: df['DX_Lat'] = 0.0
-    if 'DX_Lon' not in df.columns: df['DX_Lon'] = 0.0
-    if 'ST_Lat' not in df.columns: df['ST_Lat'] = 0.0
-    if 'ST_Lon' not in df.columns: df['ST_Lon'] = 0.0
-    df['Mid_Lat'] = (df['DX_Lat'] + df['ST_Lat']) / 2
-    df['Mid_Lon'] = (df['DX_Lon'] + df['ST_Lon']) / 2
 
     # Apply Filters
     filt_df = df.copy()
@@ -751,11 +749,27 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # Dynamic Missing Geo Fill for PyDeck
-        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
-        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
+        # Date & Coordinate Prep (Ensuring safe handling of timestamps and missing coords)
+        if 'Date_Obj' not in filt_df.columns:
+            filt_df['Date_Obj'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce').dt.date
+            
+        # Geocode missing DXer coordinates on the fly for the Radar module if missing
+        if 'DX_Lat' not in filt_df.columns or 'DX_Lon' not in filt_df.columns:
+            unique_locs = filt_df[['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
+            lats, lons = [], []
+            for _, r in unique_locs.iterrows():
+                city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
+                lat, lon = get_lat_lon_from_city(city_query, r['DXer_Country'])
+                lats.append(lat)
+                lons.append(lon)
+            unique_locs['DX_Lat'] = lats
+            unique_locs['DX_Lon'] = lons
+            # Merge back into the master filter set
+            filt_df = filt_df.merge(unique_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
+
         if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
         if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
+        
         filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
         filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
         
@@ -767,7 +781,9 @@ def render_dashboard():
                 p_sel = st.pills("PROPAGATION", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL")
                 st.markdown("<hr style='margin:5px 0px;'>", unsafe_allow_html=True)
                 range_on = st.checkbox("Enable Date Range Mode", value=True) 
+                
                 avail_days = sorted(filt_df['Date_Obj'].dropna().unique())
+                v_df = pd.DataFrame()
                 
                 if len(avail_days) > 0:
                     if not range_on:
@@ -780,11 +796,11 @@ def render_dashboard():
                         else: 
                             v_df = filt_df[filt_df['Date_Obj'] == date_range[0]]
                 else:
-                    v_df = pd.DataFrame()
                     st.warning("No dates available.")
                     
-                if b_sel != "ALL": v_df = v_df[v_df['Band'] == b_sel]
-                if p_sel != "ALL": v_df = v_df[v_df['Prop_Mode'] == p_sel]
+                if not v_df.empty:
+                    if b_sel != "ALL": v_df = v_df[v_df['Band'] == b_sel]
+                    if p_sel != "ALL": v_df = v_df[v_df['Prop_Mode'] == p_sel]
                 
                 st.markdown(f"**Active Vectors:** {len(v_df)}")
                 
@@ -937,12 +953,12 @@ def render_dashboard():
                         hoverinfo="skip"
                     ))
                     
-                    # 2. Intercept Vector Line
+                    # 2. Intercept Vector Line (Solid to prevent Mapbox error)
                     target_fig.add_trace(go.Scattermapbox(
                         mode="lines",
                         lon=[dx_lon, st_lon],
                         lat=[dx_lat, st_lat],
-                        line=dict(width=1, color='#1bd2d4', dash='dot'),
+                        line=dict(width=1, color='#1bd2d4'),
                         name="Signal Vector",
                         hoverinfo="skip"
                     ))
