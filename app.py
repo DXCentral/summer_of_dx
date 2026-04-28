@@ -24,12 +24,41 @@ from modules.dashboard import render_dashboard
 
 # --- BULLETPROOF IMPORT FAILSAFE ---
 try:
-    from modules.awards import check_thresholds, award_popup
+    from modules.awards import manual_award_claim_popup
     AWARDS_ACTIVE = True
 except ImportError as e:
     AWARDS_ACTIVE = False
-    def check_thresholds(*args, **kwargs): return None
-    def award_popup(): pass
+    def manual_award_claim_popup(*args, **kwargs): pass
+
+# --- TEMPORAL FILTER (CHALLENGE WINDOW) ---
+def is_within_window(date_obj_or_str, time_str):
+    try:
+        if isinstance(date_obj_or_str, datetime.date) and not isinstance(date_obj_or_str, datetime.datetime):
+            dt_str = date_obj_or_str.strftime('%Y-%m-%d')
+        else:
+            dt_str = str(date_obj_or_str)
+            
+        t_clean = re.sub(r'[^0-9]', '', str(time_str))
+        if len(t_clean) == 0:
+            t_clean = "0000"
+        elif len(t_clean) < 4:
+            t_clean = t_clean.zfill(4)
+        elif len(t_clean) > 4:
+            t_clean = t_clean[:4]
+        
+        parsed_date = pd.to_datetime(dt_str).date()
+        hours = int(t_clean[:2])
+        mins = int(t_clean[2:])
+        
+        dt = datetime.datetime.combine(parsed_date, datetime.time(hour=hours, minute=mins))
+        dt = dt.replace(tzinfo=datetime.timezone.utc)
+        
+        # ACTIVE WINDOW: May 1 01:00 UTC - Aug 31 23:59:59 UTC
+        c_start = datetime.datetime(2026, 5, 1, 1, 0, tzinfo=datetime.timezone.utc)
+        c_end = datetime.datetime(2026, 8, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
+        return c_start <= dt <= c_end
+    except Exception:
+        return False
 
 # --- 1. CORE CONFIGURATION ---
 st.set_page_config(
@@ -649,6 +678,7 @@ with main_content:
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                                         
                             skipped_dupes = 0
+                            skipped_out_of_range = 0
                             
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
@@ -733,6 +763,10 @@ with main_content:
                                 date_sig = str(format_date_import(row[map_date])).strip()
                                 time_sig = str(format_time_import(row[map_time])).strip()
                                 
+                                if not is_within_window(date_sig, time_sig):
+                                    skipped_out_of_range += 1
+                                    continue
+                                
                                 row_sig = f"AM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
                                 if row_sig in existing_signatures:
                                     skipped_dupes += 1
@@ -784,6 +818,8 @@ with main_content:
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                                if skipped_out_of_range > 0:
+                                    st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) IGNORED ]")
                                 st.balloons()
                                 
                             except Exception as e: 
@@ -810,6 +846,8 @@ with main_content:
             if submit_log:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                elif not is_within_window(log_date, log_time):
+                    st.error("🚨 TRANSMISSION REJECTED: Log is outside the active challenge window (May 1 01:00 UTC - Aug 31 23:59 UTC). Please check your date and try again.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
@@ -1146,6 +1184,7 @@ with main_content:
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                                         
                             skipped_dupes = 0
+                            skipped_out_of_range = 0
                             
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
@@ -1239,6 +1278,10 @@ with main_content:
                                 date_sig = str(format_date_import(row[map_date])).strip()
                                 time_sig = str(format_time_import(row[map_time])).strip()
                                 
+                                if not is_within_window(date_sig, time_sig):
+                                    skipped_out_of_range += 1
+                                    continue
+                                
                                 row_sig = f"FM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
                                 if row_sig in existing_signatures:
                                     skipped_dupes += 1
@@ -1304,6 +1347,8 @@ with main_content:
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                                if skipped_out_of_range > 0:
+                                    st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) IGNORED ]")
                                 st.balloons()
                                 
                             except Exception as e: 
@@ -1336,6 +1381,8 @@ with main_content:
             if submit_log:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                elif not is_within_window(log_date, log_time):
+                    st.error("🚨 TRANSMISSION REJECTED: Log is outside the active challenge window (May 1 01:00 UTC - Aug 31 23:59 UTC). Please check your date and try again.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
@@ -1674,6 +1721,7 @@ with main_content:
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                                         
                             skipped_dupes = 0
+                            skipped_out_of_range = 0
                             
                             for _, row in df_import.iterrows():
                                 raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
@@ -1782,6 +1830,10 @@ with main_content:
                                 date_sig = str(format_date_import(row[map_date])).strip()
                                 time_sig = str(format_time_import(row[map_time])).strip()
                                 
+                                if not is_within_window(date_sig, time_sig):
+                                    skipped_out_of_range += 1
+                                    continue
+                                
                                 row_sig = f"NWR_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
                                 if row_sig in existing_signatures:
                                     skipped_dupes += 1
@@ -1833,6 +1885,8 @@ with main_content:
                                 st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                                if skipped_out_of_range > 0:
+                                    st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) IGNORED ]")
                                 st.balloons()
                                 
                             except Exception as e: 
@@ -1860,6 +1914,8 @@ with main_content:
             if submit_log:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                elif not is_within_window(log_date, log_time):
+                    st.error("🚨 TRANSMISSION REJECTED: Log is outside the active challenge window (May 1 01:00 UTC - Aug 31 23:59 UTC). Please check your date and try again.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
