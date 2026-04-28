@@ -263,7 +263,7 @@ spacer_left, main_content, spacer_right = st.columns([1, 8, 1])
 
 with main_content:
     
-    # 🚨 AWARD LISTENER: Automatically triggers if a threshold was crossed during log submission (Fallback)
+    # 🚨 AWARD LISTENER: Automatically triggers if a threshold was crossed
     if st.session_state.get('pending_award'):
         award_popup()
     
@@ -780,7 +780,7 @@ with main_content:
                                 award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "AM")
                                 if award_triggered: 
                                     st.session_state.pending_award = award_triggered
-                                    award_popup()
+                                    st.rerun()
                                 
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
@@ -856,7 +856,7 @@ with main_content:
                             award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "AM")
                             if award_triggered: 
                                 st.session_state.pending_award = award_triggered
-                                award_popup()
+                                st.rerun()
                             
                         except Exception as e: 
                             st.error(f"TRANSMISSION FAILED: {e}")
@@ -1109,7 +1109,7 @@ with main_content:
                     
                     c_i9, c_i10, c_i11 = st.columns(3)
                     map_pi = c_i9.selectbox("PI CODE", cols, index=idx_pi, key="fm_map_8")
-                    map_prop = c_i10.selectbox("PROPAGATION", cols, index=idx_prop, key="fm_map_9")
+                    map_prop = c_i10.selectbox("PROPAGATION", cols, index=idxprop, key="fm_map_9")
                     map_notes = c_i11.selectbox("NOTES / DETAILS", cols, index=idx_notes, key="fm_map_11")
                     
                     map_sdr = c_i11.selectbox("SDR USED?", cols, index=0, key="fm_map_12")
@@ -1313,7 +1313,7 @@ with main_content:
                                 award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "FM")
                                 if award_triggered: 
                                     st.session_state.pending_award = award_triggered
-                                    award_popup()
+                                    st.rerun()
                                     
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
@@ -1397,7 +1397,7 @@ with main_content:
                             award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "FM")
                             if award_triggered: 
                                 st.session_state.pending_award = award_triggered
-                                award_popup()
+                                st.rerun()
                                 
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
@@ -1640,7 +1640,7 @@ with main_content:
                     map_freq = c_i1.selectbox("FREQUENCY", cols, index=idx_freq, key="nwr_map_1")
                     map_call = c_i2.selectbox("CALLSIGN", cols, index=idx_call, key="nwr_map_2")
                     map_date = c_i3.selectbox("DATE (UTC)", cols, index=idx_date, key="nwr_map_3")
-                    map_time = c_i4.selectbox("TIME (UTC)", cols, index=idx_time, key="nwr_map_4")
+                    map_time = c_i4.selectbox("TIME (UTC)", index=idx_time, key="nwr_map_4")
                     
                     c_i5, c_i6, c_i7, c_i8 = st.columns(4)
                     map_city = c_i5.selectbox("CITY", cols, index=idx_city, key="nwr_map_5")
@@ -1855,7 +1855,7 @@ with main_content:
                                 award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "NWR")
                                 if award_triggered: 
                                     st.session_state.pending_award = award_triggered
-                                    award_popup()
+                                    st.rerun()
                                     
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
@@ -1934,7 +1934,7 @@ with main_content:
                             award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "NWR")
                             if award_triggered: 
                                 st.session_state.pending_award = award_triggered
-                                award_popup()
+                                st.rerun()
                                 
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
