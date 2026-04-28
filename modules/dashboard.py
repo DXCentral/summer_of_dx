@@ -481,6 +481,7 @@ def render_dashboard():
             with c_map:
                 dx_map_data = filt_df.groupby(['DXer_City', 'DXer_State', 'DXer_Country']).size().reset_index(name='Logs')
                 
+                # Dynamic Geocoding fallback for missing app.py payload coordinates
                 lats, lons = [], []
                 for _, r in dx_map_data.iterrows():
                     city_query = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r['DXer_State']) and r['DXer_State'] != '' else r['DXer_City']
@@ -706,30 +707,41 @@ def render_dashboard():
         elif geo_tab == "CANADA":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM"], default="ALL BANDS", key="b_can")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
-            can_df = map_df[map_df['Country'] == 'Canada']
+            can_df = map_df[map_df['Country'] == 'Canada'].copy()
             
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_can_prov else st.columns([1, 0.001])
             with cm1:
                 prov_counts = can_df.groupby('State').size().reset_index(name='Logs')
                 
-                if not can_df.empty:
-                    prov_coords = can_df.groupby('State').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
-                    fig_can = px.scatter_geo(prov_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='State', scope='north america', size_max=25)
-                    fig_can.update_traces(marker=dict(symbol='square', color='#1bd2d4', line=dict(color='#ffffff', width=1), opacity=0.9))
-                    fig_can.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505')
-                    fig_can.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
-                else:
-                    fig_can = go.Figure()
-                    
+                # Dictionary to map abbreviations to full names for the GeoJSON
+                cam = {'ON':'Ontario','QC':'Quebec','NS':'Nova Scotia','NB':'New Brunswick','MB':'Manitoba','BC':'British Columbia','PE':'Prince Edward Island','SK':'Saskatchewan','AB':'Alberta','NL':'Newfoundland and Labrador','NU':'Nunavut','NT':'Northwest Territories','YT':'Yukon'}
+                prov_counts['MapLoc'] = prov_counts['State'].map(cam)
+                
+                # External GeoJSON required to color Canadian provinces natively in Plotly
+                gj_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson"
+                
+                fig_can = px.choropleth(
+                    prov_counts, geojson=gj_url, locations='MapLoc', featureidkey='properties.name', 
+                    color='Logs', scope='north america', color_continuous_scale=CYAN_SCALE, template="plotly_dark"
+                )
+                fig_can.update_geos(
+                    resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", 
+                    showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", 
+                    showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", 
+                    lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505'
+                )
+                fig_can.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
+                
                 ev_can = st.plotly_chart(fig_can, use_container_width=True, on_select="rerun", key=f"m_geo_can_{st.session_state.geo_map_key}")
                 
                 if ev_can and ev_can.get("selection") and ev_can["selection"].get("points"):
-                    pt = ev_can["selection"]["points"][0]
-                    if "hovertext" in pt:
-                        n_prov = pt["hovertext"]
-                        if st.session_state.geo_can_prov != n_prov:
-                            st.session_state.geo_can_prov = n_prov
-                            st.rerun()
+                    full_name = ev_can["selection"]["points"][0]["location"]
+                    # Reverse map the full name back to the abbreviation for the flyout
+                    inv_cam = {v: k for k, v in cam.items()}
+                    n_prov = inv_cam.get(full_name, full_name)
+                    if st.session_state.geo_can_prov != n_prov:
+                        st.session_state.geo_can_prov = n_prov
+                        st.rerun()
 
             if st.session_state.geo_can_prov:
                 with cm2:
@@ -738,13 +750,16 @@ def render_dashboard():
         elif geo_tab == "US COUNTIES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_co")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
-            us_c_df = map_df[(map_df['Country'] == 'United States') & (map_df['County'] != 'Unknown') & (map_df['County'] != ' - ')]
+            us_c_df = map_df[(map_df['Country'] == 'United States') & (map_df['County'] != 'Unknown') & (map_df['County'] != ' - ')].copy()
             
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
+                # Grouping by State AND County prevents identical county names (e.g. Jefferson) from averaging together
                 if not us_c_df.empty:
-                    county_coords = us_c_df.groupby('County').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
-                    fig_co = px.scatter_geo(county_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='County', scope='usa', size_max=12)
+                    county_coords = us_c_df.groupby(['State', 'County']).agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
+                    county_coords['HoverName'] = county_coords['County'] + ", " + county_coords['State']
+                    
+                    fig_co = px.scatter_geo(county_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='HoverName', scope='usa', size_max=12)
                     fig_co.update_traces(marker=dict(symbol='square', color='#1bd2d4', line=dict(color='#ffffff', width=0), opacity=0.8))
                     fig_co.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
                     fig_co.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
@@ -763,19 +778,24 @@ def render_dashboard():
 
             if st.session_state.geo_county:
                 with cm2:
-                    render_geo_flyout("COUNTY", st.session_state.geo_county, filt_df[(filt_df['Country'] == 'United States') & (filt_df['County'] == st.session_state.geo_county)])
+                    # Filter matching "County, State" format
+                    co_df = filt_df[(filt_df['Country'] == 'United States') & ((filt_df['County'] + ", " + filt_df['State']) == st.session_state.geo_county)]
+                    render_geo_flyout("COUNTY", st.session_state.geo_county, co_df)
 
         elif geo_tab == "GRIDSQUARES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_grid")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
-            grid_df = map_df[(map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')]
+            grid_df = map_df[(map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')].copy()
             
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_grid else st.columns([1, 0.001])
             with cm1:
                 if not grid_df.empty:
-                    grid_coords = grid_df.groupby('Station_Grid').agg({'ST_Lat':'mean', 'ST_Lon':'mean'}).reset_index()
-                    fig_g = px.scatter_geo(grid_coords, lat='ST_Lat', lon='ST_Lon', hover_name='Station_Grid', scope='north america')
-                    fig_g.update_traces(marker=dict(symbol='square', color='#1bd2d4', size=8, line=dict(color='#1bd2d4', width=1), opacity=0.7))
+                    # Truncate to 4-character grid before grouping
+                    grid_df['Grid4'] = grid_df['Station_Grid'].str[:4].str.upper()
+                    grid_coords = grid_df.groupby('Grid4').agg({'ST_Lat':'mean', 'ST_Lon':'mean', 'Callsign':'count'}).reset_index().rename(columns={'Callsign':'Logs'})
+                    
+                    fig_g = px.scatter_geo(grid_coords, lat='ST_Lat', lon='ST_Lon', size='Logs', hover_name='Grid4', scope='north america', size_max=16)
+                    fig_g.update_traces(marker=dict(symbol='square', color='#1bd2d4', line=dict(color='#1bd2d4', width=1), opacity=0.7))
                     fig_g.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[15, 65], lonaxis_range=[-130, -55], bgcolor='#050505')
                     fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 else:
@@ -793,7 +813,9 @@ def render_dashboard():
 
             if st.session_state.geo_grid:
                 with cm2:
-                    render_geo_flyout("GRIDSQUARE", st.session_state.geo_grid, filt_df[filt_df['Station_Grid'] == st.session_state.geo_grid])
+                    # Filter all logs whose 6-char grid starts with the 4-char grid
+                    g_df = filt_df[filt_df['Station_Grid'].str.upper().str.startswith(st.session_state.geo_grid)]
+                    render_geo_flyout("GRIDSQUARE", st.session_state.geo_grid, g_df)
 
     # =====================================================================
     # STUBS
