@@ -34,6 +34,13 @@ FIPS_TO_ABBR = {
     '56': 'WY'
 }
 
+# --- GLOBAL BAND CONFIGURATION ---
+BAND_CONFIG = {
+    "MW": {"min": 530, "max": 1700, "unit": "kHz"},
+    "FM": {"min": 87.7, "max": 107.9, "unit": "MHz", "step": 0.2},
+    "NWR": {"min": 162.400, "max": 162.550, "unit": "MHz", "step": 0.025}
+}
+
 @st.cache_data
 def get_custom_county_geojson():
     url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
@@ -44,14 +51,12 @@ def get_custom_county_geojson():
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
             state_abbr = FIPS_TO_ABBR.get(state_fips, "")
             county_name = str(feature['properties'].get('NAME', '')).strip()
-            # Inject a custom unified ID to bypass FIPS requirement (e.g. TX_Jefferson)
             map_id = f"{state_abbr}_{county_name}"
             feature['id'] = map_id
         return geojson
     except Exception:
         return None
 
-# Leading underscore prevents Streamlit from trying to hash the array, stopping UnhashableParamError
 @st.cache_data
 def generate_grid_geojson(_grids):
     features = []
@@ -59,7 +64,6 @@ def generate_grid_geojson(_grids):
         if len(g) >= 4:
             g4 = g[:4].upper()
             try:
-                # Maidenhead 4-char coordinate math to construct exact bounding boxes
                 lon = (ord(g4[0]) - ord('A')) * 20 - 180 + int(g4[2]) * 2
                 lat = (ord(g4[1]) - ord('A')) * 10 - 90 + int(g4[3]) * 1
                 features.append({
@@ -90,18 +94,15 @@ def render_dashboard():
         src: url('https://db.onlinewebfonts.com/t/8e23f95e5927c3ba779261a86851219b.woff2') format('woff2');
     }
     
-    /* Force Center DataFrame Headers and Cells */
     [data-testid="stDataFrame"] th { text-align: center !important; }
     [data-testid="stDataFrame"] td { text-align: center !important; }
     [data-testid="stElementToolbar"] { display: none !important; }
     
-    /* Score Leader Custom UI */
     .leader-box { border: 1px solid #139a9b; padding: 10px; background-color: #050505; text-align: center; box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1); }
     .leader-title { color: #139a9b; font-size: 0.85rem; text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; }
     .leader-name { color: #ffffff; font-size: 1.4rem; line-height: 1.2; }
     .leader-score { color: #1bd2d4; font-size: 1.1rem; }
     
-    /* Flyout Custom UI */
     .flyout-box { border: 1px solid #139a9b; padding: 15px; background-color: #050505; box-shadow: 0px 0px 10px rgba(19, 154, 155, 0.2); }
     .flyout-title { color: #1bd2d4; margin-top: 0; font-size: 1.8rem; text-transform: uppercase; border-bottom: 1px dashed #139a9b; padding-bottom: 5px; }
     .flyout-header { color: #1bd2d4; font-size: 0.85rem; margin-top: 15px; text-transform: uppercase; letter-spacing: 1px; }
@@ -109,11 +110,9 @@ def render_dashboard():
     .flyout-sub { font-size: 0.95rem; color: #ffffff; margin-top: 2px; }
     .flyout-micro { font-size: 0.9rem; color: #ffffff; margin-top: 2px; }
     
-    /* Terminal Pill Button CSS */
     div[data-testid="stPills"] button { background-color: #050505 !important; border: 1px solid #139a9b !important; color: #1bd2d4 !important; font-family: 'VT323', monospace !important; }
     div[data-testid="stPills"] button[aria-checked="true"] { background-color: #139a9b !important; color: #050505 !important; box-shadow: 0px 0px 10px rgba(27,210,212,0.6); }
 
-    /* Tactical Radio UI Styling */
     .radio-chassis { background-color: #1a1a1a; border: 4px solid #333; border-radius: 10px; padding: 20px; box-shadow: 10px 10px 0px #000; margin-bottom: 20px; }
     .lcd-recess { background-color: #0a2020; border: 4px inset #000; padding: 15px; text-align: center; margin-bottom: 15px; }
     .lcd-text { font-family: 'Digital7', monospace; color: #1bd2d4; font-size: 4rem; text-shadow: 0px 0px 15px rgba(27,210,212,0.8); line-height: 1; }
@@ -121,7 +120,6 @@ def render_dashboard():
     .marquee-content { display: inline-block; animation: marquee 10s linear infinite; }
     @keyframes marquee { 0% { transform: translateX(100%); } 100% { transform: translateX(-100%); } }
     
-    /* Red Transmit Button */
     div.stButton > button[key*="transmit"] { background-color: #8b0000 !important; color: white !important; border: 2px solid #ff0000 !important; font-weight: bold !important; box-shadow: 0px 0px 10px rgba(255,0,0,0.5) !important; }
     div.stButton > button[key*="transmit"]:hover { background-color: #ff0000 !important; box-shadow: 0px 0px 20px rgba(255,0,0,0.8) !important; }
     </style>
@@ -147,6 +145,7 @@ def render_dashboard():
     if 'tuner_band' not in st.session_state: st.session_state.tuner_band = "MW"
     if 'tuner_mw_step' not in st.session_state: st.session_state.tuner_mw_step = 10
     if 'transmit_active' not in st.session_state: st.session_state.transmit_active = False
+    if 'direct_freq_input' not in st.session_state: st.session_state.direct_freq_input = ""
 
     def reset_flyouts():
         st.session_state.matrix_loc = None
@@ -161,28 +160,33 @@ def render_dashboard():
     def reset_filters():
         st.session_state.filter_reset_key += 1
 
+    # Frequency Tuner Input Callback (Stops Infinite Loops)
+    def process_direct_freq_entry():
+        val = re.sub(r'[^0-9]', '', st.session_state.direct_freq_input)
+        if val:
+            band_sel = st.session_state.tuner_band
+            if band_sel == "FM" and len(val) >= 3:
+                final_f = float(val[:-1] + "." + val[-1])
+            elif band_sel == "NWR" and len(val) >= 6:
+                final_f = float(val[:3] + "." + val[3:])
+            else:
+                final_f = float(val)
+            
+            if BAND_CONFIG[band_sel]["min"] <= final_f <= BAND_CONFIG[band_sel]["max"]:
+                st.session_state.tuner_freq = final_f
+            else:
+                st.toast("🚨 FREQUENCY OUT OF BAND LIMITS", icon="⚠️")
+        st.session_state.direct_freq_input = ""
+
     # --- DASHBOARD NAVIGATION ---
     d_cols = st.columns(5)
-    if d_cols[0].button("▶ MISSION OVERVIEW", use_container_width=True): 
-        st.session_state.dash_nav = "OVERVIEW"
-        reset_flyouts()
-        st.rerun()
-    if d_cols[1].button("▶ CLASSIFICATION MATRIX", use_container_width=True): 
-        st.session_state.dash_nav = "MATRIX"
-        reset_flyouts()
-        st.rerun()
-    if d_cols[2].button("▶ GEOGRAPHIC INTEL", use_container_width=True): 
-        st.session_state.dash_nav = "GEOGRAPHY"
-        reset_flyouts()
-        st.rerun()
-    if d_cols[3].button("▶ TIMELAPSE & RADAR", use_container_width=True): 
-        st.session_state.dash_nav = "ES_TRACKER"
-        reset_flyouts()
-        st.rerun()
-    if d_cols[4].button("▶ FREQUENCY TUNER", use_container_width=True): 
-        st.session_state.dash_nav = "TUNER"
-        reset_flyouts()
-        st.rerun()
+    nav_btns = ["MISSION OVERVIEW", "CLASSIFICATION MATRIX", "GEOGRAPHIC INTEL", "TIMELAPSE & RADAR", "FREQUENCY TUNER"]
+    nav_keys = ["OVERVIEW", "MATRIX", "GEOGRAPHY", "ES_TRACKER", "TUNER"]
+    for i, label in enumerate(nav_btns):
+        if d_cols[i].button(f"▶ {label}", use_container_width=True):
+            st.session_state.dash_nav = nav_keys[i]
+            reset_flyouts()
+            st.rerun()
         
     st.markdown("<hr style='margin-top: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
     
@@ -241,8 +245,7 @@ def render_dashboard():
             b_sum = b_counts.groupby('DXer')['Bonus'].sum().reset_index()
             s = s.merge(b_sum, on='DXer', how='left').fillna(0)
             s['Total'] = s['Base_Score'] + s['Bonus']
-        else:
-            s['Total'] = s['Base_Score']
+        else: s['Total'] = s['Base_Score']
         return s.sort_values('Total', ascending=False)
 
     def get_leader_data(band_target):
@@ -468,30 +471,19 @@ def render_dashboard():
                     lat, lon = get_lat_lon_from_city(city_query, r['DXer_Country'])
                     lats.append(lat)
                     lons.append(lon)
-                dx_map_data['DX_Lat'] = lats
-                dx_map_data['DX_Lon'] = lons
+                dx_map_data['DX_Lat'], dx_map_data['DX_Lon'] = lats, lons
                 dx_map_data = dx_map_data[(dx_map_data['DX_Lat'] != 0.0) | (dx_map_data['DX_Lon'] != 0.0)]
-                
                 t_col1, t_col2 = st.columns([1.5, 3.5])
                 t_col1.markdown("<div style='color: #1bd2d4; font-size: 1.2rem; font-weight: bold; margin-top: 8px;'>UPLINK STATUS:</div>", unsafe_allow_html=True)
                 sat_view = t_col2.pills("SATELLITE UPLINK", ["North America Sector", "Global Sector"], default="North America Sector", label_visibility="collapsed")
-                if not sat_view: sat_view = "North America Sector"
                 geo_scope = 'north america' if sat_view == "North America Sector" else 'world'
                 geo_res = 50 if sat_view == "North America Sector" else 110
-                lat_rng = [15, 65] if sat_view == "North America Sector" else [-55, 75]
-                lon_rng = [-130, -55] if sat_view == "North America Sector" else [-160, 160]
-
-                fig_dx = px.scatter_geo(
-                    dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
-                    hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
-                    scope=geo_scope, size_max=16
-                )
-                fig_dx.update_traces(marker_symbol='diamond', marker_color='#1bd2d4', marker_line_color='#ffffff', marker_line_width=1, marker_sizemin=12, opacity=0.9)
-                fig_dx.update_geos(resolution=geo_res, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", lataxis_range=lat_rng, lonaxis_range=lon_rng, bgcolor='#050505')
+                lat_rng, lon_rng = ([15, 65], [-130, -55]) if sat_view == "North America Sector" else ([-55, 75], [-160, 160])
+                fig_dx = px.scatter_geo(dx_map_data, lat='DX_Lat', lon='DX_Lon', hover_name='DXer_City', scope=geo_scope)
+                fig_dx.update_traces(marker=dict(symbol='diamond', color='#1bd2d4', size=14, line=dict(color='#ffffff', width=1), opacity=0.9))
+                fig_dx.update_geos(resolution=geo_res, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", lataxis_range=lat_rng, lonaxis_range=lon_rng, bgcolor='#050505')
                 fig_dx.update_layout(height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
-                
                 ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"m_dx_{st.session_state.matrix_map_key}", config={'scrollZoom': True})
-                
                 if ev_dx and ev_dx.get("selection") and ev_dx["selection"].get("points"):
                     pt = ev_dx["selection"]["points"][0]
                     if "hovertext" in pt:
@@ -507,14 +499,10 @@ def render_dashboard():
                     st.markdown(f"<div class='flyout-title'>📍 {loc}</div>", unsafe_allow_html=True)
                     if st.button("❌ CLOSE INTEL", use_container_width=True):
                         st.session_state.matrix_loc = None
-                        st.session_state.matrix_map_key += 1
                         st.rerun()
                     st.markdown(f"<div class='flyout-val'>{len(loc_df):,} Logs</div>", unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
-    # =====================================================================
-    # VIEW 3: GEOGRAPHIC INTELLIGENCE
-    # =====================================================================
     elif st.session_state.dash_nav == "GEOGRAPHY":
         st.markdown("### 🗺️ GEOSPATIAL ANALYSIS")
         geo_tab = st.pills("GEOGRAPHIC SECTOR", ["US STATES", "INTERNATIONAL", "CANADA", "US COUNTIES", "GRIDSQUARES", "STATION LOCATIONS"], default="US STATES")
@@ -528,7 +516,7 @@ def render_dashboard():
                 state_counts = us_df.groupby('State').size().reset_index(name='Logs')
                 fig_us = px.choropleth(state_counts, locations='State', locationmode="USA-states", color='Logs', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_us.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_us.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
+                fig_us.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
                 fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
                 ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_geo_us_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
@@ -548,7 +536,7 @@ def render_dashboard():
                 world_counts = map_df.groupby('Country').size().reset_index(name='Logs')
                 fig_w = px.choropleth(world_counts, locations='Country', locationmode="country names", color='Logs', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_w.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_w.update_geos(projection_type="equirectangular", lataxis_range=[-45, 75], lonaxis_range=[-130, 20], resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showcountries=True, countrycolor="#139a9b", bgcolor='#050505')
+                fig_w.update_geos(projection_type="equirectangular", lataxis_range=[-45, 75], lonaxis_range=[-130, 20], resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showcountries=True, countrycolor="#139a9b", bgcolor='#050505')
                 fig_w.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
                 ev_w = st.plotly_chart(fig_w, use_container_width=True, on_select="rerun", key=f"m_geo_intl_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_w and ev_w.get("selection") and ev_w["selection"].get("points"):
@@ -572,7 +560,7 @@ def render_dashboard():
                 gj_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson"
                 fig_can = px.choropleth(prov_counts, geojson=gj_url, locations='MapLoc', featureidkey='properties.name', color='Logs', scope='north america', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_can.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_can.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505')
+                fig_can.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505')
                 fig_can.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 ev_can = st.plotly_chart(fig_can, use_container_width=True, on_select="rerun", key=f"m_geo_can_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_can and ev_can.get("selection") and ev_can["selection"].get("points"):
@@ -687,12 +675,6 @@ def render_dashboard():
     elif st.session_state.dash_nav == "TUNER":
         st.markdown("### 📟 FREQUENCY INTELLIGENCE TERMINAL")
         
-        BAND_CONFIG = {
-            "MW": {"min": 530, "max": 1700, "unit": "kHz"},
-            "FM": {"min": 87.7, "max": 107.9, "unit": "MHz", "step": 0.2},
-            "NWR": {"min": 162.400, "max": 162.550, "unit": "MHz", "step": 0.025}
-        }
-        
         c_main, c_fly = st.columns([3, 2]) if st.session_state.transmit_active else st.columns([1, 0.001])
         
         with c_main:
@@ -747,24 +729,10 @@ def render_dashboard():
                     st.rerun()
 
             with c_ctrl3:
-                direct_in = st.text_input("DIRECT FREQ ENTRY", placeholder="e.g. 1003 or 162425")
-                if direct_in:
-                    val = re.sub(r'[^0-9]', '', direct_in)
-                    if band_sel == "FM" and len(val) >= 3:
-                        final_f = float(val[:-1] + "." + val[-1])
-                    elif band_sel == "NWR" and len(val) >= 6:
-                        final_f = float(val[:3] + "." + val[3:])
-                    else:
-                        final_f = float(val)
-                    
-                    if BAND_CONFIG[band_sel]["min"] <= final_f <= BAND_CONFIG[band_sel]["max"]:
-                        st.session_state.tuner_freq = final_f
-                        st.rerun()
-                    else:
-                        st.error("OUT OF BAND RANGE")
+                st.text_input("DIRECT FREQ ENTRY", placeholder="e.g. 1003 or 162425", key="direct_freq_input", on_change=process_direct_freq_entry)
 
             st.markdown("<hr style='border-color:#333; margin-top:5px; margin-bottom:15px;'>", unsafe_allow_html=True)
-            if st.button("🔴 TRANSMIT DATA INTERCEPT", use_container_width=True, key="transmit_btn"):
+            if st.button("🔴 Click Here to Transmit Data", use_container_width=True, key="transmit_btn"):
                 if st.session_state.tuner_freq:
                     st.session_state.transmit_active = True
                     st.rerun()
@@ -780,8 +748,11 @@ def render_dashboard():
                     st.markdown(f"#### TOP 5 {b_label} FREQS")
                     top_f = filt_df[filt_df['Band'] == band].groupby('Freq_Num').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
                     if not top_f.empty:
-                        fig_top = px.bar(top_f, x='Freq_Num', y='Logs', template="plotly_dark", color_discrete_sequence=['#1bd2d4'])
-                        fig_top.update_layout(height=300, margin=dict(l=0,r=0,t=0,b=0), xaxis_title="Freq", yaxis_title="Logs")
+                        # Dynamic y-axis max to give text labels room to breathe
+                        max_y = top_f['Logs'].max() * 1.25 if top_f['Logs'].max() > 0 else 10
+                        fig_top = px.bar(top_f, x='Freq_Num', y='Logs', template="plotly_dark", color_discrete_sequence=['#1bd2d4'], text='Logs')
+                        fig_top.update_traces(textposition='outside', textfont_size=14)
+                        fig_top.update_layout(height=300, margin=dict(l=0,r=0,t=25,b=0), xaxis_title="Freq", yaxis_title="Logs", yaxis=dict(showgrid=False, range=[0, max_y]))
                         fig_top.update_xaxes(type='category')
                         st.plotly_chart(fig_top, use_container_width=True)
                     else: 
