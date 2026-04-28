@@ -10,6 +10,7 @@ import requests
 import re
 import math
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
+from modules.awards import manual_award_claim_popup
 
 # --- CYAN ESPIONAGE AESTHETIC ---
 CYAN_SCALE = [
@@ -143,6 +144,10 @@ def render_dashboard():
     
     div.stButton > button[key*="transmit"] { background-color: #8b0000 !important; color: white !important; border: 2px solid #ff0000 !important; font-weight: bold !important; box-shadow: 0px 0px 10px rgba(255,0,0,0.5) !important; }
     div.stButton > button[key*="transmit"]:hover { background-color: #ff0000 !important; box-shadow: 0px 0px 20px rgba(255,0,0,0.8) !important; }
+    
+    /* Notification Buttons */
+    div.stButton > button[key*="award"] { border: 1px dashed #1bd2d4 !important; background-color: #0a1a1a !important; color: #1bd2d4 !important; }
+    div.stButton > button[key*="award"]:hover { background-color: #1bd2d4 !important; color: #050505 !important; }
     </style>
     """, unsafe_allow_html=True)
 
@@ -274,26 +279,22 @@ def render_dashboard():
         if target_df.empty: 
             return pd.DataFrame(columns=['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total'])
         
-        # 1. Calculate Base and Multipliers strictly PER BAND first
         pb = target_df.groupby(['DXer', 'Band']).agg(
             Band_Base=('Base_Score', 'sum'),
             U_States=('State', 'nunique'),
             U_Ctry=('Country', 'nunique')
         ).reset_index()
         
-        # 2. Combine Multipliers (States + Countries) per band
         pb['Band_Mult'] = pb['U_States'] + pb['U_Ctry']
-        pb['Band_Mult'] = pb['Band_Mult'].apply(lambda x: x if x > 0 else 1) # Fallback to 1x to prevent 0 scores
+        pb['Band_Mult'] = pb['Band_Mult'].apply(lambda x: x if x > 0 else 1) 
         pb['Band_Total_Base'] = pb['Band_Base'] * pb['Band_Mult']
         
-        # 3. Roll up mathematically to the Operator Level
         s = pb.groupby('DXer').agg(
             Base_Score=('Band_Base', 'sum'),
             Multiplier=('Band_Mult', 'sum'), 
             Base_x_Mult=('Band_Total_Base', 'sum')
         ).reset_index()
         
-        # 4. Calculate Consistency Bonuses (10+ logs in a month per band)
         bonus_eligible = target_df[target_df['Band'].isin(['AM', 'FM'])]
         if not bonus_eligible.empty:
             b_counts = bonus_eligible.groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Logs')
@@ -453,7 +454,6 @@ def render_dashboard():
                 df_slice = filt_df if b_target == "ALL" else filt_df[filt_df['Band'] == b_target]
                 s_df = calculate_scores(df_slice).head(10)
                 if not s_df.empty:
-                    # Rename columns for the tactical HUD
                     disp = s_df[['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total']].rename(columns={'Base_Score': 'Base', 'Multiplier': 'Mult (x)'})
                     return disp
                 return pd.DataFrame()
@@ -472,6 +472,10 @@ def render_dashboard():
                 st.dataframe(render_score_df("NWR"), hide_index=True, use_container_width=True)
 
         elif mx_tab == "GRID LEDGER":
+            if st.button("🎖️ QUALIFY FOR CENTURY CLUB? CLICK HERE TO NOTIFY HIGH COMMAND TO PROCURE YOUR AWARD.", use_container_width=True, key="btn_grid_award"):
+                manual_award_claim_popup("Grids")
+            st.markdown("<hr style='border-color:#333; margin-top:5px; margin-bottom:15px;'>", unsafe_allow_html=True)
+            
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### MW GRID MASTERS")
@@ -486,6 +490,10 @@ def render_dashboard():
                 st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'NWR'], 'DXer', 'Station_Grid', 25), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 25", min_value=0, max_value=25)})
 
         elif mx_tab == "COUNTY/PARISH LEDGER":
+            if st.button("🎖️ QUALIFY FOR CENTURY CLUB? CLICK HERE TO NOTIFY HIGH COMMAND TO PROCURE YOUR AWARD.", use_container_width=True, key="btn_county_award"):
+                manual_award_claim_popup("Counties")
+            st.markdown("<hr style='border-color:#333; margin-top:5px; margin-bottom:15px;'>", unsafe_allow_html=True)
+            
             us_df = filt_df[filt_df['Country'] == 'United States']
             c1, c2 = st.columns(2)
             with c1:
@@ -783,12 +791,14 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
+        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
         filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
         filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
         
         if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
         if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
         
+        # Universal Geocoder Override to eliminate Null Island drops
         mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
         if mask.any():
             missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
@@ -812,6 +822,7 @@ def render_dashboard():
         filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
         filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
         
+        # --- 2. TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
