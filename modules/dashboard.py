@@ -8,6 +8,7 @@ import datetime
 import time
 import requests
 import re
+import math
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 
 # --- CYAN ESPIONAGE AESTHETIC ---
@@ -78,6 +79,17 @@ def generate_grid_geojson(_grids):
             except Exception:
                 pass
     return {"type": "FeatureCollection", "features": features}
+
+def get_target_circle(lat, lon, radius_mi, pts=64):
+    coords = []
+    lat1, lon1 = math.radians(lat), math.radians(lon)
+    d = radius_mi / 3959.0
+    for i in range(pts + 1):
+        brng = math.radians(i * (360.0 / pts))
+        lat2 = math.asin(math.sin(lat1)*math.cos(d) + math.cos(lat1)*math.sin(d)*math.cos(brng))
+        lon2 = lon1 + math.atan2(math.sin(brng)*math.sin(d)*math.cos(lat1), math.cos(d)-math.sin(lat1)*math.sin(lat2))
+        coords.append([math.degrees(lon2), math.degrees(lat2)])
+    return coords
 
 def render_dashboard():
     df = load_global_dashboard_data()
@@ -154,6 +166,10 @@ def render_dashboard():
     if 'tuner_mw_step' not in st.session_state: st.session_state.tuner_mw_step = 10
     if 'transmit_active' not in st.session_state: st.session_state.transmit_active = False
     if 'direct_freq_input' not in st.session_state: st.session_state.direct_freq_input = ""
+    
+    # Radar States
+    if 'radar_playing' not in st.session_state: st.session_state.radar_playing = False
+    if 'radar_p_idx' not in st.session_state: st.session_state.radar_p_idx = 0
 
     def reset_flyouts():
         st.session_state.matrix_loc = None
@@ -168,7 +184,7 @@ def render_dashboard():
     def reset_filters():
         st.session_state.filter_reset_key += 1
 
-    # Frequency Tuner Input Callback (Stops Infinite Loops)
+    # Frequency Tuner Input Callback
     def process_direct_freq_entry():
         val = re.sub(r'[^0-9]', '', st.session_state.direct_freq_input)
         if val:
@@ -188,8 +204,8 @@ def render_dashboard():
 
     # --- DASHBOARD NAVIGATION ---
     d_cols = st.columns(5)
-    nav_btns = ["MISSION OVERVIEW", "CLASSIFICATION MATRIX", "GEOGRAPHIC INTEL", "TIMELAPSE & RADAR", "FREQUENCY TUNER"]
-    nav_keys = ["OVERVIEW", "MATRIX", "GEOGRAPHY", "ES_TRACKER", "TUNER"]
+    nav_btns = ["MISSION OVERVIEW", "CLASSIFICATION MATRIX", "GEOGRAPHIC INTEL", "RADAR & TELEMETRY", "FREQUENCY TUNER"]
+    nav_keys = ["OVERVIEW", "MATRIX", "GEOGRAPHY", "RADAR", "TUNER"]
     for i, label in enumerate(nav_btns):
         if d_cols[i].button(f"▶ {label}", use_container_width=True):
             st.session_state.dash_nav = nav_keys[i]
@@ -221,6 +237,16 @@ def render_dashboard():
     f_month = c_f12.selectbox("Month", ["ALL"] + sorted(df['Month'].dropna().unique().tolist()), key=f"f_month_{fk}")
 
     st.button("[ RESET ALL FILTERS ]", on_click=reset_filters, key=f"btn_reset_{fk}")
+
+    # Pre-process dates and geometry for the entire dataframe run
+    df['Date_Obj'] = pd.to_datetime(df['Date_Str'], errors='coerce').dt.date
+    # Fallback geometry if missing
+    if 'DX_Lat' not in df.columns: df['DX_Lat'] = 0.0
+    if 'DX_Lon' not in df.columns: df['DX_Lon'] = 0.0
+    if 'ST_Lat' not in df.columns: df['ST_Lat'] = 0.0
+    if 'ST_Lon' not in df.columns: df['ST_Lon'] = 0.0
+    df['Mid_Lat'] = (df['DX_Lat'] + df['ST_Lat']) / 2
+    df['Mid_Lon'] = (df['DX_Lon'] + df['ST_Lon']) / 2
 
     # Apply Filters
     filt_df = df.copy()
@@ -718,10 +744,263 @@ def render_dashboard():
                     render_geo_flyout("STATION HUB", st.session_state.geo_st_loc, s_df)
 
     # =====================================================================
-    # VIEW 4: TIMELAPSE (STUB)
+    # VIEW 4: RADAR & TELEMETRY
     # =====================================================================
-    elif st.session_state.dash_nav == "ES_TRACKER":
-        st.info("TIMELAPSE & ES-CLOUD RADAR MODULE: AWAITING DEPLOYMENT")
+    elif st.session_state.dash_nav == "RADAR":
+        st.markdown("### 📡 RADAR & TELEMETRY COMMAND")
+        
+        radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
+        
+        # Dynamic Missing Geo Fill for PyDeck
+        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
+        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
+        if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
+        if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
+        filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
+        filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
+        
+        if radar_tab == "INTERCEPT VECTORS":
+            col_ctrl, col_map = st.columns([1, 3])
+            
+            with col_ctrl:
+                b_sel = st.pills("BAND", ["ALL", "AM", "FM", "NWR"], default="ALL")
+                p_sel = st.pills("PROPAGATION", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL")
+                st.markdown("<hr style='margin:5px 0px;'>", unsafe_allow_html=True)
+                range_on = st.checkbox("Enable Date Range Mode", value=True) 
+                avail_days = sorted(filt_df['Date_Obj'].dropna().unique())
+                
+                if len(avail_days) > 0:
+                    if not range_on:
+                        date_sel = st.date_input("Select Event Date", value=avail_days[-1], min_value=avail_days[0], max_value=avail_days[-1])
+                        v_df = filt_df[filt_df['Date_Obj'] == date_sel]
+                    else:
+                        date_range = st.date_input("Select Date Range", value=(avail_days[0], avail_days[-1]), min_value=avail_days[0], max_value=avail_days[-1])
+                        if len(date_range) == 2: 
+                            v_df = filt_df[(filt_df['Date_Obj'] >= date_range[0]) & (filt_df['Date_Obj'] <= date_range[1])]
+                        else: 
+                            v_df = filt_df[filt_df['Date_Obj'] == date_range[0]]
+                else:
+                    v_df = pd.DataFrame()
+                    st.warning("No dates available.")
+                    
+                if b_sel != "ALL": v_df = v_df[v_df['Band'] == b_sel]
+                if p_sel != "ALL": v_df = v_df[v_df['Prop_Mode'] == p_sel]
+                
+                st.markdown(f"**Active Vectors:** {len(v_df)}")
+                
+            with col_map:
+                if not v_df.empty:
+                    color_map = {'AM': [27, 210, 212, 200], 'FM': [57, 255, 20, 200], 'NWR': [255, 165, 0, 200]}
+                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df)))
+                    
+                    layers = [
+                        pdk.Layer(
+                            "LineLayer",
+                            data=v_df[['DX_Lon', 'DX_Lat', 'ST_Lon', 'ST_Lat', 'Vector_Color']].dropna(),
+                            get_source_position="[DX_Lon, DX_Lat]",
+                            get_target_position="[ST_Lon, ST_Lat]",
+                            get_color="Vector_Color",
+                            get_width=2,
+                            pickable=True,
+                        )
+                    ]
+                    st.pydeck_chart(pdk.Deck(map_style='https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', initial_view_state=pdk.ViewState(latitude=38, longitude=-95, zoom=3), layers=layers))
+                else:
+                    st.info("NO TELEMETRY VECTORS DETECTED FOR CURRENT PARAMETERS.")
+                    
+        elif radar_tab == "ES-CLOUD RADAR":
+            # Hard filter for FM/NWR Sporadic E
+            es_df = filt_df[(filt_df['Band'].isin(['FM', 'NWR'])) & (filt_df['Prop_Mode'] == 'Sporadic E')].copy()
+            
+            if es_df.empty:
+                st.warning("NO SPORADIC E TELEMETRY DETECTED IN DATABANK.")
+            else:
+                hc1, hc2 = st.columns([1, 2])
+                with hc1:
+                    range_on = st.checkbox("Enable Date Range Mode", value=True, key="es_range_on") 
+                    avail_days = sorted(es_df['Date_Obj'].dropna().unique()) 
+                    
+                    if not range_on:
+                        date_sel = st.date_input("Select Event Date", value=avail_days[-1], min_value=avail_days[0], max_value=avail_days[-1], key="es_d1")
+                        map_df = es_df[es_df['Date_Obj'] == date_sel]
+                    else:
+                        date_range = st.date_input("Select Date Range", value=(avail_days[0], avail_days[-1]), min_value=avail_days[0], max_value=avail_days[-1], key="es_d2")
+                        if len(date_range) == 2: 
+                            map_df = es_df[(es_df['Date_Obj'] >= date_range[0]) & (es_df['Date_Obj'] <= date_range[1])]
+                        else: 
+                            map_df = es_df[es_df['Date_Obj'] == date_range[0]]
+                            
+                    speed_sets = {"1x": {"delay": 0.2, "step": 1}, "2x": {"delay": 0.1, "step": 2}, "3x": {"delay": 0.05, "step": 3}, "4x": {"delay": 0.01, "step": 4}}
+                    play_speed = st.selectbox("Playback Speed", options=list(speed_sets.keys()), index=1)
+                
+                if not map_df.empty:
+                    timeline = map_df.sort_values(['Date_Obj', 'Time_Str'])
+                    time_steps = timeline[['Date_Str', 'Time_Str']].drop_duplicates().values.tolist()
+                    
+                    pb1, pb2, pb_txt = st.columns([1, 1, 3])
+                    if pb1.button("▶ PLAY"): 
+                        st.session_state.radar_playing = True
+                        st.session_state.radar_p_idx = 0
+                        st.rerun()
+                    if pb2.button("⏹ STOP"): 
+                        st.session_state.radar_playing = False
+                        st.rerun()
+                        
+                    if st.session_state.radar_playing:
+                        if st.session_state.radar_p_idx >= len(time_steps):
+                            st.session_state.radar_playing = False
+                            st.rerun()
+                        cur_step = time_steps[st.session_state.radar_p_idx]
+                        cur_date, cur_time = cur_step[0], cur_step[1]
+                    else:
+                        times_only = sorted(map_df['Time_Str'].unique())
+                        cur_time = hc2.select_slider("Time Control", options=["SHOW ALL"] + times_only, value="SHOW ALL")
+                        cur_date = "N/A"
+
+                    if cur_time == "SHOW ALL":
+                        pb_txt.write("## 🕒 VIEWING: ALL SELECTED DATA")
+                        render_df = map_df
+                    else:
+                        display_date = f"{cur_date} | " if cur_date != "N/A" else ""
+                        pb_txt.write(f"## 🕒 {display_date}{cur_time}")
+                        # 30 minute persistence strobe logic
+                        try:
+                            lookback_time_str = (datetime.datetime.strptime(cur_time, '%H:%M') - datetime.timedelta(minutes=30)).strftime('%H:%M')
+                        except:
+                            lookback_time_str = "00:00"
+                            
+                        if st.session_state.radar_playing:
+                            render_df = map_df[(map_df['Date_Str'] == cur_date) & (map_df['Time_Str'] <= cur_time) & (map_df['Time_Str'] >= lookback_time_str)]
+                        else:
+                            render_df = map_df[(map_df['Time_Str'] <= cur_time) & (map_df['Time_Str'] >= lookback_time_str)]
+
+                    layers = [pdk.Layer(
+                        'HeatmapLayer', 
+                        data=render_df[['Mid_Lat', 'Mid_Lon']].dropna(), 
+                        get_position='[Mid_Lon, Mid_Lat]', 
+                        radius_pixels=65, intensity=2.0, threshold=0.03, 
+                        color_range=CYAN_RGB_SCALE
+                    )]
+                    st.pydeck_chart(pdk.Deck(map_style='https://basemaps.cartocdn.com/gl/dark-matter-gl-style/style.json', initial_view_state=pdk.ViewState(latitude=38, longitude=-95, zoom=3.4), layers=layers))
+
+                    if st.session_state.radar_playing:
+                        conf = speed_sets[play_speed]
+                        st.session_state.radar_p_idx += conf['step']
+                        time.sleep(conf['delay'])
+                        st.rerun()
+
+        elif radar_tab == "RANGE FORENSICS":
+            col_m, col_f = st.columns([3, 2])
+            
+            with col_f:
+                st.markdown("#### RANGE FILTERS")
+                b_sel = st.pills("TARGET BAND", ["ALL", "AM", "FM", "NWR"], default="ALL", key="rf_band")
+                p_sel = st.pills("PROPAGATION (FM/NWR)", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL", key="rf_prop")
+                
+                rf_df = filt_df.copy()
+                if b_sel != "ALL": rf_df = rf_df[rf_df['Band'] == b_sel]
+                if p_sel != "ALL": rf_df = rf_df[rf_df['Prop_Mode'] == p_sel]
+                
+                st.markdown("#### MAX DISTANCE INTERCEPTS (TOP 10)")
+                top_10 = rf_df.sort_values('Distance', ascending=False).head(10).reset_index(drop=True)
+                
+                if not top_10.empty:
+                    t10_view = top_10[['DXer', 'Distance', 'Callsign', 'City', 'State']].copy()
+                    ev_rf = st.dataframe(t10_view, on_select="rerun", selection_mode="single-row", hide_index=True, use_container_width=True, column_config={"Distance": st.column_config.NumberColumn("Miles", format="%d")})
+                    
+                    selected_log = None
+                    if ev_rf and ev_rf["selection"]["rows"]:
+                        sel_idx = ev_rf["selection"]["rows"][0]
+                        selected_log = top_10.iloc[sel_idx]
+                else:
+                    st.warning("NO TARGETS IN RANGE.")
+                    selected_log = None
+                    
+            with col_m:
+                st.markdown("#### TACTICAL TARGETING SYSTEM")
+                if selected_log is not None:
+                    # Draw Tactical Map
+                    dx_lat, dx_lon = selected_log['DX_Lat'], selected_log['DX_Lon']
+                    st_lat, st_lon = selected_log['ST_Lat'], selected_log['ST_Lon']
+                    dist = selected_log['Distance']
+                    
+                    target_fig = go.Figure()
+                    
+                    # 1. Targeting Ring
+                    circle_pts = get_target_circle(dx_lat, dx_lon, dist)
+                    target_fig.add_trace(go.Scattermapbox(
+                        mode="lines",
+                        lon=[p[0] for p in circle_pts],
+                        lat=[p[1] for p in circle_pts],
+                        line=dict(width=2, color='#1bd2d4'),
+                        name="Intercept Range",
+                        hoverinfo="skip"
+                    ))
+                    
+                    # 2. Intercept Vector Line
+                    target_fig.add_trace(go.Scattermapbox(
+                        mode="lines",
+                        lon=[dx_lon, st_lon],
+                        lat=[dx_lat, st_lat],
+                        line=dict(width=1, color='#1bd2d4', dash='dot'),
+                        name="Signal Vector",
+                        hoverinfo="skip"
+                    ))
+                    
+                    # 3. DXer Point (Cyan)
+                    target_fig.add_trace(go.Scattermapbox(
+                        mode="markers",
+                        lon=[dx_lon], lat=[dx_lat],
+                        marker=dict(size=12, color='#1bd2d4'),
+                        name="Receiver Node",
+                        text=[selected_log['DXer_City']],
+                        hoverinfo="text"
+                    ))
+                    
+                    # 4. Station Point (Red Target)
+                    target_fig.add_trace(go.Scattermapbox(
+                        mode="markers",
+                        lon=[st_lon], lat=[st_lat],
+                        marker=dict(size=14, color='#ff0000'),
+                        name="Transmitter Target",
+                        text=[selected_log['Callsign']],
+                        hoverinfo="text"
+                    ))
+                    
+                    # Zoom dynamic logic based on distance
+                    zoom_lvl = 3
+                    if dist < 100: zoom_lvl = 6
+                    elif dist < 500: zoom_lvl = 5
+                    elif dist < 1000: zoom_lvl = 4
+                    
+                    target_fig.update_layout(
+                        mapbox_style="carto-darkmatter",
+                        mapbox=dict(center=dict(lat=dx_lat, lon=dx_lon), zoom=zoom_lvl),
+                        margin={"r":0,"t":0,"l":0,"b":0}, height=500,
+                        paper_bgcolor='rgba(0,0,0,0)', showlegend=False
+                    )
+                    
+                    st.plotly_chart(target_fig, use_container_width=True, config={'scrollZoom': True})
+                    
+                    # Tactical Dossier Card
+                    prop_str = f" • Prop: {selected_log['Prop_Mode']}" if selected_log['Band'] in ['FM', 'NWR'] and selected_log['Prop_Mode'] not in ['', ' - '] else ""
+                    st.markdown(f"""
+                    <div style='border: 1px solid #139a9b; padding: 15px; background-color: #050505; border-left: 5px solid #1bd2d4;'>
+                        <div style='color:#1bd2d4; font-size:1.4rem; font-weight:bold; margin-bottom:5px;'>TARGET DOSSIER: {selected_log['Callsign']} ({selected_log['Distance']:,.0f} mi)</div>
+                        <div style='color:#ffffff;'>
+                            <b>Freq:</b> {selected_log['Freq_Num']} MHz {prop_str}<br>
+                            <b>Origin:</b> {selected_log['City']}, {selected_log['State']}, {selected_log['Country']}<br>
+                            <b>Intercept:</b> Caught by {selected_log['DXer']} on {selected_log['Date_Str']} at {selected_log['Time_Str']}
+                        </div>
+                    </div>
+                    """, unsafe_allow_html=True)
+
+                else:
+                    # Blank map if nothing selected
+                    fig_blank = go.Figure(go.Scattermapbox())
+                    fig_blank.update_layout(mapbox_style="carto-darkmatter", mapbox=dict(center=dict(lat=38, lon=-95), zoom=3), margin={"r":0,"t":0,"l":0,"b":0}, height=500, paper_bgcolor='rgba(0,0,0,0)')
+                    st.plotly_chart(fig_blank, use_container_width=True)
+                    st.info("SELECT A TARGET FROM THE LOG TABLE TO INITIATE FORENSIC SCAN.")
 
     # =====================================================================
     # VIEW 5: FREQUENCY TUNER
