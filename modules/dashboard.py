@@ -127,6 +127,14 @@ def render_dashboard():
 
     st.markdown("<h1 style='text-align: center; color: #1bd2d4; text-shadow: 0px 0px 10px rgba(27,210,212,0.8);'>GLOBAL INTELLIGENCE COMMAND</h1>", unsafe_allow_html=True)
     
+    # --- HELPER: TACTICAL FORMATTER ---
+    def get_top_with_count(series):
+        s = series.replace(['', ' - ', 'Unknown'], pd.NA).dropna()
+        if not s.empty:
+            vc = s.value_counts()
+            return f"{vc.index[0]} ({vc.iloc[0]})"
+        return "N/A"
+
     # --- SESSION STATE INITIALIZATION ---
     if 'dash_nav' not in st.session_state: st.session_state.dash_nav = "OVERVIEW"
     if 'filter_reset_key' not in st.session_state: st.session_state.filter_reset_key = 0
@@ -262,15 +270,18 @@ def render_dashboard():
             reset_flyouts()
             st.session_state.geo_map_key += 1
             st.rerun()
+            
         tot_v = len(loc_df)
         mw_v = len(loc_df[loc_df['Band'] == 'AM'])
         fm_v = len(loc_df[loc_df['Band'] == 'FM'])
         nwr_v = len(loc_df[loc_df['Band'] == 'NWR'])
         pct_vol = (tot_v / len(filt_df)) * 100 if len(filt_df) > 0 else 0
+        
         st.markdown("<div class='flyout-header'>LOG VOLUME (RECEIVED FROM REGION)</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-val'>{tot_v:,} Logs</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-micro'>MW: {mw_v:,} | FM: {fm_v:,} | NWR: {nwr_v:,}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-sub'>{pct_vol:.2f}% of Total Global Volume</div>", unsafe_allow_html=True)
+        
         tot_s = loc_df['Callsign'].nunique()
         mw_s = loc_df[loc_df['Band'] == 'AM']['Callsign'].nunique()
         fm_s = loc_df[loc_df['Band'] == 'FM']['Callsign'].nunique()
@@ -278,11 +289,13 @@ def render_dashboard():
         st.markdown("<div class='flyout-header'>UNIQUE STATIONS IN REGION</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-val'>{tot_s:,}</div>", unsafe_allow_html=True)
         st.markdown(f"<div class='flyout-micro'>MW: {mw_s:,} | FM: {fm_s:,} | NWR: {nwr_s:,}</div>", unsafe_allow_html=True)
+        
         if not loc_df.empty:
             st.markdown("<div class='flyout-header'>MOST HEARD STATION (OVERALL)</div>", unsafe_allow_html=True)
             most_heard = loc_df.groupby(['Freq_Num', 'Callsign', 'City', 'State']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).iloc[0]
             st.markdown(f"<div class='flyout-val'>{most_heard['Callsign']}</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='flyout-micro'>{most_heard['Freq_Num']} MHz • {most_heard['City']}, {most_heard['State']} • {most_heard['Logs']} Logs</div>", unsafe_allow_html=True)
+            
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("<div class='flyout-header'>GRIDSQUARES</div>", unsafe_allow_html=True)
@@ -290,6 +303,7 @@ def render_dashboard():
         with c2:
             st.markdown("<div class='flyout-header'>COUNTIES</div>", unsafe_allow_html=True)
             st.markdown(f"<div class='flyout-sub'>{loc_df['County'].nunique():,}</div>", unsafe_allow_html=True)
+            
         st.markdown("<div class='flyout-header'>TOP 5 HEARD STATIONS</div>", unsafe_allow_html=True)
         for b in ['AM', 'FM', 'NWR']:
             b_df = loc_df[loc_df['Band'] == b]
@@ -297,9 +311,11 @@ def render_dashboard():
                 st.markdown(f"<div class='flyout-micro' style='color:#139a9b; margin-top:5px;'>{b} BAND</div>", unsafe_allow_html=True)
                 top_s = b_df.groupby(['Freq_Num', 'Callsign', 'City']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
                 st.dataframe(top_s, hide_index=True, use_container_width=True)
+                
         st.markdown("<div class='flyout-header'>TOP INTERCEPTING AGENTS</div>", unsafe_allow_html=True)
         top_agents = loc_df.groupby('DXer').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(3)
         st.dataframe(top_agents, hide_index=True, use_container_width=True)
+        
         st.markdown("<div class='flyout-header'>TOP 5 RECEIVING LOCATIONS</div>", unsafe_allow_html=True)
         for b in ['AM', 'FM', 'NWR']:
             b_df = loc_df[loc_df['Band'] == b]
@@ -307,22 +323,28 @@ def render_dashboard():
                 st.markdown(f"<div class='flyout-micro' style='color:#139a9b; margin-top:5px;'>{b} BAND</div>", unsafe_allow_html=True)
                 top_l = b_df.groupby('DXer_City').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
                 st.dataframe(top_l, hide_index=True, use_container_width=True)
+                
         st.markdown("<div class='flyout-header'>TOP INTERCEPTING STATES</div>", unsafe_allow_html=True)
-        t_st_mw = loc_df[loc_df['Band'] == 'AM']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'AM'].empty else "N/A"
-        t_st_fm = loc_df[loc_df['Band'] == 'FM']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'FM'].empty else "N/A"
-        t_st_nwr = loc_df[loc_df['Band'] == 'NWR']['DXer_State'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'NWR'].empty else "N/A"
+        loc_us_dx = loc_df[loc_df['DXer_Country'] == 'United States']
+        t_st_mw = get_top_with_count(loc_us_dx[loc_us_dx['Band'] == 'AM']['DXer_State'])
+        t_st_fm = get_top_with_count(loc_us_dx[loc_us_dx['Band'] == 'FM']['DXer_State'])
+        t_st_nwr = get_top_with_count(loc_us_dx[loc_us_dx['Band'] == 'NWR']['DXer_State'])
         st.markdown(f"<div class='flyout-micro'><b>MW:</b> {t_st_mw} | <b>FM:</b> {t_st_fm} | <b>NWR:</b> {t_st_nwr}</div>", unsafe_allow_html=True)
+        
         st.markdown("<div class='flyout-header'>TOP INTERCEPTING COUNTRIES</div>", unsafe_allow_html=True)
-        t_co_mw = loc_df[loc_df['Band'] == 'AM']['DXer_Country'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'AM'].empty else "N/A"
-        t_co_fm = loc_df[loc_df['Band'] == 'FM']['DXer_Country'].mode().iloc[0] if not loc_df[loc_df['Band'] == 'FM'].empty else "N/A"
+        loc_intl_dx = loc_df[loc_df['DXer_Country'] != 'United States']
+        t_co_mw = get_top_with_count(loc_intl_dx[loc_intl_dx['Band'] == 'AM']['DXer_Country'])
+        t_co_fm = get_top_with_count(loc_intl_dx[loc_intl_dx['Band'] == 'FM']['DXer_Country'])
         st.markdown(f"<div class='flyout-micro'><b>MW:</b> {t_co_mw} | <b>FM:</b> {t_co_fm}</div>", unsafe_allow_html=True)
+        
         st.markdown("<div class='flyout-header'>FURTHEST RECEPTIONS</div>", unsafe_allow_html=True)
         for b in ['AM', 'FM', 'NWR']:
             b_df = loc_df[loc_df['Band'] == b]
             if not b_df.empty:
                 f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
+                prop_str = f" • Prop: {f_r['Prop_Mode']}" if b in ['FM', 'NWR'] and f_r['Prop_Mode'] not in ['', ' - '] else ""
                 st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']})<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+                st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']}){prop_str}<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
         st.markdown("</div>", unsafe_allow_html=True)
 
     # =====================================================================
@@ -476,12 +498,19 @@ def render_dashboard():
                 t_col1, t_col2 = st.columns([1.5, 3.5])
                 t_col1.markdown("<div style='color: #1bd2d4; font-size: 1.2rem; font-weight: bold; margin-top: 8px;'>UPLINK STATUS:</div>", unsafe_allow_html=True)
                 sat_view = t_col2.pills("SATELLITE UPLINK", ["North America Sector", "Global Sector"], default="North America Sector", label_visibility="collapsed")
+                if not sat_view: sat_view = "North America Sector"
                 geo_scope = 'north america' if sat_view == "North America Sector" else 'world'
                 geo_res = 50 if sat_view == "North America Sector" else 110
-                lat_rng, lon_rng = ([15, 65], [-130, -55]) if sat_view == "North America Sector" else ([-55, 75], [-160, 160])
-                fig_dx = px.scatter_geo(dx_map_data, lat='DX_Lat', lon='DX_Lon', hover_name='DXer_City', scope=geo_scope)
-                fig_dx.update_traces(marker=dict(symbol='diamond', color='#1bd2d4', size=14, line=dict(color='#ffffff', width=1), opacity=0.9))
-                fig_dx.update_geos(resolution=geo_res, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", lataxis_range=lat_rng, lonaxis_range=lon_rng, bgcolor='#050505')
+                lat_rng = [15, 65] if sat_view == "North America Sector" else [-55, 75]
+                lon_rng = [-130, -55] if sat_view == "North America Sector" else [-160, 160]
+
+                fig_dx = px.scatter_geo(
+                    dx_map_data, lat='DX_Lat', lon='DX_Lon', size='Logs',
+                    hover_name='DXer_City', hover_data={'DX_Lat':False, 'DX_Lon':False, 'Logs':True, 'DXer_State':False, 'DXer_Country':False},
+                    scope=geo_scope, size_max=16
+                )
+                fig_dx.update_traces(marker_symbol='diamond', marker_color='#1bd2d4', marker_line_color='#ffffff', marker_line_width=1, marker_sizemin=12, opacity=0.9)
+                fig_dx.update_geos(resolution=geo_res, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", lataxis_range=lat_rng, lonaxis_range=lon_rng, bgcolor='#050505')
                 fig_dx.update_layout(height=650, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 ev_dx = st.plotly_chart(fig_dx, use_container_width=True, on_select="rerun", key=f"m_dx_{st.session_state.matrix_map_key}", config={'scrollZoom': True})
                 if ev_dx and ev_dx.get("selection") and ev_dx["selection"].get("points"):
@@ -501,8 +530,33 @@ def render_dashboard():
                         st.session_state.matrix_loc = None
                         st.rerun()
                     st.markdown(f"<div class='flyout-val'>{len(loc_df):,} Logs</div>", unsafe_allow_html=True)
+                    
+                    loc_us = loc_df[loc_df['Country'] == 'United States']
+                    top_st_mw = get_top_with_count(loc_us[loc_us['Band'] == 'AM']['State'])
+                    top_st_fm = get_top_with_count(loc_us[loc_us['Band'] == 'FM']['State'])
+                    top_st_nwr = get_top_with_count(loc_us[loc_us['Band'] == 'NWR']['State'])
+                    st.markdown("<div class='flyout-header'>TOP STATES HEARD</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-micro'><b>MW:</b> {top_st_mw} | <b>FM:</b> {top_st_fm} | <b>NWR:</b> {top_st_nwr}</div>", unsafe_allow_html=True)
+
+                    loc_intl = loc_df[loc_df['Country'] != 'United States']
+                    top_co_mw = get_top_with_count(loc_intl[loc_intl['Band'] == 'AM']['Country'])
+                    top_co_fm = get_top_with_count(loc_intl[loc_intl['Band'] == 'FM']['Country'])
+                    st.markdown("<div class='flyout-header'>TOP COUNTRIES HEARD</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-micro'><b>MW:</b> {top_co_mw} | <b>FM:</b> {top_co_fm}</div>", unsafe_allow_html=True)
+
+                    st.markdown("<div class='flyout-header'>FURTHEST RECEPTIONS</div>", unsafe_allow_html=True)
+                    for b in ['AM', 'FM', 'NWR']:
+                        b_df = loc_df[loc_df['Band'] == b]
+                        if not b_df.empty:
+                            f_r = b_df.sort_values('Distance', ascending=False).iloc[0]
+                            prop_str = f" • Prop: {f_r['Prop_Mode']}" if b in ['FM', 'NWR'] and f_r['Prop_Mode'] not in ['', ' - '] else ""
+                            st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{b}: {f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
+                            st.markdown(f"<div class='flyout-micro'>{f_r['Freq_Num']} MHz - {f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']}){prop_str}<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
                     st.markdown("</div>", unsafe_allow_html=True)
 
+    # =====================================================================
+    # VIEW 3: GEOGRAPHIC INTELLIGENCE
+    # =====================================================================
     elif st.session_state.dash_nav == "GEOGRAPHY":
         st.markdown("### 🗺️ GEOSPATIAL ANALYSIS")
         geo_tab = st.pills("GEOGRAPHIC SECTOR", ["US STATES", "INTERNATIONAL", "CANADA", "US COUNTIES", "GRIDSQUARES", "STATION LOCATIONS"], default="US STATES")
@@ -516,7 +570,7 @@ def render_dashboard():
                 state_counts = us_df.groupby('State').size().reset_index(name='Logs')
                 fig_us = px.choropleth(state_counts, locations='State', locationmode="USA-states", color='Logs', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_us.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_us.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
+                fig_us.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showsubunits=True, subunitcolor="#139a9b", bgcolor='#050505')
                 fig_us.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
                 ev_st = st.plotly_chart(fig_us, use_container_width=True, on_select="rerun", key=f"m_geo_us_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
@@ -536,7 +590,7 @@ def render_dashboard():
                 world_counts = map_df.groupby('Country').size().reset_index(name='Logs')
                 fig_w = px.choropleth(world_counts, locations='Country', locationmode="country names", color='Logs', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_w.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_w.update_geos(projection_type="equirectangular", lataxis_range=[-45, 75], lonaxis_range=[-130, 20], resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showcountries=True, countrycolor="#139a9b", bgcolor='#050505')
+                fig_w.update_geos(projection_type="equirectangular", lataxis_range=[-45, 75], lonaxis_range=[-130, 20], resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showcountries=True, countrycolor="#139a9b", bgcolor='#050505')
                 fig_w.update_layout(paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, height=500)
                 ev_w = st.plotly_chart(fig_w, use_container_width=True, on_select="rerun", key=f"m_geo_intl_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_w and ev_w.get("selection") and ev_w["selection"].get("points"):
@@ -560,7 +614,7 @@ def render_dashboard():
                 gj_url = "https://raw.githubusercontent.com/codeforamerica/click_that_hood/master/public/data/canada.geojson"
                 fig_can = px.choropleth(prov_counts, geojson=gj_url, locations='MapLoc', featureidkey='properties.name', color='Logs', scope='north america', color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                 fig_can.update_traces(marker_line_width=0.5, marker_line_color='#050505')
-                fig_can.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505')
+                fig_can.update_geos(resolution=50, showcoastlines=True, coastlinecolor="#139a9b", showland=True, landcolor="#050505", showocean=True, oceancolor="#050505", showlakes=True, lakecolor="#050505", showcountries=True, countrycolor="#1bd2d4", showsubunits=True, subunitcolor="#139a9b", lataxis_range=[45, 75], lonaxis_range=[-140, -55], bgcolor='#050505')
                 fig_can.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0})
                 ev_can = st.plotly_chart(fig_can, use_container_width=True, on_select="rerun", key=f"m_geo_can_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_can and ev_can.get("selection") and ev_can["selection"].get("points"):
@@ -748,7 +802,6 @@ def render_dashboard():
                     st.markdown(f"#### TOP 5 {b_label} FREQS")
                     top_f = filt_df[filt_df['Band'] == band].groupby('Freq_Num').size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
                     if not top_f.empty:
-                        # Dynamic y-axis max to give text labels room to breathe
                         max_y = top_f['Logs'].max() * 1.25 if top_f['Logs'].max() > 0 else 10
                         fig_top = px.bar(top_f, x='Freq_Num', y='Logs', template="plotly_dark", color_discrete_sequence=['#1bd2d4'], text='Logs')
                         fig_top.update_traces(textposition='outside', textfont_size=14)
@@ -778,20 +831,28 @@ def render_dashboard():
                     
                     st.markdown("<div class='flyout-header'>GEOGRAPHIC DOMINANCE</div>", unsafe_allow_html=True)
                     g_cols = st.columns(2)
-                    top_st = f_df['State'].mode().iloc[0] if not f_df.empty and not f_df['State'].dropna().empty else "N/A"
-                    top_co = f_df['Country'].mode().iloc[0] if not f_df.empty and not f_df['Country'].dropna().empty else "N/A"
-                    top_gr = f_df['Station_Grid'].mode().iloc[0] if not f_df.empty and not f_df['Station_Grid'].dropna().empty else "N/A"
-                    top_cy = f_df['County'].mode().iloc[0] if not f_df.empty and not f_df['County'].dropna().empty else "N/A"
+                    
+                    us_f_df = f_df[f_df['Country'] == 'United States']
+                    intl_f_df = f_df[f_df['Country'] != 'United States']
+                    
+                    top_st = get_top_with_count(us_f_df['State'])
+                    top_co = get_top_with_count(intl_f_df['Country'])
+                    
+                    gr_series = us_f_df['Station_Grid'].replace(['', ' - ', 'Unknown'], pd.NA).dropna().str[:4].str.upper()
+                    top_gr = f"{gr_series.value_counts().index[0]} ({gr_series.value_counts().iloc[0]})" if not gr_series.empty else "N/A"
+                    
+                    top_cy = get_top_with_count(us_f_df['County'])
                     
                     g_cols[0].markdown(f"<div class='flyout-micro'><b>STATE:</b> {top_st}<br><b>COUNTRY:</b> {top_co}</div>", unsafe_allow_html=True)
-                    g_cols[1].markdown(f"<div class='flyout-micro'><b>GRID:</b> {top_gr}<br><b>COUNTY:</b> {top_cy}</div>", unsafe_allow_html=True)
+                    g_cols[1].markdown(f"<div class='flyout-micro'><b>GRID (US):</b> {top_gr}<br><b>COUNTY (US):</b> {top_cy}</div>", unsafe_allow_html=True)
                     
                     st.markdown("<div class='flyout-header'>TOP CAPTURED STATIONS</div>", unsafe_allow_html=True)
                     top_stats = f_df.groupby(['Callsign', 'City', 'State']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
                     st.dataframe(top_stats, hide_index=True, use_container_width=True)
                     
                     f_r = f_df.sort_values('Distance', ascending=False).iloc[0]
+                    prop_str = f" • Prop: {f_r['Prop_Mode']}" if f_r['Band'] in ['FM', 'NWR'] and f_r['Prop_Mode'] not in ['', ' - '] else ""
                     st.markdown("<div class='flyout-header'>MAX DISTANCE INTERCEPT</div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-micro'>{f_r['Callsign']} ({f_r['City']}, {f_r['State']})<br>By {f_r['DXer']} on {f_r['Date_Str']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-micro'>{f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']}){prop_str}<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
