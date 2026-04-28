@@ -18,9 +18,10 @@ from modules.importers import (
 from modules.data_forge import (
     mw_db, fm_db, nwr_db, country_list, get_state_list, get_logged_dict, 
     check_is_logged_mw, check_is_logged_fm, get_lat_lon_from_city, 
-    get_gsheet, get_full_logs_df, itu_map
+    get_gsheet, get_full_logs_df, itu_map, load_mw_intel, load_fm_intel, load_nwr_intel
 )
 from modules.dashboard import render_dashboard
+from modules.awards import check_thresholds, award_popup
 
 # --- 1. CORE CONFIGURATION ---
 st.set_page_config(
@@ -130,6 +131,7 @@ hr {
     opacity: 0.3;
 }
 
+/* Sidebar Subheaders */
 .sidebar-header {
     color: #ffffff;
     font-size: 1.4rem;
@@ -161,6 +163,8 @@ if 'operator_profile' not in st.session_state:
     st.session_state.operator_profile = { "name": "", "city": "", "state": "", "country": "United States", "lat": 0.0, "lon": 0.0 }
 if 'dash_nav' not in st.session_state: 
     st.session_state.dash_nav = "OVERVIEW"
+if 'pending_award' not in st.session_state:
+    st.session_state.pending_award = None
 
 def nav_to(page): 
     st.session_state.sys_state = page
@@ -258,6 +262,10 @@ with st.sidebar:
 spacer_left, main_content, spacer_right = st.columns([1, 8, 1])
 
 with main_content:
+    
+    # 🚨 AWARD LISTENER: Automatically triggers if a threshold was crossed during log submission
+    if st.session_state.get('pending_award'):
+        award_popup()
     
     # --- 8A. OPERATOR LOGIN SCREEN ---
     if st.session_state.sys_state == "OPERATOR_LOGIN":
@@ -428,7 +436,6 @@ with main_content:
                 fk = st.session_state.mw_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # Robustly map and sort values to prevent TypeErrors
                 all_freqs = sorted([str(x) for x in mw_db['Frequency'].dropna().unique()])
                 mw_states = sorted([str(x) for x in mw_db['State'].dropna().unique()])
                 mw_countries = sorted([str(x) for x in mw_db['Country'].dropna().unique()]) if 'Country' in mw_db.columns else ["United States"]
@@ -761,6 +768,12 @@ with main_content:
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
+                                
+                                # Check for Awards after Bulk
+                                full_logs = get_full_logs_df(op.get('name', ''), "AM")
+                                award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "AM")
+                                if award_triggered: st.session_state.pending_award = award_triggered
+                                
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
@@ -822,6 +835,12 @@ with main_content:
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                            
+                            # Award Check
+                            full_logs = get_full_logs_df(op.get('name', ''), "AM")
+                            award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "AM")
+                            if award_triggered: st.session_state.pending_award = award_triggered
+                            
                         except Exception as e: 
                             st.error(f"TRANSMISSION FAILED: {e}")
 
@@ -871,7 +890,6 @@ with main_content:
                 fk = st.session_state.fm_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # Robustly map and sort values to prevent TypeErrors
                 all_freqs = sorted([str(x) for x in fm_db['Frequency'].dropna().unique()])
                 fm_states = sorted([str(x) for x in fm_db['State'].dropna().unique()])
                 fm_countries = sorted([str(x) for x in fm_db['Country'].dropna().unique()]) if 'Country' in fm_db.columns else ["United States"]
@@ -1266,6 +1284,12 @@ with main_content:
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
+                                
+                                # Check for Awards after Bulk
+                                full_logs = get_full_logs_df(op.get('name', ''), "FM")
+                                award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "FM")
+                                if award_triggered: st.session_state.pending_award = award_triggered
+                                
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
@@ -1335,6 +1359,12 @@ with main_content:
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                            
+                            # Award Check
+                            full_logs = get_full_logs_df(op.get('name', ''), "FM")
+                            award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "FM")
+                            if award_triggered: st.session_state.pending_award = award_triggered
+                            
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
 
@@ -1384,7 +1414,6 @@ with main_content:
                 fk = st.session_state.nwr_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # Robustly map and sort values to prevent TypeErrors
                 all_freqs = sorted([str(x) for x in nwr_db['Frequency'].dropna().unique()])
                 nwr_states = sorted([str(x) for x in nwr_db['State'].dropna().unique()])
                 nwr_countries = sorted([str(x) for x in nwr_db['Country'].dropna().unique()]) if 'Country' in nwr_db.columns else ["United States"]
@@ -1780,6 +1809,12 @@ with main_content:
                                 if skipped_dupes > 0:
                                     st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                 st.balloons()
+                                
+                                # Check for Awards after Bulk
+                                full_logs = get_full_logs_df(op.get('name', ''), "NWR")
+                                award_triggered = check_thresholds(full_logs, op.get('name', ''), None, None, "NWR")
+                                if award_triggered: st.session_state.pending_award = award_triggered
+                                
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
@@ -1844,6 +1879,12 @@ with main_content:
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                            
+                            # Award Check
+                            full_logs = get_full_logs_df(op.get('name', ''), "NWR")
+                            award_triggered = check_thresholds(full_logs, op.get('name', ''), target_data.get('grid', ''), target_data.get('county', ''), "NWR")
+                            if award_triggered: st.session_state.pending_award = award_triggered
+                            
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
 
