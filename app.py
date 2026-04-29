@@ -22,13 +22,21 @@ from modules.data_forge import (
 )
 from modules.dashboard import render_dashboard
 
-# --- BULLETPROOF IMPORT FAILSAFE ---
+# --- BULLETPROOF IMPORT FAILSAFES ---
 try:
     from modules.awards import manual_award_claim_popup
     AWARDS_ACTIVE = True
-except ImportError as e:
+except ImportError:
     AWARDS_ACTIVE = False
     def manual_award_claim_popup(*args, **kwargs): pass
+
+try:
+    from modules.bounty import render_bounty_module
+    BOUNTY_ACTIVE = True
+except ImportError:
+    BOUNTY_ACTIVE = False
+    def render_bounty_module():
+        st.warning("🚨 ENCRYPTED INTERCEPT MODULE OFFLINE. (Ensure modules/bounty.py is deployed).")
 
 # --- TEMPORAL FILTER (CHALLENGE WINDOW) ---
 def is_within_window(date_obj_or_str, time_str):
@@ -269,6 +277,7 @@ with st.sidebar:
         if st.button("MW INTERCEPT REPORT", key="nav_mw"): nav_to("MW_LOG"); st.rerun()
         if st.button("FM INTERCEPT REPORT", key="nav_fm"): nav_to("FM_LOG"); st.rerun()
         if st.button("NWR INTERCEPT REPORT", key="nav_nwr"): nav_to("NWR_LOG"); st.rerun()
+        if st.button("ENCRYPTED INTERCEPT REPORT", key="nav_bounty"): nav_to("BOUNTY_HUNT"); st.rerun()
                 
         st.markdown("<div class='sidebar-header'>📡 INTERCEPT DEBRIEFING</div>", unsafe_allow_html=True)
         if st.button("MISSION OVERVIEW", key="nav_dash_over"): 
@@ -387,6 +396,8 @@ with main_content:
             st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
         if not AWARDS_ACTIVE:
             st.warning("⚠️ AWARDS MODULE OFFLINE. Ensure 'modules/awards.py' is deployed to activate Century Club notifications.")
+        if not BOUNTY_ACTIVE:
+            st.warning("⚠️ BOUNTY MODULE OFFLINE. Ensure 'modules/bounty.py' is deployed.")
         st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
 
     # --- PROTOCOLS ---
@@ -809,7 +820,7 @@ with main_content:
                                 
                             try:
                                 sheet.append_rows(bulk_rows)
-                                # Force cache clear 
+                                # Force cache clear to ensure immediate award recognition
                                 try:
                                     get_full_logs_df.clear()
                                     get_logged_dict.clear()
@@ -1354,7 +1365,7 @@ with main_content:
                             except Exception as e: 
                                 st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
-                    st.error(f"FILE ERROR: {e}")
+                    st.error(f"FILE PARSING ERROR: {e}")
 
         st.markdown("#### 3. SUBMIT INTERCEPT")
         with st.form("fm_submit_form", clear_on_submit=True):
@@ -1967,6 +1978,13 @@ with main_content:
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
 
-    # --- 8F. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
+    # --- 8F. ENCRYPTED INTERCEPT REPORT (BOUNTY STUB) ---
+    elif st.session_state.sys_state == "BOUNTY_HUNT":
+        if BOUNTY_ACTIVE:
+            render_bounty_module()
+        else:
+            st.warning("🚨 ENCRYPTED INTERCEPT MODULE OFFLINE. (Ensure modules/bounty.py is deployed).")
+
+    # --- 8G. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
     elif st.session_state.sys_state == "DASHBOARD":
         render_dashboard()
