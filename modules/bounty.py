@@ -2,48 +2,61 @@ import streamlit as st
 import pandas as pd
 import datetime
 import io
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.base import MIMEBase
+from email import encoders
 from modules.data_forge import nwr_db, get_gsheet, get_lat_lon_from_city
 from modules.importers import calculate_distance
 
-# Attempt Google Drive API Import (Requires 'google-api-python-client' in requirements.txt)
-try:
-    from google.oauth2 import service_account
-    from googleapiclient.discovery import build
-    from googleapiclient.http import MediaIoBaseUpload
-    DRIVE_AVAILABLE = True
-except ImportError:
-    DRIVE_AVAILABLE = False
-
-def upload_to_drive(file_obj, filename, folder_id):
-    if not DRIVE_AVAILABLE:
-        return "ERROR: Google API Client Not Installed."
-        
+def transmit_bounty_email(op_name, target_call, sel_freq, target_dist, user_email, audio_file, filename):
+    """
+    Securely transmits the Bounty Claim and attached MP3 directly to High Command via SMTP.
+    """
+    admin_email = "w4lvhsc@gmail.com"
     try:
-        creds_dict = dict(st.secrets["gcp_service_account"])
-        credentials = service_account.Credentials.from_service_account_info(
-            creds_dict, scopes=['https://www.googleapis.com/auth/drive']
-        )
-        service = build('drive', 'v3', credentials=credentials)
-        
-        file_metadata = {
-            'name': filename,
-            'parents': [folder_id]
-        }
-        media = MediaIoBaseUpload(io.BytesIO(file_obj.read()), mimetype=file_obj.type, resumable=True)
-        file = service.files().create(body=file_metadata, media_body=media, fields='id, webViewLink').execute()
-        
-        # Grant read access so you can easily view it from the link
-        try:
-            service.permissions().create(
-                fileId=file.get('id'),
-                body={'type': 'anyone', 'role': 'reader'}
-            ).execute()
-        except Exception:
-            pass # Non-fatal if permission fails
-            
-        return file.get('webViewLink')
+        smtp_server = st.secrets["smtp"]["server"]
+        smtp_port = st.secrets["smtp"]["port"]
+        smtp_user = st.secrets["smtp"]["email"]
+        smtp_pass = st.secrets["smtp"]["password"]
+
+        msg = MIMEMultipart()
+        msg['From'] = f"Mainframe Alert <{smtp_user}>"
+        msg['To'] = admin_email
+        msg['Subject'] = f"BOUNTY CLAIM: {op_name} ({target_call})"
+
+        body = f"""New Classified Intercept Claim Received:
+
+Agent: {op_name}
+Target: {target_call} ({sel_freq} MHz)
+Distance: {target_dist} miles
+Agent Email: {user_email}
+Timestamp: {datetime.datetime.now(datetime.timezone.utc)} UTC
+
+The intercepted audio payload is attached to this transmission.
+"""
+        msg.attach(MIMEText(body, 'plain'))
+
+        # Attach the MP3 Audio File
+        audio_file.seek(0)
+        part = MIMEBase('audio', 'mpeg')
+        part.set_payload(audio_file.read())
+        encoders.encode_base64(part)
+        part.add_header('Content-Disposition', f'attachment; filename="{filename}"')
+        msg.attach(part)
+
+        # Transmit
+        server = smtplib.SMTP(smtp_server, smtp_port)
+        server.starttls()
+        server.login(smtp_user, smtp_pass)
+        server.send_message(msg)
+        server.quit()
+        return True
     except Exception as e:
-        return f"UPLOAD FAILED: {e}"
+        print(f"SMTP Audio Error: {e}")
+        return False
+
 
 def render_bounty_module():
     # =========================================================================
@@ -51,7 +64,6 @@ def render_bounty_module():
     # =========================================================================
     ACTIVE_CODEWORD = "W3ATH3R"
     DOSSIER_URL = "https://raw.githubusercontent.com/DXCentral/summer_of_dx/86f6f7cb38388eaab6dae0940a34b88071687857/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-01-NWR.jpg"
-    DRIVE_FOLDER_ID = "1mHZjGI5kFXQ9hvADv325cPxlpsKqjdzd"
     TARGET_BAND = "NWR"
     MIN_DISTANCE = 100.0
     # =========================================================================
@@ -151,15 +163,15 @@ def render_bounty_module():
                         target_call = sel_station_str.split(' ')[0]
                         target_dist = float(sel_station_str.split('|')[1].replace('mi', '').strip())
                         
-                        with st.spinner("Encrypting transmission and uploading audio to secure server..."):
+                        with st.spinner("Encrypting transmission and uplifting audio to secure email server..."):
                             timestamp = str(datetime.datetime.now(datetime.timezone.utc))
                             filename = f"SODX_Bounty_{op.get('name')}_{target_call}.mp3"
                             
-                            # Upload to Google Drive
-                            drive_url = upload_to_drive(b_audio, filename, DRIVE_FOLDER_ID)
+                            # Transmit via Email
+                            email_success = transmit_bounty_email(op.get('name'), target_call, sel_freq, target_dist, b_email, b_audio, filename)
                             
-                            if "ERROR" in drive_url or "FAILED" in drive_url:
-                                st.error(f"❌ AUDIO UPLINK FAILED: {drive_url}")
+                            if not email_success:
+                                st.error("❌ AUDIO UPLINK FAILED. Ensure SMTP Secrets are configured.")
                             else:
                                 sheet = get_gsheet()
                                 if sheet is None:
@@ -174,11 +186,11 @@ def render_bounty_module():
                                             sel_freq,
                                             target_dist,
                                             b_email,
-                                            drive_url,
+                                            "DELIVERED VIA SECURE EMAIL",
                                             "PENDING REVIEW"
                                         ]
                                         bounty_sheet.append_row(row_data)
-                                        st.success("✅ BOUNTY CLAIM TRANSMITTED SUCCESSFULLY. AWAITING COMMAND VERIFICATION.")
+                                        st.success("✅ BOUNTY CLAIM AND AUDIO TRANSMITTED SUCCESSFULLY. AWAITING COMMAND VERIFICATION.")
                                         st.balloons()
                                     except Exception as e:
                                         st.error(f"❌ DATABASE WRITE FAILED: {e}")
