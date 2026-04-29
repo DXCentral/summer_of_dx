@@ -7,3 +7,4 @@ geopy
 maidenhead
 plotly
 pydeck
+google-api-python-client
