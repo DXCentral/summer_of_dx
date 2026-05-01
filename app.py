@@ -21,6 +21,7 @@ from modules.data_forge import (
     get_gsheet, get_full_logs_df, itu_map, load_mw_intel, load_fm_intel, load_nwr_intel
 )
 from modules.dashboard import render_dashboard
+from challenge_rules import is_terminal_open, is_reception_valid, filter_bulk_dataframe
 
 # --- BULLETPROOF IMPORT FAILSAFES ---
 try:
@@ -38,35 +39,6 @@ except ImportError:
     def render_bounty_module():
         st.warning("🚨 ENCRYPTED INTERCEPT MODULE OFFLINE. (Ensure modules/bounty.py is deployed).")
 
-# --- TEMPORAL FILTER (CHALLENGE WINDOW) ---
-def is_within_window(date_obj_or_str, time_str):
-    try:
-        if isinstance(date_obj_or_str, datetime.date) and not isinstance(date_obj_or_str, datetime.datetime):
-            dt_str = date_obj_or_str.strftime('%Y-%m-%d')
-        else:
-            dt_str = str(date_obj_or_str)
-            
-        t_clean = re.sub(r'[^0-9]', '', str(time_str))
-        if len(t_clean) == 0:
-            t_clean = "0000"
-        elif len(t_clean) < 4:
-            t_clean = t_clean.zfill(4)
-        elif len(t_clean) > 4:
-            t_clean = t_clean[:4]
-        
-        parsed_date = pd.to_datetime(dt_str).date()
-        hours = int(t_clean[:2])
-        mins = int(t_clean[2:])
-        
-        dt = datetime.datetime.combine(parsed_date, datetime.time(hour=hours, minute=mins))
-        dt = dt.replace(tzinfo=datetime.timezone.utc)
-        
-        # ACTIVE WINDOW: May 1 01:00 UTC - Aug 31 23:59:59 UTC
-        c_start = datetime.datetime(2026, 5, 1, 1, 0, tzinfo=datetime.timezone.utc)
-        c_end = datetime.datetime(2026, 8, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
-        return c_start <= dt <= c_end
-    except Exception:
-        return False
 
 # --- 1. CORE CONFIGURATION ---
 st.set_page_config(
@@ -456,6 +428,11 @@ with main_content:
 
     # --- 8C. MW INTERCEPT ROOM ---
     elif st.session_state.sys_state == "MW_LOG":
+        if not is_terminal_open():
+            st.error("🔒 **UPLINK SEVERED: THE TERMINAL IS CURRENTLY LOCKED.**")
+            st.warning("Data submission is only authorized between 2300 UTC May 1, 2026 and 2359 UTC September 30, 2026. You may continue to view the Dashboard and Intelligence Ledgers.")
+            st.stop()
+            
         st.markdown("### [ MW INTERCEPT CONSOLE ACTIVE ]")
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
@@ -687,154 +664,159 @@ with main_content:
                                         r_date = str(r[14]).strip()
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
-                                        
-                            skipped_dupes = 0
-                            skipped_out_of_range = 0
                             
-                            for _, row in df_import.iterrows():
-                                raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
-                                
-                                if raw_freq:
-                                    try:
-                                        f_val = float(str(raw_freq).replace(',', '.').strip())
-                                        if f_val < 530.0 or f_val > 1710.0: 
-                                            continue 
-                                    except Exception: 
-                                        pass
-                                        
-                                raw_country = row[map_ctry] if map_ctry != "<Skip>" else "USA"
-                                clean_country = itu_map.get(str(raw_country).upper(), str(raw_country).title())
-                                if clean_country.upper() == "USA": 
-                                    clean_country = "United States"
-                                
-                                raw_call = row[map_call] if map_call != "<Skip>" else ""
-                                clean_call = clean_callsign(raw_call)
-                                clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
-                                
-                                dist_val = 0.0
-                                if map_dist != "<Skip>":
-                                    raw_dist = str(row[map_dist]).lower()
-                                    try:
-                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
-                                        if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
-                                            dist_val = clean_dist * 0.621371
-                                        else: 
-                                            dist_val = clean_dist
-                                    except Exception: 
-                                        dist_val = 0.0
-                                        
-                                clean_state = row[map_state] if map_state != "<Skip>" else ""
-                                if clean_country not in ["United States", "Canada", "Mexico"]: 
-                                    clean_state = "DX"
-                                
-                                clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
-                                station_grid = ""
-                                station_county = " - " if clean_country not in ["United States"] else ""
-                                
-                                # EXPLICIT MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
-                                if not mw_db.empty and raw_freq:
-                                    try:
-                                        f_val = float(str(raw_freq).replace(',', '.'))
-                                        match_df = mw_db[mw_db['Frequency'] == f_val]
-                                        for _, m_row in match_df.iterrows():
-                                            db_call = simplify_string(m_row['Callsign'])
-                                            db_city = simplify_string(m_row.get('City', ''))
-                                            db_state = simplify_string(m_row.get('State', ''))
-                                            db_country = simplify_string(m_row.get('Country', 'United States'))
-                                            
-                                            is_match = False
-                                            imp_call = simplify_string(clean_call)
-                                            imp_country = simplify_string(clean_country)
-                                            imp_city = simplify_string(clean_city)
-                                            imp_state = simplify_string(clean_state)
-                                            
-                                            if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
-                                                if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
-                                                    is_match = True
-                                                else:
-                                                    if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
-                                                        is_match = True
-                                                        
-                                            if is_match:
-                                                station_grid = m_row['Grid']
-                                                station_county = m_row['County']
-                                                clean_call = m_row['Callsign']
-                                                clean_city = m_row['City']
-                                                clean_state = m_row['State']
-                                                break
-                                    except Exception: 
-                                        pass
-
-                                try:
-                                    sig_freq = str(float(str(raw_freq).replace(',', '.')))
-                                except Exception:
-                                    sig_freq = str(raw_freq).strip()
-                                    
-                                call_sig = str(clean_call).strip().upper()
-                                date_sig = str(format_date_import(row[map_date])).strip()
-                                time_sig = str(format_time_import(row[map_time])).strip()
-                                
-                                if not is_within_window(date_sig, time_sig):
-                                    skipped_out_of_range += 1
-                                    continue
-                                
-                                row_sig = f"AM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
-                                if row_sig in existing_signatures:
-                                    skipped_dupes += 1
-                                    continue
-                                existing_signatures.add(row_sig)
-                                
-                                sdr_val = str(row[map_sdr]).strip().title() if map_sdr != "<Skip>" and not pd.isna(row[map_sdr]) else def_sdr
-                                if sdr_val not in ["Yes", "No"]: 
-                                    sdr_val = def_sdr
-
-                                r_data = [
-                                    op.get('name', ''), 
-                                    op.get('city', ''), 
-                                    op.get('state', ''), 
-                                    op.get('country', ''),
-                                    "AM", 
-                                    raw_freq, 
-                                    "", 
-                                    clean_call, 
-                                    "", 
-                                    clean_city, 
-                                    clean_state, 
-                                    clean_country, 
-                                    "", 
-                                    station_grid,
-                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    row[map_time] if map_time != "<Skip>" else "", 
-                                    round(dist_val, 1), 
-                                    row[map_notes] if map_notes != "<Skip>" else "", 
-                                    "", 
-                                    "", 
-                                    map_mw_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
-                                    station_county, 
-                                    entry_cat_val, 
-                                    "", 
-                                    "",
-                                    sdr_val
-                                ]
-                                bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
-                                
-                            try:
-                                sheet.append_rows(bulk_rows)
-                                # Force cache clear to ensure immediate award recognition
-                                try:
-                                    get_full_logs_df.clear()
-                                    get_logged_dict.clear()
-                                except Exception: pass
-                                
-                                st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
-                                if skipped_dupes > 0:
-                                    st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                            # --- TEMPORAL SCRUBBER ---
+                            with st.spinner("Scanning payload against temporal mission parameters..."):
+                                valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
+                            
+                            if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) IGNORED ]")
-                                st.balloons()
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window (May 2 - Aug 31).")
+                                else:
+                                    st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
+                            else:
+                                skipped_dupes = 0
                                 
-                            except Exception as e: 
-                                st.error(f"BULK FAILED: {e}")
+                                for _, row in valid_df.iterrows():
+                                    raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
+                                    
+                                    if raw_freq:
+                                        try:
+                                            f_val = float(str(raw_freq).replace(',', '.').strip())
+                                            if f_val < 530.0 or f_val > 1710.0: 
+                                                continue 
+                                        except Exception: 
+                                            pass
+                                            
+                                    raw_country = row[map_ctry] if map_ctry != "<Skip>" else "USA"
+                                    clean_country = itu_map.get(str(raw_country).upper(), str(raw_country).title())
+                                    if clean_country.upper() == "USA": 
+                                        clean_country = "United States"
+                                    
+                                    raw_call = row[map_call] if map_call != "<Skip>" else ""
+                                    clean_call = clean_callsign(raw_call)
+                                    clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
+                                    
+                                    dist_val = 0.0
+                                    if map_dist != "<Skip>":
+                                        raw_dist = str(row[map_dist]).lower()
+                                        try:
+                                            clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
+                                            if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                                dist_val = clean_dist * 0.621371
+                                            else: 
+                                                dist_val = clean_dist
+                                        except Exception: 
+                                            dist_val = 0.0
+                                            
+                                    clean_state = row[map_state] if map_state != "<Skip>" else ""
+                                    if clean_country not in ["United States", "Canada", "Mexico"]: 
+                                        clean_state = "DX"
+                                    
+                                    clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
+                                    station_grid = ""
+                                    station_county = " - " if clean_country not in ["United States"] else ""
+                                    
+                                    # EXPLICIT MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
+                                    if not mw_db.empty and raw_freq:
+                                        try:
+                                            f_val = float(str(raw_freq).replace(',', '.'))
+                                            match_df = mw_db[mw_db['Frequency'] == f_val]
+                                            for _, m_row in match_df.iterrows():
+                                                db_call = simplify_string(m_row['Callsign'])
+                                                db_city = simplify_string(m_row.get('City', ''))
+                                                db_state = simplify_string(m_row.get('State', ''))
+                                                db_country = simplify_string(m_row.get('Country', 'United States'))
+                                                
+                                                is_match = False
+                                                imp_call = simplify_string(clean_call)
+                                                imp_country = simplify_string(clean_country)
+                                                imp_city = simplify_string(clean_city)
+                                                imp_state = simplify_string(clean_state)
+                                                
+                                                if clean_country.upper() in ["UNITED STATES", "CANADA", "MEXICO", "CUBA"]:
+                                                    if imp_call and db_call and (imp_call in db_call or db_call in imp_call): 
+                                                        is_match = True
+                                                    else:
+                                                        if imp_city and imp_country == db_country and (imp_city in db_city or db_city in imp_city): 
+                                                            is_match = True
+                                                            
+                                                if is_match:
+                                                    station_grid = m_row['Grid']
+                                                    station_county = m_row['County']
+                                                    clean_call = m_row['Callsign']
+                                                    clean_city = m_row['City']
+                                                    clean_state = m_row['State']
+                                                    break
+                                        except Exception: 
+                                            pass
+
+                                    try:
+                                        sig_freq = str(float(str(raw_freq).replace(',', '.')))
+                                    except Exception:
+                                        sig_freq = str(raw_freq).strip()
+                                        
+                                    call_sig = str(clean_call).strip().upper()
+                                    date_sig = str(format_date_import(row[map_date])).strip()
+                                    time_sig = str(format_time_import(row[map_time])).strip()
+                                    
+                                    row_sig = f"AM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
+                                    if row_sig in existing_signatures:
+                                        skipped_dupes += 1
+                                        continue
+                                    existing_signatures.add(row_sig)
+                                    
+                                    sdr_val = str(row[map_sdr]).strip().title() if map_sdr != "<Skip>" and not pd.isna(row[map_sdr]) else def_sdr
+                                    if sdr_val not in ["Yes", "No"]: 
+                                        sdr_val = def_sdr
+
+                                    r_data = [
+                                        op.get('name', ''), 
+                                        op.get('city', ''), 
+                                        op.get('state', ''), 
+                                        op.get('country', ''),
+                                        "AM", 
+                                        raw_freq, 
+                                        "", 
+                                        clean_call, 
+                                        "", 
+                                        clean_city, 
+                                        clean_state, 
+                                        clean_country, 
+                                        "", 
+                                        station_grid,
+                                        format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
+                                        row[map_time] if map_time != "<Skip>" else "", 
+                                        round(dist_val, 1), 
+                                        row[map_notes] if map_notes != "<Skip>" else "", 
+                                        "", 
+                                        "", 
+                                        map_mw_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
+                                        station_county, 
+                                        entry_cat_val, 
+                                        "", 
+                                        "",
+                                        sdr_val
+                                    ]
+                                    bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
+                                    
+                                try:
+                                    sheet.append_rows(bulk_rows)
+                                    # Force cache clear to ensure immediate award recognition
+                                    try:
+                                        get_full_logs_df.clear()
+                                        get_logged_dict.clear()
+                                    except Exception: pass
+                                    
+                                    st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                    if skipped_dupes > 0:
+                                        st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                                    if skipped_out_of_range > 0:
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
+                                    st.balloons()
+                                    
+                                except Exception as e: 
+                                    st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
                     st.error(f"FILE PARSING ERROR: {e}")
 
@@ -857,8 +839,8 @@ with main_content:
             if submit_log:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-                elif not is_within_window(log_date, log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Log is outside the active challenge window (May 1 01:00 UTC - Aug 31 23:59 UTC). Please check your date and try again.")
+                elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
+                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window (May 2 - Aug 31 UTC). Please verify your log and try again.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
@@ -910,6 +892,11 @@ with main_content:
 
     # --- 8D. FM INTERCEPT ROOM ---
     elif st.session_state.sys_state == "FM_LOG":
+        if not is_terminal_open():
+            st.error("🔒 **UPLINK SEVERED: THE TERMINAL IS CURRENTLY LOCKED.**")
+            st.warning("Data submission is only authorized between 2300 UTC May 1, 2026 and 2359 UTC September 30, 2026. You may continue to view the Dashboard and Intelligence Ledgers.")
+            st.stop()
+            
         st.markdown("### [ FM INTERCEPT CONSOLE ACTIVE ]")
         st.markdown("#### 1. OPERATING PARAMETERS")
         r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="fm_cat")
@@ -1193,177 +1180,182 @@ with main_content:
                                         r_date = str(r[14]).strip()
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
-                                        
-                            skipped_dupes = 0
-                            skipped_out_of_range = 0
                             
-                            for _, row in df_import.iterrows():
-                                raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
-                                
-                                if raw_freq:
-                                    try:
-                                        f_val = float(str(raw_freq).replace(',', '.').strip())
-                                        if f_val < 87.0 or f_val > 108.0: 
-                                            continue 
-                                    except Exception: 
-                                        pass
-                                        
-                                raw_country = str(row[map_ctry]).strip() if map_ctry != "<Skip>" and not pd.isna(row[map_ctry]) else "USA"
-                                clean_country = itu_map.get(raw_country.upper(), raw_country.title())
-                                if clean_country.upper() in ["USA", "UNITED STATES"]: 
-                                    clean_country = "United States"
-                                
-                                raw_call = row[map_call] if map_call != "<Skip>" else ""
-                                clean_call = clean_callsign(raw_call)
-                                clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
-                                
-                                dist_val = 0.0
-                                if map_dist != "<Skip>":
-                                    raw_dist = str(row[map_dist]).lower()
-                                    try:
-                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
-                                        if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
-                                            dist_val = clean_dist * 0.621371
-                                        else: 
-                                            dist_val = clean_dist
-                                    except Exception: 
-                                        dist_val = 0.0
-                                        
-                                clean_state = row[map_state] if map_state != "<Skip>" else ""
-                                if clean_country not in ["United States", "Canada", "Mexico"]: 
-                                    clean_state = "DX"
-                                
-                                clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
-                                station_grid = ""
-                                station_county = " - " if clean_country not in ["United States"] else ""
-                                
-                                # EXPLICIT FM TRIPLE-TRACK MATCHING ENGINE
-                                if not fm_db.empty and raw_freq:
-                                    try:
-                                        f_val = float(str(raw_freq).replace(',', '.'))
-                                        
-                                        match_df = fm_db[(pd.to_numeric(fm_db['Frequency'], errors='coerce') >= f_val - 0.05) & 
-                                                         (pd.to_numeric(fm_db['Frequency'], errors='coerce') <= f_val + 0.05)]
-                                                         
-                                        for _, m_row in match_df.iterrows():
-                                            db_call = super_clean(m_row['Callsign'])
-                                            db_slogan = super_clean(m_row.get('Slogan', ''))
-                                            db_city = simplify_string(m_row.get('City', ''))
-                                            db_country = simplify_string(m_row.get('Country', 'United States'))
-                                            
-                                            is_match = False
-                                            
-                                            imp_call = super_clean(clean_callsign(raw_call))
-                                            imp_country = simplify_string(clean_country)
-                                            imp_city = simplify_string(clean_city)
-                                            
-                                            # Track 1: Standard Callsign Match
-                                            if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
-                                                is_match = True
-                                                
-                                            # Track 2: City + Country Match
-                                            elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
-                                                is_match = True
-                                                
-                                            # Track 3: Slogan Match
-                                            elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
-                                                is_match = True
-                                                    
-                                            if is_match:
-                                                station_county = m_row['County']
-                                                station_grid = m_row['Grid']
-                                                clean_call = m_row['Callsign']   
-                                                clean_city = m_row['City']       
-                                                clean_state = m_row['State']  
-                                                clean_country = m_row.get('Country', clean_country)   
-                                                break
-                                    except Exception: 
-                                        pass
-
-                                try:
-                                    sig_freq = str(float(str(raw_freq).replace(',', '.')))
-                                except Exception:
-                                    sig_freq = str(raw_freq).strip()
-                                    
-                                call_sig = str(clean_call).strip().upper()
-                                date_sig = str(format_date_import(row[map_date])).strip()
-                                time_sig = str(format_time_import(row[map_time])).strip()
-                                
-                                if not is_within_window(date_sig, time_sig):
-                                    skipped_out_of_range += 1
-                                    continue
-                                
-                                row_sig = f"FM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
-                                if row_sig in existing_signatures:
-                                    skipped_dupes += 1
-                                    continue
-                                existing_signatures.add(row_sig)
-                                
-                                rds_val = "No"
-                                pi_val = str(row[map_pi]).strip().upper() if map_pi != "<Skip>" and not pd.isna(row[map_pi]) else ""
-                                
-                                if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
-                                    rds_val = "Yes"
-                                    
-                                map_notes_val = str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else ""
-                                if "pi logged" in map_notes_val.lower():
-                                    rds_val = "Yes"
-                                    if not pi_val:
-                                        pi_match = re.search(r'pi logged:\s*([A-F0-9]{4})', map_notes_val, re.IGNORECASE)
-                                        if pi_match:
-                                            pi_val = pi_match.group(1).upper()
-                                
-                                sdr_val = str(row[map_sdr]).strip().title() if map_sdr != "<Skip>" and not pd.isna(row[map_sdr]) else def_sdr
-                                if sdr_val not in ["Yes", "No"]: 
-                                    sdr_val = def_sdr 
-
-                                r_data = [
-                                    op.get('name', ''), 
-                                    op.get('city', ''), 
-                                    op.get('state', ''), 
-                                    op.get('country', ''),
-                                    "FM", 
-                                    "", 
-                                    raw_freq, 
-                                    clean_call, 
-                                    "", 
-                                    clean_city, 
-                                    clean_state, 
-                                    clean_country, 
-                                    "", 
-                                    station_grid,
-                                    date_sig, 
-                                    time_sig, 
-                                    round(dist_val, 1), 
-                                    map_notes_val, 
-                                    rds_val, 
-                                    pi_val, 
-                                    map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
-                                    station_county, 
-                                    entry_cat_val, 
-                                    "", 
-                                    "",
-                                    sdr_val
-                                ]
-                                bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
-                                
-                            try:
-                                sheet.append_rows(bulk_rows)
-                                # Force cache clear 
-                                try:
-                                    get_full_logs_df.clear()
-                                    get_logged_dict.clear()
-                                except Exception: pass
-                                
-                                st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
-                                if skipped_dupes > 0:
-                                    st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                            # --- TEMPORAL SCRUBBER ---
+                            with st.spinner("Scanning payload against temporal mission parameters..."):
+                                valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
+                            
+                            if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) IGNORED ]")
-                                st.balloons()
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window (May 2 - Aug 31).")
+                                else:
+                                    st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
+                            else:
+                                skipped_dupes = 0
                                 
-                            except Exception as e: 
-                                st.error(f"BULK FAILED: {e}")
+                                for _, row in valid_df.iterrows():
+                                    raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
+                                    
+                                    if raw_freq:
+                                        try:
+                                            f_val = float(str(raw_freq).replace(',', '.').strip())
+                                            if f_val < 87.0 or f_val > 108.0: 
+                                                continue 
+                                        except Exception: 
+                                            pass
+                                            
+                                    raw_country = str(row[map_ctry]).strip() if map_ctry != "<Skip>" and not pd.isna(row[map_ctry]) else "USA"
+                                    clean_country = itu_map.get(raw_country.upper(), raw_country.title())
+                                    if clean_country.upper() in ["USA", "UNITED STATES"]: 
+                                        clean_country = "United States"
+                                    
+                                    raw_call = row[map_call] if map_call != "<Skip>" else ""
+                                    clean_call = clean_callsign(raw_call)
+                                    clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
+                                    
+                                    dist_val = 0.0
+                                    if map_dist != "<Skip>":
+                                        raw_dist = str(row[map_dist]).lower()
+                                        try:
+                                            clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
+                                            if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                                dist_val = clean_dist * 0.621371
+                                            else: 
+                                                dist_val = clean_dist
+                                        except Exception: 
+                                            dist_val = 0.0
+                                            
+                                    clean_state = row[map_state] if map_state != "<Skip>" else ""
+                                    if clean_country not in ["United States", "Canada", "Mexico"]: 
+                                        clean_state = "DX"
+                                    
+                                    clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
+                                    station_grid = ""
+                                    station_county = " - " if clean_country not in ["United States"] else ""
+                                    
+                                    # EXPLICIT FM TRIPLE-TRACK MATCHING ENGINE
+                                    if not fm_db.empty and raw_freq:
+                                        try:
+                                            f_val = float(str(raw_freq).replace(',', '.'))
+                                            
+                                            match_df = fm_db[(pd.to_numeric(fm_db['Frequency'], errors='coerce') >= f_val - 0.05) & 
+                                                             (pd.to_numeric(fm_db['Frequency'], errors='coerce') <= f_val + 0.05)]
+                                                             
+                                            for _, m_row in match_df.iterrows():
+                                                db_call = super_clean(m_row['Callsign'])
+                                                db_slogan = super_clean(m_row.get('Slogan', ''))
+                                                db_city = simplify_string(m_row.get('City', ''))
+                                                db_country = simplify_string(m_row.get('Country', 'United States'))
+                                                
+                                                is_match = False
+                                                
+                                                imp_call = super_clean(clean_callsign(raw_call))
+                                                imp_country = simplify_string(clean_country)
+                                                imp_city = simplify_string(clean_city)
+                                                
+                                                # Track 1: Standard Callsign Match
+                                                if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
+                                                    is_match = True
+                                                    
+                                                # Track 2: City + Country Match
+                                                elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
+                                                    is_match = True
+                                                    
+                                                # Track 3: Slogan Match
+                                                elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
+                                                    is_match = True
+                                                        
+                                                if is_match:
+                                                    station_county = m_row['County']
+                                                    station_grid = m_row['Grid']
+                                                    clean_call = m_row['Callsign']   
+                                                    clean_city = m_row['City']       
+                                                    clean_state = m_row['State']  
+                                                    clean_country = m_row.get('Country', clean_country)   
+                                                    break
+                                        except Exception: 
+                                            pass
+
+                                    try:
+                                        sig_freq = str(float(str(raw_freq).replace(',', '.')))
+                                    except Exception:
+                                        sig_freq = str(raw_freq).strip()
+                                        
+                                    call_sig = str(clean_call).strip().upper()
+                                    date_sig = str(format_date_import(row[map_date])).strip()
+                                    time_sig = str(format_time_import(row[map_time])).strip()
+                                    
+                                    row_sig = f"FM_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
+                                    if row_sig in existing_signatures:
+                                        skipped_dupes += 1
+                                        continue
+                                    existing_signatures.add(row_sig)
+                                    
+                                    rds_val = "No"
+                                    pi_val = str(row[map_pi]).strip().upper() if map_pi != "<Skip>" and not pd.isna(row[map_pi]) else ""
+                                    
+                                    if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
+                                        rds_val = "Yes"
+                                        
+                                    map_notes_val = str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else ""
+                                    if "pi logged" in map_notes_val.lower():
+                                        rds_val = "Yes"
+                                        if not pi_val:
+                                            pi_match = re.search(r'pi logged:\s*([A-F0-9]{4})', map_notes_val, re.IGNORECASE)
+                                            if pi_match:
+                                                pi_val = pi_match.group(1).upper()
+                                    
+                                    sdr_val = str(row[map_sdr]).strip().title() if map_sdr != "<Skip>" and not pd.isna(row[map_sdr]) else def_sdr
+                                    if sdr_val not in ["Yes", "No"]: 
+                                        sdr_val = def_sdr 
+
+                                    r_data = [
+                                        op.get('name', ''), 
+                                        op.get('city', ''), 
+                                        op.get('state', ''), 
+                                        op.get('country', ''),
+                                        "FM", 
+                                        "", 
+                                        raw_freq, 
+                                        clean_call, 
+                                        "", 
+                                        clean_city, 
+                                        clean_state, 
+                                        clean_country, 
+                                        "", 
+                                        station_grid,
+                                        date_sig, 
+                                        time_sig, 
+                                        round(dist_val, 1), 
+                                        map_notes_val, 
+                                        rds_val, 
+                                        pi_val, 
+                                        map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
+                                        station_county, 
+                                        entry_cat_val, 
+                                        "", 
+                                        "",
+                                        sdr_val
+                                    ]
+                                    bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
+                                    
+                                try:
+                                    sheet.append_rows(bulk_rows)
+                                    # Force cache clear 
+                                    try:
+                                        get_full_logs_df.clear()
+                                        get_logged_dict.clear()
+                                    except Exception: pass
+                                    
+                                    st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                    if skipped_dupes > 0:
+                                        st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                                    if skipped_out_of_range > 0:
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
+                                    st.balloons()
+                                    
+                                except Exception as e: 
+                                    st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
                     st.error(f"FILE PARSING ERROR: {e}")
 
@@ -1392,8 +1384,8 @@ with main_content:
             if submit_log:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-                elif not is_within_window(log_date, log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Log is outside the active challenge window (May 1 01:00 UTC - Aug 31 23:59 UTC). Please check your date and try again.")
+                elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
+                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window (May 2 - Aug 31 UTC). Please verify your log and try again.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
@@ -1423,7 +1415,7 @@ with main_content:
                                 target_data.get("dist", 0.0), 
                                 log_notes, 
                                 log_rds, 
-                                log_pi,
+                                log_pi, 
                                 log_prop, 
                                 target_data.get("county", ""), 
                                 entry_cat_val, 
@@ -1447,6 +1439,11 @@ with main_content:
 
     # --- 8D. NWR INTERCEPT ROOM ---
     elif st.session_state.sys_state == "NWR_LOG":
+        if not is_terminal_open():
+            st.error("🔒 **UPLINK SEVERED: THE TERMINAL IS CURRENTLY LOCKED.**")
+            st.warning("Data submission is only authorized between 2300 UTC May 1, 2026 and 2359 UTC September 30, 2026. You may continue to view the Dashboard and Intelligence Ledgers.")
+            st.stop()
+            
         st.markdown("### [ NOAA WEATHER RADIO (NWR) CONSOLE ACTIVE ]")
         st.markdown("#### 1. OPERATING PARAMETERS")
         r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="nwr_cat")
@@ -1730,178 +1727,183 @@ with main_content:
                                         r_date = str(r[14]).strip()
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
-                                        
-                            skipped_dupes = 0
-                            skipped_out_of_range = 0
                             
-                            for _, row in df_import.iterrows():
-                                raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
+                            # --- TEMPORAL SCRUBBER ---
+                            with st.spinner("Scanning payload against temporal mission parameters..."):
+                                valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
+                            
+                            if valid_df.empty:
+                                if skipped_out_of_range > 0:
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window (May 2 - Aug 31).")
+                                else:
+                                    st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
+                            else:
+                                skipped_dupes = 0
                                 
-                                # Aggressive NWR Frequency Filter
-                                try:
-                                    f_val = float(str(raw_freq).replace(',', '.'))
-                                    if f_val < 162.0 or f_val > 163.0: 
-                                        continue 
-                                except Exception: 
-                                    continue
-                                
-                                raw_country = str(row[map_ctry]).strip() if map_ctry != "<Skip>" and not pd.isna(row[map_ctry]) else "USA"
-                                clean_country = itu_map.get(raw_country.upper(), raw_country.title())
-                                if clean_country.upper() in ["USA", "UNITED STATES"]: 
-                                    clean_country = "United States"
-                                
-                                raw_call = row[map_call] if map_call != "<Skip>" else ""
-                                clean_call = clean_callsign(raw_call)
-                                clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
-                                
-                                clean_state = row[map_state] if map_state != "<Skip>" else ""
-                                if clean_country not in ["United States", "Canada", "Mexico"]: 
-                                    clean_state = "DX"
-                                
-                                clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
-                                
-                                dist_val = 0.0
-                                if map_dist != "<Skip>":
-                                    raw_dist = str(row[map_dist]).lower()
-                                    try:
-                                        clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
-                                        if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
-                                            dist_val = clean_dist * 0.621371
-                                        else: 
-                                            dist_val = clean_dist
-                                    except Exception: 
-                                        dist_val = 0.0
-                                        
-                                rds_val = "No"
-                                pi_val = str(row[map_pi]).strip().upper() if map_pi != "<Skip>" and not pd.isna(row[map_pi]) else ""
-                                
-                                if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
-                                    rds_val = "Yes"
+                                for _, row in valid_df.iterrows():
+                                    raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
                                     
-                                map_notes_val = str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else ""
-                                if "pi logged" in map_notes_val.lower():
-                                    rds_val = "Yes"
-                                    if not pi_val:
-                                        pi_match = re.search(r'pi logged:\s*([A-F0-9]{4})', map_notes_val, re.IGNORECASE)
-                                        if pi_match:
-                                            pi_val = pi_match.group(1).upper()
-                                
-                                station_grid = ""
-                                station_county = " - " if clean_country not in ["United States"] else ""
-                                
-                                # EXPLICIT NWR TRIPLE-TRACK MATCHING ENGINE
-                                if not nwr_db.empty and raw_freq:
+                                    # Aggressive NWR Frequency Filter
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.'))
-                                        
-                                        match_df = nwr_db[(pd.to_numeric(nwr_db['Frequency'], errors='coerce') >= f_val - 0.05) & 
-                                                          (pd.to_numeric(nwr_db['Frequency'], errors='coerce') <= f_val + 0.05)]
-                                                          
-                                        for _, m_row in match_df.iterrows():
-                                            db_call = super_clean(m_row['Callsign'])
-                                            db_slogan = super_clean(m_row.get('Slogan', ''))
-                                            db_city = simplify_string(m_row.get('City', ''))
-                                            db_country = simplify_string(m_row.get('Country', 'United States'))
-                                            
-                                            is_match = False
-                                            
-                                            imp_call = super_clean(clean_callsign(raw_call))
-                                            imp_country = simplify_string(clean_country)
-                                            imp_city = simplify_string(clean_city)
-                                            
-                                            # Track 1: Standard Callsign Match
-                                            if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
-                                                is_match = True
-                                                
-                                            # Track 2: City + Country Match
-                                            elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
-                                                is_match = True
-                                                
-                                            # Track 3: Slogan Match
-                                            elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
-                                                is_match = True
-                                                    
-                                            if is_match:
-                                                station_county = m_row['County']
-                                                station_grid = m_row['Grid']
-                                                clean_call = m_row['Callsign']   
-                                                clean_city = m_row['City']       
-                                                clean_state = m_row['State']  
-                                                clean_country = m_row.get('Country', clean_country)   
-                                                break
+                                        if f_val < 162.0 or f_val > 163.0: 
+                                            continue 
                                     except Exception: 
-                                        pass
-
-                                try:
-                                    sig_freq = str(float(str(raw_freq).replace(',', '.')))
-                                except Exception:
-                                    sig_freq = str(raw_freq).strip()
+                                        continue
+                                        
+                                    raw_country = str(row[map_ctry]).strip() if map_ctry != "<Skip>" and not pd.isna(row[map_ctry]) else "USA"
+                                    clean_country = itu_map.get(raw_country.upper(), raw_country.title())
+                                    if clean_country.upper() in ["USA", "UNITED STATES"]: 
+                                        clean_country = "United States"
                                     
-                                call_sig = str(clean_call).strip().upper()
-                                date_sig = str(format_date_import(row[map_date])).strip()
-                                time_sig = str(format_time_import(row[map_time])).strip()
-                                
-                                if not is_within_window(date_sig, time_sig):
-                                    skipped_out_of_range += 1
-                                    continue
-                                
-                                row_sig = f"NWR_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
-                                if row_sig in existing_signatures:
-                                    skipped_dupes += 1
-                                    continue
-                                existing_signatures.add(row_sig)
-                                
-                                sdr_val = str(row[map_sdr]).strip().title() if map_sdr != "<Skip>" and not pd.isna(row[map_sdr]) else def_sdr
-                                if sdr_val not in ["Yes", "No"]: 
-                                    sdr_val = def_sdr
+                                    raw_call = row[map_call] if map_call != "<Skip>" else ""
+                                    clean_call = clean_callsign(raw_call)
+                                    clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
+                                    
+                                    clean_state = row[map_state] if map_state != "<Skip>" else ""
+                                    if clean_country not in ["United States", "Canada", "Mexico"]: 
+                                        clean_state = "DX"
+                                    
+                                    clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
+                                    
+                                    dist_val = 0.0
+                                    if map_dist != "<Skip>":
+                                        raw_dist = str(row[map_dist]).lower()
+                                        try:
+                                            clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
+                                            if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                                dist_val = clean_dist * 0.621371
+                                            else: 
+                                                dist_val = clean_dist
+                                        except Exception: 
+                                            dist_val = 0.0
+                                            
+                                    rds_val = "No"
+                                    pi_val = str(row[map_pi]).strip().upper() if map_pi != "<Skip>" and not pd.isna(row[map_pi]) else ""
+                                    
+                                    if pi_val != "" and pi_val not in ["NONE", "0", "0000"]:
+                                        rds_val = "Yes"
+                                        
+                                    map_notes_val = str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else ""
+                                    if "pi logged" in map_notes_val.lower():
+                                        rds_val = "Yes"
+                                        if not pi_val:
+                                            pi_match = re.search(r'pi logged:\s*([A-F0-9]{4})', map_notes_val, re.IGNORECASE)
+                                            if pi_match:
+                                                pi_val = pi_match.group(1).upper()
+                                    
+                                    station_grid = ""
+                                    station_county = " - " if clean_country not in ["United States"] else ""
+                                    
+                                    # EXPLICIT NWR TRIPLE-TRACK MATCHING ENGINE
+                                    if not nwr_db.empty and raw_freq:
+                                        try:
+                                            f_val = float(str(raw_freq).replace(',', '.'))
+                                            
+                                            match_df = nwr_db[(pd.to_numeric(nwr_db['Frequency'], errors='coerce') >= f_val - 0.05) & 
+                                                              (pd.to_numeric(nwr_db['Frequency'], errors='coerce') <= f_val + 0.05)]
+                                                              
+                                            for _, m_row in match_df.iterrows():
+                                                db_call = super_clean(m_row['Callsign'])
+                                                db_slogan = super_clean(m_row.get('Slogan', ''))
+                                                db_city = simplify_string(m_row.get('City', ''))
+                                                db_country = simplify_string(m_row.get('Country', 'United States'))
+                                                
+                                                is_match = False
+                                                
+                                                imp_call = super_clean(clean_callsign(raw_call))
+                                                imp_country = simplify_string(clean_country)
+                                                imp_city = simplify_string(clean_city)
+                                                
+                                                # Track 1: Standard Callsign Match
+                                                if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
+                                                    is_match = True
+                                                    
+                                                # Track 2: City + Country Match
+                                                elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
+                                                    is_match = True
+                                                    
+                                                # Track 3: Slogan Match
+                                                elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
+                                                    is_match = True
+                                                        
+                                                if is_match:
+                                                    station_county = m_row['County']
+                                                    station_grid = m_row['Grid']
+                                                    clean_call = m_row['Callsign']   
+                                                    clean_city = m_row['City']       
+                                                    clean_state = m_row['State']  
+                                                    clean_country = m_row.get('Country', clean_country)   
+                                                    break
+                                        except Exception: 
+                                            pass
 
-                                r_data = [
-                                    op.get('name', ''), 
-                                    op.get('city', ''), 
-                                    op.get('state', ''), 
-                                    op.get('country', ''),
-                                    "NWR", 
-                                    "", 
-                                    raw_freq, 
-                                    clean_call, 
-                                    "", 
-                                    clean_city, 
-                                    clean_state, 
-                                    clean_country, 
-                                    "", 
-                                    station_grid,
-                                    format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
-                                    format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
-                                    round(dist_val, 1), 
-                                    str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else "", 
-                                    "", 
-                                    "", 
-                                    map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
-                                    station_county, 
-                                    entry_cat_val, 
-                                    "", 
-                                    "",
-                                    sdr_val
-                                ]
-                                bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
-                                
-                            try:
-                                sheet.append_rows(bulk_rows)
-                                # Force cache clear 
+                                    try:
+                                        sig_freq = str(float(str(raw_freq).replace(',', '.')))
+                                    except Exception:
+                                        sig_freq = str(raw_freq).strip()
+                                        
+                                    call_sig = str(clean_call).strip().upper()
+                                    date_sig = str(format_date_import(row[map_date])).strip()
+                                    time_sig = str(format_time_import(row[map_time])).strip()
+                                    
+                                    row_sig = f"NWR_{sig_freq}_{call_sig}_{date_sig}_{time_sig}"
+                                    if row_sig in existing_signatures:
+                                        skipped_dupes += 1
+                                        continue
+                                    existing_signatures.add(row_sig)
+                                    
+                                    sdr_val = str(row[map_sdr]).strip().title() if map_sdr != "<Skip>" and not pd.isna(row[map_sdr]) else def_sdr
+                                    if sdr_val not in ["Yes", "No"]: 
+                                        sdr_val = def_sdr
+
+                                    r_data = [
+                                        op.get('name', ''), 
+                                        op.get('city', ''), 
+                                        op.get('state', ''), 
+                                        op.get('country', ''),
+                                        "NWR", 
+                                        "", 
+                                        raw_freq, 
+                                        clean_call, 
+                                        "", 
+                                        clean_city, 
+                                        clean_state, 
+                                        clean_country, 
+                                        "", 
+                                        station_grid,
+                                        format_date_import(row[map_date]) if map_date != "<Skip>" else "", 
+                                        format_time_import(row[map_time]) if map_time != "<Skip>" else "", 
+                                        round(dist_val, 1), 
+                                        str(row[map_notes]).strip() if map_notes != "<Skip>" and not pd.isna(row[map_notes]) else "", 
+                                        "", 
+                                        "", 
+                                        map_fm_prop(row[map_prop]) if map_prop != "<Skip>" else "Other", 
+                                        station_county, 
+                                        entry_cat_val, 
+                                        "", 
+                                        "",
+                                        sdr_val
+                                    ]
+                                    bulk_rows.append(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in r_data])
+                                    
                                 try:
-                                    get_full_logs_df.clear()
-                                    get_logged_dict.clear()
-                                except Exception: pass
-                                
-                                st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
-                                if skipped_dupes > 0:
-                                    st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
-                                if skipped_out_of_range > 0:
-                                    st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) IGNORED ]")
-                                st.balloons()
-                                
-                            except Exception as e: 
-                                st.error(f"BULK FAILED: {e}")
+                                    sheet.append_rows(bulk_rows)
+                                    # Force cache clear 
+                                    try:
+                                        get_full_logs_df.clear()
+                                        get_logged_dict.clear()
+                                    except Exception: pass
+                                    
+                                    st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
+                                    if skipped_dupes > 0:
+                                        st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
+                                    if skipped_out_of_range > 0:
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
+                                    st.balloons()
+                                    
+                                except Exception as e: 
+                                    st.error(f"BULK FAILED: {e}")
                 except Exception as e: 
                     st.error(f"FILE ERROR: {e}")
 
@@ -1925,8 +1927,8 @@ with main_content:
             if submit_log:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-                elif not is_within_window(log_date, log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Log is outside the active challenge window (May 1 01:00 UTC - Aug 31 23:59 UTC). Please check your date and try again.")
+                elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
+                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window (May 2 - Aug 31 UTC). Please verify your log and try again.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
