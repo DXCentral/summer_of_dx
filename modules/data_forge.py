@@ -294,6 +294,7 @@ def load_nwr_intel():
                 lat_col = find_col(df, ['LAT'])
                 lon_col = find_col(df, ['LON'])
                 co_col = find_col(df, ['COUNTY'])
+                wfo_col = find_col(df, ['WFO'])  # Now extracting the WFO parameter
                 
                 if f_col and c_col:
                     df['Frequency'] = pd.to_numeric(df[f_col], errors='coerce')
@@ -309,11 +310,13 @@ def load_nwr_intel():
                     df['LON'] = pd.to_numeric(df[lon_col], errors='coerce') if lon_col else 0.0
                     df['Grid'] = df.apply(lambda x: get_grid(x['LAT'], x['LON']), axis=1)
                     df['Slogan'] = "NOAA Weather Radio"
+                    df['WFO'] = df[wfo_col].fillna("Unknown") if wfo_col else "Unknown"
                     
                     df = df.dropna(subset=['Frequency'])
                     df = df[(df['Frequency'] >= 162.4) & (df['Frequency'] <= 162.55)]
                     
-                    df = df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan']]
+                    # Added WFO to the final output selection
+                    df = df[['Frequency', 'Callsign', 'City', 'State', 'County', 'Country', 'LAT', 'LON', 'Grid', 'Slogan', 'WFO']]
                     df = df.drop_duplicates(subset=['Callsign', 'Frequency']).reset_index(drop=True)
                     return df
         except Exception:
