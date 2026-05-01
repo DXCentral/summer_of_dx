@@ -71,7 +71,7 @@ def render_bounty_module():
     st.markdown("""
     <style>
     .cipher-box { border: 2px solid #139a9b; background-color: #0a1a1a; padding: 20px; border-radius: 5px; box-shadow: inset 0px 0px 15px rgba(19, 154, 155, 0.2); margin-bottom: 20px; }
-    .dossier-box { border: 2px dashed #ff0000; background-color: #1a0505; padding: 25px; margin-top: 20px; box-shadow: 0px 0px 20px rgba(255, 0, 0, 0.3); }
+    .dossier-box { border: 2px dashed #ff0000; background-color: #1a0505; padding: 25px; margin-top: 20px; margin-bottom: 25px; box-shadow: 0px 0px 20px rgba(255, 0, 0, 0.3); }
     .comms-box { border: 1px solid #333; background-color: #030303; padding: 20px; border-radius: 3px; font-family: monospace; margin-bottom: 25px; }
     </style>
     """, unsafe_allow_html=True)
@@ -80,47 +80,10 @@ def render_bounty_module():
     st.markdown("<h3 style='text-align: center; color: #ffffff;'>AWAITING AUTHENTICATION CODEWORD...</h3>", unsafe_allow_html=True)
     st.markdown("---")
 
-    # --- TRANSMISSION SCHEDULE UI ---
-    # Flushed completely left to prevent Streamlit from rendering it as a Markdown Code Block
-    st.markdown("""
-<div class='comms-box'>
-<div style='text-align: center; color: #ffaa00; margin-bottom: 15px;'>
-=========================================================<br>
-// WARNING: RESTRICTED ACCESS //<br>
-// HIGH COMMAND - FIELD COMMUNICATIONS DIVISION //<br>
-=========================================================
-</div>
-<p style='color: #ff3333; font-weight: bold; text-align: center;'>WARNING: TRANSMISSION CHANNELS ACTIVELY MONITORED BY UNKNOWN ENTITIES. MAINTAIN STRICT RADIO SILENCE UNTIL PAYLOAD IS ACQUIRED.</p>
-<p style='color: #cccccc;'><b>OPERATIVE ADVISORY:</b><br>
-All active field agents must maintain receiver synchronization to the following vectors. Intelligence briefings and targeted intercept authorization will be broadcast according to the schedule provided below.</p>
-<p style='color: #1bd2d4; margin-top: 20px; border-bottom: 1px solid #1bd2d4; padding-bottom: 5px;'><b>>> APPROVED TRANSMISSION SOURCES <<</b></p>
-<ul style='color: #cccccc; list-style-type: square;'>
-<li><b>[HF SHORTWAVE]</b> 4.810 MHz USB - STATUS: <span style='color: #ff3333; font-weight: bold;'>[ OFFLINE / HEAVY JAMMING DETECTED ]</span></li>
-<li><b>[SATELLITE LINK]</b> DXStar-1, Transponder 16 - STATUS: <span style='color: #39ff14; font-weight: bold;'>[ ACTIVE - ENCRYPTED ]</span></li>
-<li><b>[SECURE WEB PROXY]</b> "DX Radio": thisisprobablydxradio.com - STATUS: <span style='color: #39ff14; font-weight: bold;'>[ ACTIVE - PRIMARY UPLINK ]</span></li>
-</ul>
-<p style='color: #1bd2d4; margin-top: 20px; border-bottom: 1px solid #1bd2d4; padding-bottom: 5px;'><b>>> BROADCAST SCHEDULE <<</b></p>
-<ul style='color: #cccccc; list-style-type: square;'>
-<li><b>[HF / SATELLITE]</b> Daily @ 0200Z and 0600Z <i>(Awaiting frequency shift orders)</i></li>
-<li><b>[SECURE WEB PROXY]</b> Automated intelligence drop approx. Top of the Hour <i>(Note: Automated proxy broadcasts may vary by +/- 2 minutes to evade algorithmic tracking).</i></li>
-</ul>
-<p style='color: #1bd2d4; margin-top: 20px; border-bottom: 1px solid #1bd2d4; padding-bottom: 5px;'><b>>> FIELD PROTOCOLS & FAILSAFES <<</b></p>
-<ul style='color: #cccccc; list-style-type: square;'>
-<li><b>ENCRYPTION ROLL:</b> Cipher keys update dynamically at 0000 UTC. Ensure your SDR cryptographic algorithms are synchronized prior to the 0200Z broadcast.</li>
-<li><b>ATMOSPHERIC JAMMING:</b> In the event of catastrophic QRM or D-Layer absorption, maintain radio silence and monitor the secure web portal. Do not break cover.</li>
-<li><b>ACKNOWLEDGEMENT:</b> No return transmission required. Monitor, log, and report confirmed targets to the SEDAP mainframe.</li>
-</ul>
-<p style='color: #cccccc; margin-top: 20px;'>Target dossiers rotate every 14 days. To acquire your target, tune your receiver to an active transmission source and listen for the High Command interval signal. The phonetic authentication cipher will follow.</p>
-<p style='color: #cccccc;'>Do not transmit the codeword over open channels. Enter the decrypted string below to unlock your target dossier. If intercepted, disavow all knowledge of High Command.</p>
-<div style='text-align: center; color: #ffaa00; margin-top: 25px;'>
-// HIGH COMMAND ACTUAL - END OF MESSAGE //
-</div>
-</div>
-    """, unsafe_allow_html=True)
-
     if 'bounty_unlocked' not in st.session_state: 
         st.session_state.bounty_unlocked = False
 
+    # --- 1. CODEWORD INPUT (MOVED TO TOP) ---
     st.markdown("<div class='cipher-box'>", unsafe_allow_html=True)
     st.markdown("#### 1. INPUT AUDIO CODEWORD")
     st.caption("Enter the classified string broadcasted on DX Radio to unlock this week's dossier.")
@@ -137,6 +100,7 @@ All active field agents must maintain receiver synchronization to the following 
             st.error("❌ AUTHENTICATION FAILED. INCORRECT CODEWORD.")
     st.markdown("</div>", unsafe_allow_html=True)
 
+    # --- 2. UNLOCKED DOSSIER & FORM ---
     if st.session_state.bounty_unlocked:
         # Show Image Dossier
         st.image(DOSSIER_URL, use_container_width=True)
@@ -234,3 +198,41 @@ All active field agents must maintain receiver synchronization to the following 
                                     except Exception as e:
                                         st.error(f"❌ DATABASE WRITE FAILED: {e}")
         st.markdown("</div>", unsafe_allow_html=True)
+
+
+    # --- 3. TRANSMISSION SCHEDULE (MOVED TO BOTTOM AS FOOTER) ---
+    st.markdown("""
+<div class='comms-box'>
+<div style='text-align: center; color: #ffaa00; margin-bottom: 15px;'>
+=========================================================<br>
+// WARNING: RESTRICTED ACCESS //<br>
+// HIGH COMMAND - FIELD COMMUNICATIONS DIVISION //<br>
+=========================================================
+</div>
+<p style='color: #ff3333; font-weight: bold; text-align: center;'>WARNING: TRANSMISSION CHANNELS ACTIVELY MONITORED BY UNKNOWN ENTITIES. MAINTAIN STRICT RADIO SILENCE UNTIL PAYLOAD IS ACQUIRED.</p>
+<p style='color: #cccccc;'><b>OPERATIVE ADVISORY:</b><br>
+All active field agents must maintain receiver synchronization to the following vectors. Intelligence briefings and targeted intercept authorization will be broadcast according to the schedule provided below.</p>
+<p style='color: #1bd2d4; margin-top: 20px; border-bottom: 1px solid #1bd2d4; padding-bottom: 5px;'><b>>> APPROVED TRANSMISSION SOURCES <<</b></p>
+<ul style='color: #cccccc; list-style-type: square;'>
+<li><b>[HF SHORTWAVE]</b> 4.810 MHz USB - STATUS: <span style='color: #ff3333; font-weight: bold;'>[ OFFLINE / HEAVY JAMMING DETECTED ]</span></li>
+<li><b>[SATELLITE LINK]</b> DXStar-1, Transponder 16 - STATUS: <span style='color: #39ff14; font-weight: bold;'>[ ACTIVE - ENCRYPTED ]</span></li>
+<li><b>[SECURE WEB PROXY]</b> "DX Radio": thisisprobablydxradio.com - STATUS: <span style='color: #39ff14; font-weight: bold;'>[ ACTIVE - PRIMARY UPLINK ]</span></li>
+</ul>
+<p style='color: #1bd2d4; margin-top: 20px; border-bottom: 1px solid #1bd2d4; padding-bottom: 5px;'><b>>> BROADCAST SCHEDULE <<</b></p>
+<ul style='color: #cccccc; list-style-type: square;'>
+<li><b>[HF / SATELLITE]</b> Daily @ 0200Z and 0600Z <i>(Awaiting frequency shift orders)</i></li>
+<li><b>[SECURE WEB PROXY]</b> Automated intelligence drop approx. Top of the Hour <i>(Note: Automated proxy broadcasts may vary by +/- 2 minutes to evade algorithmic tracking).</i></li>
+</ul>
+<p style='color: #1bd2d4; margin-top: 20px; border-bottom: 1px solid #1bd2d4; padding-bottom: 5px;'><b>>> FIELD PROTOCOLS & FAILSAFES <<</b></p>
+<ul style='color: #cccccc; list-style-type: square;'>
+<li><b>ENCRYPTION ROLL:</b> Cipher keys update dynamically at 0000 UTC. Ensure your SDR cryptographic algorithms are synchronized prior to the 0200Z broadcast.</li>
+<li><b>ATMOSPHERIC JAMMING:</b> In the event of catastrophic QRM or D-Layer absorption, maintain radio silence and monitor the secure web portal. Do not break cover.</li>
+<li><b>ACKNOWLEDGEMENT:</b> No return transmission required. Monitor, log, and report confirmed targets to the SEDAP mainframe.</li>
+</ul>
+<p style='color: #cccccc; margin-top: 20px;'>Target dossiers rotate every 14 days. To acquire your target, tune your receiver to an active transmission source and listen for the High Command interval signal. The phonetic authentication cipher will follow.</p>
+<p style='color: #cccccc;'>Do not transmit the codeword over open channels. Enter the decrypted string below to unlock your target dossier. If intercepted, disavow all knowledge of High Command.</p>
+<div style='text-align: center; color: #ffaa00; margin-top: 25px;'>
+// HIGH COMMAND ACTUAL - END OF MESSAGE //
+</div>
+</div>
+    """, unsafe_allow_html=True)
