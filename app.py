@@ -8,6 +8,7 @@ import maidenhead as mh
 from geopy.geocoders import Nominatim
 import streamlit.components.v1 as components
 from streamlit_javascript import st_javascript
+import pydeck as pdk  # INJECTED FOR TACTICAL RADAR
 
 # Corrected modular imports
 from modules.importers import (
@@ -1495,10 +1496,14 @@ with main_content:
         target_data = {}
         
         with tab_search:
-            st.write("ACCESSING WTFDA DATABANKS...")
+            st.write("ACCESSING NWS DATABANKS...")
             if nwr_db.empty: 
                 st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: NWR database not found.")
             else:
+                # --- NEW TACTICAL RADAR VIEW TOGGLE ---
+                view_mode = st.radio("DISPLAY INTERFACE", ["[ DATABANK VIEW ]", "[ TACTICAL MAP VIEW ]"], horizontal=True, label_visibility="collapsed")
+                st.markdown("<hr style='border: 1px dashed #139a9b; opacity: 0.3; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
+                
                 if 'nwr_filter_key' not in st.session_state: 
                     st.session_state.nwr_filter_key = 0
                     
@@ -1506,126 +1511,189 @@ with main_content:
                     st.session_state.nwr_filter_key += 1
                 
                 c_btn1, c_btn2 = st.columns([1.5, 3.5])
-                c_btn1.button("[ RESET SEARCH FILTERS ]", on_click=reset_nwr_filters, key="nwr_reset")
+                c_btn1.button("[ RESET FILTERS ]", on_click=reset_nwr_filters, key="nwr_reset")
                 if c_btn2.button("[ REFRESH STATION DATA ]", key="sync_nwr"):
                     get_logged_dict.clear()
                     load_nwr_intel.clear()
                     st.rerun()
                 
                 fk = st.session_state.nwr_filter_key
+                
+                # --- UNIVERSAL FILTERS (APPLIES TO BOTH VIEWS) ---
                 c1, c2, c3, c4 = st.columns(4)
                 
                 all_freqs = sorted([str(x) for x in nwr_db['Frequency'].dropna().unique()])
                 nwr_states = sorted([str(x) for x in nwr_db['State'].dropna().unique()])
-                nwr_countries = sorted([str(x) for x in nwr_db['Country'].dropna().unique()]) if 'Country' in nwr_db.columns else ["United States"]
+                nwr_wfos = sorted([str(x) for x in nwr_db['WFO'].dropna().unique()]) if 'WFO' in nwr_db.columns else []
                 
                 f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"nwr_f1_{fk}")
-                f_call = c2.text_input("CALLSIGN", key=f"nwr_f2_{fk}")
-                f_city = c3.text_input("CITY", key=f"nwr_f3_{fk}")
-                f_state = c4.selectbox("STATE", ["All"] + nwr_states, key=f"nwr_f4_{fk}")
+                f_state = c2.selectbox("STATE", ["All"] + nwr_states, key=f"nwr_f4_{fk}")
                 
-                c5, c6, c7, c8 = st.columns(4)
-                f_ctry = c5.selectbox("COUNTRY", ["All"] + nwr_countries, key=f"nwr_f5_{fk}")
-                f_county = c6.text_input("COUNTY/PARISH", key=f"nwr_f6_{fk}")
-                f_grid = c7.text_input("GRID", key=f"nwr_f7_{fk}")
-                f_status = c8.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"nwr_f8_{fk}")
+                if nwr_wfos:
+                    f_wfo = c3.selectbox("WFO", ["All"] + nwr_wfos, key=f"nwr_wfo_{fk}")
+                else:
+                    f_ctry = c3.selectbox("COUNTRY", ["All", "United States", "Canada", "Other"], key=f"nwr_ctry_{fk}")
+                    f_wfo = "All"
+                    
+                f_status = c4.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"nwr_f8_{fk}")
                 
+                # Execute primary filtering
                 results = nwr_db.copy()
+                
+                # Clean LAT/LON data for map engine stability
+                if 'LAT' in results.columns and 'LON' in results.columns:
+                    results['LAT'] = pd.to_numeric(results['LAT'], errors='coerce')
+                    results['LON'] = pd.to_numeric(results['LON'], errors='coerce')
+                
                 if f_freq != "All": 
                     results = results[results['Frequency'] == float(f_freq)]
-                if f_call: 
-                    c_simp = simplify_string(f_call)
-                    results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
-                if f_city: 
-                    results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All": 
                     results = results[results['State'] == f_state]
-                if f_ctry != "All": 
-                    results = results[results['Country'] == f_ctry]
-                if f_county: 
-                    results = results[results['County'].str.contains(f_county, case=False, na=False)]
-                if f_grid: 
-                    results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
-                    
-                if f_status != "All":
-                    logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "NWR")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged_fm(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
-                    if f_status == "Logged Only": 
-                        results = results[results['Is_Logged']]
-                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
-                        full_logs_df = get_full_logs_df(st.session_state.operator_profile.get('name', ''), "NWR")
-                        if not full_logs_df.empty:
-                            csv_data = full_logs_df.to_csv(index=False).encode('utf-8')
-                            st.download_button(label="📥 DOWNLOAD MY LOGS (CSV)", data=csv_data, file_name=f"My_NWR_Logs_{datetime.date.today().strftime('%Y%m%d')}.csv", mime="text/csv")
-                    else: 
-                        results = results[~results['Is_Logged']]
-                        st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                if f_wfo != "All" and 'WFO' in results.columns: 
+                    results = results[results['WFO'] == f_wfo]
+                
+                # Calculate Logged Status dynamically against user's history
+                logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "NWR")
+                results['Is_Logged'] = results.apply(lambda r: check_is_logged_fm(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'] if 'Country' in r else 'United States', logged_dict), axis=1)
+                
+                if f_status == "Logged Only": 
+                    results = results[results['Is_Logged']]
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
+                    full_logs_df = get_full_logs_df(st.session_state.operator_profile.get('name', ''), "NWR")
+                    if not full_logs_df.empty:
+                        csv_data = full_logs_df.to_csv(index=False).encode('utf-8')
+                        st.download_button(label="📥 DOWNLOAD MY LOGS (CSV)", data=csv_data, file_name=f"My_NWR_Logs_{datetime.date.today().strftime('%Y%m%d')}.csv", mime="text/csv")
+                elif f_status == "Not Logged Only": 
+                    results = results[~results['Is_Logged']]
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
                 else:
                     st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
-                        
-                st.write(f"> {len(results)} TARGETS FOUND:")
-                st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: Weather.gov (NWR)*</div>", unsafe_allow_html=True)
-                
-                if not results.empty:
-                    if len(results) <= 100:
-                        for idx, r in results.iterrows():
-                            if float(r.get('LAT', 0.0)) == 0.0 and float(r.get('LON', 0.0)) == 0.0:
-                                lat, lon = get_lat_lon_from_city(r['City'], r.get('Country', 'United States'))
-                                results.at[idx, 'LAT'] = lat
-                                results.at[idx, 'LON'] = lon
-                                
-                    results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
+
+                # ==========================================
+                # ROUTE 1: TACTICAL MAP VIEW
+                # ==========================================
+                if view_mode == "[ TACTICAL MAP VIEW ]":
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-bottom: 10px;'>*Geospatial Array Active. Hover over a target to view telemetry.*</div>", unsafe_allow_html=True)
                     
-                    if active_lat != 0.0 and active_lon != 0.0:
-                        results = results[results['Dist'] > 0.0]
-                        
-                    results = results.sort_values(by='Dist', ascending=True)
+                    # Strip null coordinate rows to prevent map crashing
+                    map_results = results.dropna(subset=['LAT', 'LON'])
+                    map_results = map_results[(map_results['LAT'] != 0.0) & (map_results['LON'] != 0.0)]
                     
-                    logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "NWR")
-                    results['Is_Logged'] = results.apply(lambda r: check_is_logged_fm(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'], logged_dict), axis=1)
-                    results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
-                    results.insert(0, 'Log?', False)
+                    if not map_results.empty:
+                        layer = pdk.Layer(
+                            "ScatterplotLayer",
+                            data=map_results,
+                            get_position=["LON", "LAT"],
+                            get_color="[27, 210, 212, 180]", # DX Radio Cyan
+                            get_radius=15000, # 15km radius
+                            pickable=True,
+                            auto_highlight=True
+                        )
+                        
+                        cam_lat = active_lat if active_lat != 0.0 else 39.8283
+                        cam_lon = active_lon if active_lon != 0.0 else -98.5795
+                        view_state = pdk.ViewState(latitude=cam_lat, longitude=cam_lon, zoom=4, pitch=0)
+                        
+                        tooltip_html = "<b>{Callsign}</b> - {Frequency} MHz<br/>{City}, {State}"
+                        if 'WFO' in map_results.columns:
+                            tooltip_html += "<br/><b>WFO:</b> {WFO}"
+                            
+                        st.pydeck_chart(pdk.Deck(
+                            map_style="mapbox://styles/mapbox/dark-v10",
+                            layers=[layer],
+                            initial_view_state=view_state,
+                            tooltip={
+                                "html": tooltip_html,
+                                "style": {
+                                    "backgroundColor": "#050505",
+                                    "color": "#1bd2d4",
+                                    "border": "1px solid #139a9b",
+                                    "fontFamily": "monospace"
+                                }
+                            }
+                        ))
+                    else:
+                        st.warning("NO TARGETS FOUND TO PLOT ON RADAR.")
+
+                # ==========================================
+                # ROUTE 2: STANDARD DATABANK VIEW
+                # ==========================================
+                else:
+                    # Specific text filters only needed for the table view
+                    c5, c6, c7 = st.columns(3)
+                    f_call = c5.text_input("CALLSIGN FILTER", key=f"nwr_f2_{fk}")
+                    f_city = c6.text_input("CITY FILTER", key=f"nwr_f3_{fk}")
+                    f_grid = c7.text_input("GRID FILTER", key=f"nwr_f7_{fk}")
                     
-                    view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign']]
-                    edited_df = st.data_editor(
-                        view_df, 
-                        hide_index=True, 
-                        use_container_width=True,
-                        column_config={
-                            "Log?": st.column_config.CheckboxColumn("Log?"), 
-                            "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
-                            "County": "County/Parish",
-                            "Callsign": None
-                        },
-                        disabled=['Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign'], 
-                        key=f"nwr_db_editor_{fk}"
-                    )
+                    if f_call: 
+                        c_simp = simplify_string(f_call)
+                        results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
+                    if f_city: 
+                        results = results[results['City'].str.contains(f_city, case=False, na=False)]
+                    if f_grid: 
+                        results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
+                        
+                    st.write(f"> {len(results)} TARGETS FOUND:")
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: Weather.gov (NWR)*</div>", unsafe_allow_html=True)
                     
-                    selected_rows = edited_df[edited_df['Log?'] == True]
-                    if not selected_rows.empty:
-                        target = selected_rows.iloc[0]
-                        grid_str = f" | Grid: {target['Grid']}" if target['Grid'] else ""
-                        dist_str = f" | {target['Dist']} mi" if target['Dist'] > 0 else ""
+                    if not results.empty:
+                        # Geocode missing values for top 100
+                        if len(results) <= 100:
+                            for idx, r in results.iterrows():
+                                if float(r.get('LAT', 0.0)) == 0.0 and float(r.get('LON', 0.0)) == 0.0:
+                                    lat, lon = get_lat_lon_from_city(r['City'], r.get('Country', 'United States'))
+                                    results.at[idx, 'LAT'] = lat
+                                    results.at[idx, 'LON'] = lon
+                                    
+                        results['Dist'] = results.apply(lambda r: calculate_distance(active_lat, active_lon, r.get('LAT'), r.get('LON')), axis=1)
                         
-                        c_str = target.get('County', '')
-                        county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
+                        if active_lat != 0.0 and active_lon != 0.0:
+                            results = results[results['Dist'] > 0.0]
+                            
+                        results = results.sort_values(by='Dist', ascending=True)
+                        results['Display Call'] = results.apply(lambda r: f"🟢 {r['Callsign']}" if r['Is_Logged'] else r['Callsign'], axis=1)
+                        results.insert(0, 'Log?', False)
                         
-                        st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
-                        target_data = {
-                            "freq": target['Frequency'], 
-                            "call": target['Callsign'], 
-                            "city": target['City'], 
-                            "state": target['State'], 
-                            "county": target.get('County', 'Unknown'), 
-                            "country": target.get('Country', 'United States'), 
-                            "grid": target['Grid'], 
-                            "pi": "", 
-                            "dist": target['Dist']
-                        }
+                        view_df = results[['Log?', 'Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign']]
+                        edited_df = st.data_editor(
+                            view_df, 
+                            hide_index=True, 
+                            use_container_width=True,
+                            column_config={
+                                "Log?": st.column_config.CheckboxColumn("Log?"), 
+                                "Dist": st.column_config.NumberColumn("Dist (mi)", format="%.1f"),
+                                "County": "County/Parish",
+                                "Callsign": None
+                            },
+                            disabled=['Frequency', 'Display Call', 'City', 'State', 'Country', 'Dist', 'Grid', 'County', 'Callsign'], 
+                            key=f"nwr_db_editor_{fk}"
+                        )
                         
-                        st.markdown("#### RECEPTION VIA SDR?")
-                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_db_{fk}")
-                        target_data["sdr"] = sdr_choice_db
+                        selected_rows = edited_df[edited_df['Log?'] == True]
+                        if not selected_rows.empty:
+                            target = selected_rows.iloc[0]
+                            grid_str = f" | Grid: {target['Grid']}" if target['Grid'] else ""
+                            dist_str = f" | {target['Dist']} mi" if target['Dist'] > 0 else ""
+                            
+                            c_str = target.get('County', '')
+                            county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
+                            
+                            st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                            target_data = {
+                                "freq": target['Frequency'], 
+                                "call": target['Callsign'], 
+                                "city": target['City'], 
+                                "state": target['State'], 
+                                "county": target.get('County', 'Unknown'), 
+                                "country": target.get('Country', 'United States'), 
+                                "grid": target['Grid'], 
+                                "pi": "", 
+                                "dist": target['Dist']
+                            }
+                            
+                            st.markdown("#### RECEPTION VIA SDR?")
+                            sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_db_{fk}")
+                            target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
             st.write("INITIATE UNLISTED PROTOCOL...")
