@@ -1614,6 +1614,7 @@ with main_content:
                         # Station Data Layer
                         station_layer = pdk.Layer(
                             "ScatterplotLayer",
+                            id="nwr_targets",
                             data=map_results,
                             get_position=["LON", "LAT"],
                             get_color="Color", # Uses dynamic logged/unlogged colors
@@ -1648,33 +1649,39 @@ with main_content:
                         
                         deck_event = st.pydeck_chart(deck, on_select="rerun", selection_mode="single-object")
                         
-                        # Process Map Click
+                        # Safely Process Map Click from the PyDeck Event Dictionary
                         if deck_event and deck_event.selection.objects:
-                            target = deck_event.selection.objects[0]
-                            dist_val = calculate_distance(active_lat, active_lon, target.get('LAT'), target.get('LON'))
-                            
-                            grid_str = f" | Grid: {target.get('Grid', '')}" if target.get('Grid') else ""
-                            dist_str = f" | {dist_val:.1f} mi" if dist_val > 0 else ""
-                            c_str = target.get('County', '')
-                            county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
-                            
-                            st.success(f"TARGET LOCKED VIA RADAR: {target['Callsign']} ({target['City']}, {target['State']}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
-                            
-                            target_data = {
-                                "freq": target['Frequency'], 
-                                "call": target['Callsign'], 
-                                "city": target['City'], 
-                                "state": target['State'], 
-                                "county": target.get('County', 'Unknown'), 
-                                "country": target.get('Country', 'United States'), 
-                                "grid": target.get('Grid', ''), 
-                                "pi": "", 
-                                "dist": dist_val
-                            }
-                            
-                            st.markdown("#### RECEPTION VIA SDR?")
-                            sdr_choice_map = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_map_{fk}")
-                            target_data["sdr"] = sdr_choice_map
+                            selected_items = []
+                            for layer_id, items in deck_event.selection.objects.items():
+                                if items:
+                                    selected_items.extend(items)
+                                    
+                            if selected_items:
+                                target = selected_items[0]
+                                dist_val = calculate_distance(active_lat, active_lon, target.get('LAT', 0.0), target.get('LON', 0.0))
+                                
+                                grid_str = f" | Grid: {target.get('Grid', '')}" if target.get('Grid') else ""
+                                dist_str = f" | {dist_val:.1f} mi" if dist_val > 0 else ""
+                                c_str = target.get('County', '')
+                                county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
+                                
+                                st.success(f"TARGET LOCKED VIA RADAR: {target.get('Callsign', 'Unknown')} ({target.get('City', '')}, {target.get('State', '')}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                                
+                                target_data = {
+                                    "freq": target.get('Frequency', ''), 
+                                    "call": target.get('Callsign', ''), 
+                                    "city": target.get('City', ''), 
+                                    "state": target.get('State', ''), 
+                                    "county": target.get('County', 'Unknown'), 
+                                    "country": target.get('Country', 'United States'), 
+                                    "grid": target.get('Grid', ''), 
+                                    "pi": "", 
+                                    "dist": dist_val
+                                }
+                                
+                                st.markdown("#### RECEPTION VIA SDR?")
+                                sdr_choice_map = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_map_{fk}")
+                                target_data["sdr"] = sdr_choice_map
 
                     else:
                         st.warning("NO TARGETS FOUND TO PLOT ON RADAR.")
