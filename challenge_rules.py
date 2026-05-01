@@ -3,20 +3,17 @@ import pandas as pd
 
 # =========================================================================
 # 🎯 DEFCON 6: TEMPORAL PARAMETERS (THE FORM LOCKER)
-# *** PRE-FLIGHT TESTING OVERRIDE ACTIVE ***
 # All times are handled strictly in UTC to prevent local timezone drift.
 # =========================================================================
 
 # 1. THE SUBMISSION WINDOW (When the Terminal accepts data entries)
-# OVERRIDE ACTIVE: Temporarily set to April 30 to allow immediate UI access.
-# CHANGE THIS BACK TO (2026, 5, 1, 23, 0) BEFORE LAUNCH!
-TERMINAL_OPEN = datetime.datetime(2026, 4, 30, 0, 0, tzinfo=datetime.timezone.utc)
+# Open immediately for launch prep, closes permanently on September 30.
+TERMINAL_OPEN = datetime.datetime(2026, 5, 1, 0, 0, tzinfo=datetime.timezone.utc)
 TERMINAL_CLOSE = datetime.datetime(2026, 9, 30, 23, 59, 59, tzinfo=datetime.timezone.utc)
 
 # 2. THE RECEPTION WINDOW (When the actual radio catch must have occurred)
-# OVERRIDE ACTIVE: Temporarily set to April 30 so your test entries don't fail validation.
-# CHANGE THIS BACK TO (2026, 5, 2, 1, 0) BEFORE LAUNCH!
-RECEPTION_START = datetime.datetime(2026, 4, 30, 0, 0, tzinfo=datetime.timezone.utc)
+# STRICT ENFORCEMENT: May 2, 2026 @ 01:00 UTC to August 31, 2026 @ 23:59:59 UTC
+RECEPTION_START = datetime.datetime(2026, 5, 2, 1, 0, tzinfo=datetime.timezone.utc)
 RECEPTION_END = datetime.datetime(2026, 8, 31, 23, 59, 59, tzinfo=datetime.timezone.utc)
 
 def is_terminal_open():
