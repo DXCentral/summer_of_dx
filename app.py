@@ -181,6 +181,12 @@ if 'operator_profile' not in st.session_state:
 if 'dash_nav' not in st.session_state: 
     st.session_state.dash_nav = "OVERVIEW"
 
+# Sticky Memory Initialization for IQ Recordings
+if 'iq_date' not in st.session_state: 
+    st.session_state.iq_date = datetime.datetime.now(datetime.timezone.utc).date()
+if 'iq_time' not in st.session_state: 
+    st.session_state.iq_time = datetime.datetime.now(datetime.timezone.utc).strftime("%H%M")
+
 def nav_to(page): 
     st.session_state.sys_state = page
 
@@ -820,13 +826,20 @@ with main_content:
                 except Exception as e: 
                     st.error(f"FILE PARSING ERROR: {e}")
 
-        st.markdown("#### 3. SUBMIT INTERCEPT")
+        st.markdown("#### 3. TIME SYNCHRONIZATION")
+        log_mode = st.radio("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], horizontal=True, key="mw_log_mode", label_visibility="collapsed")
+
+        st.markdown("#### 4. SUBMIT INTERCEPT")
         with st.form("mw_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns([1, 1, 1])
             now = datetime.datetime.now(datetime.timezone.utc)
             
-            log_date = col_s1.date_input("DATE (UTC)", value=now.date())
-            log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"))
+            # Use real-time for LIVE DX, use session state for IQ RECORDING
+            def_date = now.date() if "LIVE" in log_mode else st.session_state.iq_date
+            def_time = now.strftime("%H%M") if "LIVE" in log_mode else st.session_state.iq_time
+            
+            log_date = col_s1.date_input("DATE (UTC)", value=def_date)
+            log_time = col_s2.text_input("TIME (UTC)", value=def_time)
             
             if "sdr" in target_data: 
                 log_sdr = target_data["sdr"]
@@ -837,6 +850,10 @@ with main_content:
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
             if submit_log:
+                # Instantly save the submitted date/time to memory so it sticks for the next record
+                st.session_state.iq_date = log_date
+                st.session_state.iq_time = log_time
+                
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
@@ -1359,13 +1376,19 @@ with main_content:
                 except Exception as e: 
                     st.error(f"FILE PARSING ERROR: {e}")
 
-        st.markdown("#### 3. SUBMIT INTERCEPT")
+        st.markdown("#### 3. TIME SYNCHRONIZATION")
+        log_mode = st.radio("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], horizontal=True, key="fm_log_mode", label_visibility="collapsed")
+
+        st.markdown("#### 4. SUBMIT INTERCEPT")
         with st.form("fm_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns(3)
             now = datetime.datetime.now(datetime.timezone.utc)
             
-            log_date = col_s1.date_input("DATE (UTC)", value=now.date(), key="fm_dt")
-            log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="fm_tm")
+            def_date = now.date() if "LIVE" in log_mode else st.session_state.iq_date
+            def_time = now.strftime("%H%M") if "LIVE" in log_mode else st.session_state.iq_time
+            
+            log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="fm_dt")
+            log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="fm_tm")
             log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"])
             
             c_p1, c_p2, c_p3 = st.columns(3)
@@ -1382,6 +1405,10 @@ with main_content:
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
             if submit_log:
+                # Instantly save the submitted date/time to memory so it sticks for the next record
+                st.session_state.iq_date = log_date
+                st.session_state.iq_time = log_time
+                
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
@@ -1907,13 +1934,19 @@ with main_content:
                 except Exception as e: 
                     st.error(f"FILE ERROR: {e}")
 
-        st.markdown("#### 3. SUBMIT INTERCEPT")
+        st.markdown("#### 3. TIME SYNCHRONIZATION")
+        log_mode = st.radio("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], horizontal=True, key="nwr_log_mode", label_visibility="collapsed")
+
+        st.markdown("#### 4. SUBMIT INTERCEPT")
         with st.form("nwr_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns(3)
             now = datetime.datetime.now(datetime.timezone.utc)
             
-            log_date = col_s1.date_input("DATE (UTC)", value=now.date(), key="nwr_dt")
-            log_time = col_s2.text_input("TIME (UTC)", value=now.strftime("%H%M"), key="nwr_tm")
+            def_date = now.date() if "LIVE" in log_mode else st.session_state.iq_date
+            def_time = now.strftime("%H%M") if "LIVE" in log_mode else st.session_state.iq_time
+            
+            log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="nwr_dt")
+            log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="nwr_tm")
             log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"], key="nwr_prop")
             
             if "sdr" in target_data:
@@ -1925,6 +1958,10 @@ with main_content:
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
             if submit_log:
+                # Instantly save the submitted date/time to memory so it sticks for the next record
+                st.session_state.iq_date = log_date
+                st.session_state.iq_time = log_time
+                
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
