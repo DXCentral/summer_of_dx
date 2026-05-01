@@ -1580,7 +1580,20 @@ with main_content:
                     map_results = map_results[(map_results['LAT'] != 0.0) & (map_results['LON'] != 0.0)]
                     
                     if not map_results.empty:
-                        layer = pdk.Layer(
+                        # US States Borders Layer (Transparent fill, Cyan borders)
+                        state_borders = pdk.Layer(
+                            "GeoJsonLayer",
+                            "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+                            opacity=0.4,
+                            stroked=True,
+                            filled=False,
+                            get_line_color=[19, 154, 155, 200],  # DX Central Cyan
+                            get_line_width=3000,  # Line width in meters
+                            pickable=False
+                        )
+                        
+                        # Station Data Layer
+                        station_layer = pdk.Layer(
                             "ScatterplotLayer",
                             data=map_results,
                             get_position=["LON", "LAT"],
@@ -1600,7 +1613,7 @@ with main_content:
                             
                         st.pydeck_chart(pdk.Deck(
                             map_style="mapbox://styles/mapbox/dark-v10",
-                            layers=[layer],
+                            layers=[state_borders, station_layer],
                             initial_view_state=view_state,
                             tooltip={
                                 "html": tooltip_html,
