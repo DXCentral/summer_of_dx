@@ -1585,8 +1585,8 @@ with main_content:
                     st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
 
                 # Dynamically Inject RGBA Color Arrays based on Logged Status for PyDeck
-                # Cyan = [27, 210, 212, 180] | Green = [85, 255, 85, 200]
-                results['Color'] = results['Is_Logged'].apply(lambda x: [85, 255, 85, 200] if x else [27, 210, 212, 180])
+                # White = [255, 255, 255, 180] | Green = [85, 255, 85, 200]
+                results['Color'] = results['Is_Logged'].apply(lambda x: [85, 255, 85, 200] if x else [255, 255, 255, 180])
 
                 # ==========================================
                 # ROUTE 1: TACTICAL MAP VIEW
@@ -1890,7 +1890,7 @@ with main_content:
                                     
                                     # Aggressive NWR Frequency Filter
                                     try:
-                                        f_val = float(str(raw_freq).replace(',', '.'))
+                                        f_val = float(str(raw_freq).replace(',', '.').strip())
                                         if f_val < 162.0 or f_val > 163.0: 
                                             continue 
                                     except Exception: 
