@@ -1493,6 +1493,8 @@ with main_content:
                     
         st.markdown("#### 2. TARGET ACQUISITION")
         tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
+        
+        # Initialize target data so it exists across view switching
         target_data = {}
         
         with tab_search:
@@ -1527,15 +1529,19 @@ with main_content:
                 nwr_wfos = sorted([str(x) for x in nwr_db['WFO'].dropna().unique()]) if 'WFO' in nwr_db.columns else []
                 
                 f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"nwr_f1_{fk}")
-                f_state = c2.selectbox("STATE", ["All"] + nwr_states, key=f"nwr_f4_{fk}")
+                f_call = c2.text_input("CALLSIGN", key=f"nwr_f2_{fk}")
+                f_city = c3.text_input("CITY", key=f"nwr_f3_{fk}")
+                f_state = c4.selectbox("STATE", ["All"] + nwr_states, key=f"nwr_f4_{fk}")
                 
+                c5, c6, c7 = st.columns(3)
                 if nwr_wfos:
-                    f_wfo = c3.selectbox("WFO", ["All"] + nwr_wfos, key=f"nwr_wfo_{fk}")
+                    f_wfo = c5.selectbox("WFO", ["All"] + nwr_wfos, key=f"nwr_wfo_{fk}")
                 else:
-                    f_ctry = c3.selectbox("COUNTRY", ["All", "United States", "Canada", "Other"], key=f"nwr_ctry_{fk}")
+                    f_ctry = c5.selectbox("COUNTRY", ["All", "United States", "Canada", "Other"], key=f"nwr_ctry_{fk}")
                     f_wfo = "All"
-                    
-                f_status = c4.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"nwr_f8_{fk}")
+                
+                f_grid = c6.text_input("GRID", key=f"nwr_f7_{fk}")
+                f_status = c7.selectbox("STATUS", ["All", "Logged Only", "Not Logged Only"], key=f"nwr_f8_{fk}")
                 
                 # Execute primary filtering
                 results = nwr_db.copy()
@@ -1545,10 +1551,18 @@ with main_content:
                     results['LAT'] = pd.to_numeric(results['LAT'], errors='coerce')
                     results['LON'] = pd.to_numeric(results['LON'], errors='coerce')
                 
+                # Apply Base Filters
                 if f_freq != "All": 
                     results = results[results['Frequency'] == float(f_freq)]
+                if f_call: 
+                    c_simp = simplify_string(f_call)
+                    results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
+                if f_city: 
+                    results = results[results['City'].str.contains(f_city, case=False, na=False)]
                 if f_state != "All": 
                     results = results[results['State'] == f_state]
+                if f_grid: 
+                    results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
                 if f_wfo != "All" and 'WFO' in results.columns: 
                     results = results[results['WFO'] == f_wfo]
                 
@@ -1569,11 +1583,15 @@ with main_content:
                 else:
                     st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
 
+                # Dynamically Inject RGBA Color Arrays based on Logged Status for PyDeck
+                # Cyan = [27, 210, 212, 180] | Green = [85, 255, 85, 200]
+                results['Color'] = results['Is_Logged'].apply(lambda x: [85, 255, 85, 200] if x else [27, 210, 212, 180])
+
                 # ==========================================
                 # ROUTE 1: TACTICAL MAP VIEW
                 # ==========================================
                 if view_mode == "[ TACTICAL MAP VIEW ]":
-                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-bottom: 10px;'>*Geospatial Array Active. Hover over a target to view telemetry.*</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-bottom: 10px;'>*Geospatial Array Active. Click a target to lock coordinates.*</div>", unsafe_allow_html=True)
                     
                     # Strip null coordinate rows to prevent map crashing
                     map_results = results.dropna(subset=['LAT', 'LON'])
@@ -1597,7 +1615,7 @@ with main_content:
                             "ScatterplotLayer",
                             data=map_results,
                             get_position=["LON", "LAT"],
-                            get_color="[27, 210, 212, 180]", # DX Radio Cyan
+                            get_color="Color", # Uses dynamic logged/unlogged colors
                             get_radius=15000, # 15km radius
                             pickable=True,
                             auto_highlight=True
@@ -1611,7 +1629,8 @@ with main_content:
                         if 'WFO' in map_results.columns:
                             tooltip_html += "<br/><b>WFO:</b> {WFO}"
                             
-                        st.pydeck_chart(pdk.Deck(
+                        # Build and Render Map with INTERACTIVE onClick Event
+                        deck = pdk.Deck(
                             map_style="mapbox://styles/mapbox/dark-v10",
                             layers=[state_borders, station_layer],
                             initial_view_state=view_state,
@@ -1624,7 +1643,38 @@ with main_content:
                                     "fontFamily": "monospace"
                                 }
                             }
-                        ))
+                        )
+                        
+                        deck_event = st.pydeck_chart(deck, on_select="rerun", selection_mode="single_object")
+                        
+                        # Process Map Click
+                        if deck_event and deck_event.selection.objects:
+                            target = deck_event.selection.objects[0]
+                            dist_val = calculate_distance(active_lat, active_lon, target.get('LAT'), target.get('LON'))
+                            
+                            grid_str = f" | Grid: {target.get('Grid', '')}" if target.get('Grid') else ""
+                            dist_str = f" | {dist_val:.1f} mi" if dist_val > 0 else ""
+                            c_str = target.get('County', '')
+                            county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
+                            
+                            st.success(f"TARGET LOCKED VIA RADAR: {target['Callsign']} ({target['City']}, {target['State']}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                            
+                            target_data = {
+                                "freq": target['Frequency'], 
+                                "call": target['Callsign'], 
+                                "city": target['City'], 
+                                "state": target['State'], 
+                                "county": target.get('County', 'Unknown'), 
+                                "country": target.get('Country', 'United States'), 
+                                "grid": target.get('Grid', ''), 
+                                "pi": "", 
+                                "dist": dist_val
+                            }
+                            
+                            st.markdown("#### RECEPTION VIA SDR?")
+                            sdr_choice_map = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_map_{fk}")
+                            target_data["sdr"] = sdr_choice_map
+
                     else:
                         st.warning("NO TARGETS FOUND TO PLOT ON RADAR.")
 
@@ -1632,20 +1682,6 @@ with main_content:
                 # ROUTE 2: STANDARD DATABANK VIEW
                 # ==========================================
                 else:
-                    # Specific text filters only needed for the table view
-                    c5, c6, c7 = st.columns(3)
-                    f_call = c5.text_input("CALLSIGN FILTER", key=f"nwr_f2_{fk}")
-                    f_city = c6.text_input("CITY FILTER", key=f"nwr_f3_{fk}")
-                    f_grid = c7.text_input("GRID FILTER", key=f"nwr_f7_{fk}")
-                    
-                    if f_call: 
-                        c_simp = simplify_string(f_call)
-                        results = results[results['Callsign'].apply(lambda x: c_simp in simplify_string(x))]
-                    if f_city: 
-                        results = results[results['City'].str.contains(f_city, case=False, na=False)]
-                    if f_grid: 
-                        results = results[results['Grid'].str.contains(f_grid.upper(), na=False)]
-                        
                     st.write(f"> {len(results)} TARGETS FOUND:")
                     st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: Weather.gov (NWR)*</div>", unsafe_allow_html=True)
                     
