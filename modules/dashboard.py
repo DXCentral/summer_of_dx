@@ -53,6 +53,14 @@ BAND_CONFIG = {
     "NWR": {"min": 162.400, "max": 162.550, "unit": "MHz", "step": 0.025}
 }
 
+# --- COUNTY SANITIZER ENGINE ---
+def sanitize_county(name):
+    """Aggressively standardizes county names to prevent mapping drop-offs."""
+    n = str(name).upper().strip()
+    n = n.replace(' COUNTY', '').replace(' PARISH', '')
+    n = n.replace('SAINT ', 'ST').replace('SAINT', 'ST')
+    return re.sub(r'[^A-Z0-9]', '', n)
+
 @st.cache_data
 def get_custom_county_geojson():
     url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
@@ -62,26 +70,24 @@ def get_custom_county_geojson():
         for feature in geojson['features']:
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
             state_abbr = FIPS_TO_ABBR.get(state_fips, "").upper()
-            county_name = str(feature['properties'].get('NAME', '')).strip().upper()
+            county_name = str(feature['properties'].get('NAME', ''))
             
-            # Sanitizer: Strip all punctuation and spaces to guarantee match
-            county_name_clean = re.sub(r'[^A-Z0-9]', '', county_name)
-            
-            map_id = f"{state_abbr}_{county_name_clean}"
+            # Apply universal sanitizer
+            map_id = f"{state_abbr}_{sanitize_county(county_name)}"
             feature['id'] = map_id
         return geojson
     except Exception:
         return None
 
-@st.cache_data
-def generate_grid_geojson(_grids):
+# CACHE ENGINE REMOVED TO PREVENT STALE GRID RENDER BUGS
+def generate_grid_geojson(grids):
     features = []
-    for g in _grids:
+    for g in grids:
         g = str(g).strip()
         if len(g) >= 4:
             g4 = g[:4].upper()
-            # Validator: Ensure it's a valid Maidenhead format (Letter, Letter, Number, Number)
-            if not (g4[0].isalpha() and g4[1].isalpha() and g4[2].isdigit() and g4[3].isdigit()):
+            # Strict format validation to prevent geocoding crashes
+            if not (len(g4) == 4 and g4[0].isalpha() and g4[1].isalpha() and g4[2].isdigit() and g4[3].isdigit()):
                 continue
             try:
                 lon = (ord(g4[0]) - ord('A')) * 20 - 180 + int(g4[2]) * 2
@@ -797,8 +803,7 @@ def render_dashboard():
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
                 if not us_c_df.empty:
-                    us_c_df['Clean_County'] = us_c_df['County'].str.replace(' County', '', case=False).str.replace(' Parish', '', case=False).str.upper()
-                    us_c_df['Clean_County'] = us_c_df['Clean_County'].apply(lambda x: re.sub(r'[^A-Z0-9]', '', str(x)))
+                    us_c_df['Clean_County'] = us_c_df['County'].apply(sanitize_county)
                     us_c_df['Map_ID'] = us_c_df['State'].str.strip().str.upper() + "_" + us_c_df['Clean_County']
                     
                     county_counts = us_c_df.groupby(['Map_ID', 'County', 'State']).size().reset_index(name='Logs')
