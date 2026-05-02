@@ -15,18 +15,18 @@ from modules.importers import calculate_distance  # INJECTED FOR DYNAMIC DISTANC
 
 # --- CYAN ESPIONAGE AESTHETIC ---
 CYAN_SCALE = [
-    '#0a4040', 
-    '#139a9b', 
+    '#167a7b', # Brightened from #0a4040 to prevent optical camouflage
     '#1bd2d4', 
+    '#5ce1e2', 
     '#a3e8e9', 
     '#ffffff'
 ]
 
 # RGB Scale for PyDeck Heatmap
 CYAN_RGB_SCALE = [
-    [10, 64, 64], 
-    [19, 154, 155], 
+    [22, 122, 123], # Brightened from [10, 64, 64]
     [27, 210, 212], 
+    [92, 225, 226], 
     [163, 232, 233], 
     [255, 255, 255]
 ]
@@ -882,7 +882,38 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # --- TACTICAL SECTORS ---
+        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
+        filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
+        filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
+        
+        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
+        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
+        
+        # Universal Geocoder Override to eliminate Null Island drops
+        mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
+        if mask.any():
+            missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
+            lats, lons = [], []
+            for _, r in missing_locs.iterrows():
+                city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') != '' else r['DXer_City']
+                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
+                lats.append(lat)
+                lons.append(lon)
+            missing_locs['New_Lat'] = lats
+            missing_locs['New_Lon'] = lons
+            
+            filt_df = filt_df.merge(missing_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
+            filt_df['DX_Lat'] = filt_df['DX_Lat'].where(~mask, filt_df['New_Lat'])
+            filt_df['DX_Lon'] = filt_df['DX_Lon'].where(~mask, filt_df['New_Lon'])
+            filt_df.drop(columns=['New_Lat', 'New_Lon'], inplace=True)
+            
+        if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
+        if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
+        
+        filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
+        filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
+        
+        # --- 2. TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
