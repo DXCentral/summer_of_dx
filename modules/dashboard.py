@@ -117,6 +117,13 @@ def render_dashboard():
         st.error("🚨 SYSTEM ALERT: DATABANK OFFLINE OR EMPTY.")
         st.stop()
         
+    # =====================================================================
+    # GLOBAL DATA SANITIZER (Eliminates Whitespace Anomalies)
+    # =====================================================================
+    df['Country'] = df['Country'].astype(str).replace({'USA': 'United States', 'US': 'United States', 'United states': 'United States'}).str.strip()
+    df['Station_Grid'] = df['Station_Grid'].astype(str).str.strip()
+    df['County'] = df['County'].astype(str).str.strip()
+        
     st.markdown("""
     <style>
     @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -821,11 +828,15 @@ def render_dashboard():
         elif geo_tab == "GRIDSQUARES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_grid")
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
-            grid_df = map_df[(map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')].copy()
+            
+            # The Whitespace Anomaly Eliminator
+            grid_df = map_df[map_df['Station_Grid'].notna() & (map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')].copy()
+            grid_df['Grid4'] = grid_df['Station_Grid'].astype(str).str.strip().str[:4].str.upper()
+            grid_df = grid_df[grid_df['Grid4'].str.match(r'^[A-Z]{2}[0-9]{2}$', na=False)]
+            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_grid else st.columns([1, 0.001])
             with cm1:
                 if not grid_df.empty:
-                    grid_df['Grid4'] = grid_df['Station_Grid'].str[:4].str.upper()
                     grid_geojson = generate_grid_geojson(list(grid_df['Grid4'].unique()))
                     grid_counts = grid_df.groupby('Grid4').size().reset_index(name='Logs')
                     
@@ -843,7 +854,7 @@ def render_dashboard():
                             st.rerun()
             if st.session_state.geo_grid:
                 with cm2:
-                    g_df = filt_df[filt_df['Station_Grid'].str.upper().str.startswith(st.session_state.geo_grid)]
+                    g_df = filt_df[filt_df['Station_Grid'].astype(str).str.strip().str.upper().str.startswith(st.session_state.geo_grid)]
                     render_geo_flyout("GRIDSQUARE", st.session_state.geo_grid, g_df)
                     
         elif geo_tab == "STATION LOCATIONS":
