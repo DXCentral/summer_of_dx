@@ -344,9 +344,14 @@ with main_content:
             op_city = c1.text_input("HOME QTH: CITY", value=st.session_state.get("op_city_val", ""))
             op_state = c2.text_input("STATE/PROV", value=st.session_state.get("op_state_val", ""))
             
-            ctry_options = ["United States", "Canada", "Mexico", "United Kingdom", "Australia", "Other"]
+            # --- DYNAMIC COUNTRY OVERRIDE FIX ---
+            base_countries = set(country_list + ["United States", "Canada", "Mexico", "United Kingdom", "Australia", "Other"])
             curr_ctry = st.session_state.get("op_country_val", "United States")
-            ctry_idx = ctry_options.index(curr_ctry) if curr_ctry in ctry_options else 0
+            if curr_ctry and curr_ctry not in base_countries:
+                base_countries.add(curr_ctry)
+            ctry_options = sorted(list(base_countries))
+            
+            ctry_idx = ctry_options.index(curr_ctry) if curr_ctry in ctry_options else ctry_options.index("United States")
             op_country = c3.selectbox("COUNTRY", ctry_options, index=ctry_idx)
             
             remember_me = st.checkbox("[ SAVE CREDENTIALS TO LOCAL TERMINAL ]", value=True)
@@ -378,10 +383,12 @@ with main_content:
         if not BOUNTY_ACTIVE:
             st.warning("⚠️ BOUNTY MODULE OFFLINE. Ensure 'modules/bounty.py' is deployed.")
             
+        st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
+        
         st.markdown("---")
         
         st.markdown("### 📡 COMMUNIQUE FROM HIGH COMMAND")
-        st.info("**ATTENTION ALL AGENTS:** Based on field intelligence, we have re-calibrated the geographic multiplier logic. Moving forward, individual States and Provinces within the **United States, Canada, and Mexico** will each grant an independent multiplier. For all other international intercepts, agents will receive a single multiplier for the **Country** as a whole.")
+        st.info("**ATTENTION ALL AGENTS:** Due to feedback from field operatives, we have re-calibrated the multiplier logic. Moving forward, individual States and Provinces within the **United States, Canada, and Mexico** will each independently count as a multiplier. For all other international intercepts, agents will receive a single multiplier for the **Country** as a whole.")
         
         st.markdown("<br>", unsafe_allow_html=True)
         
@@ -391,8 +398,8 @@ with main_content:
             st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
             st.markdown("""
             <div class='classified-box' style='height: 250px; overflow-y: auto;'>
-                <b style='color:#1bd2d4;'>[ v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Geographic Multipliers updated. Multipliers are now strictly isolated to US States, Canadian Provinces, and Mexican States. All other intercepts grant a single Country multiplier.<br><br>
-                <b style='color:#1bd2d4;'>[ v1.0.0 ] SYSTEM ONLINE:</b> Operation SUMMER OF DX (DEFCON 6) officially launched. All tracking databanks and tactical radars initialized.
+                <b style='color:#1bd2d4;'>[ v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Fixed the scoring matrix so that the only multipliers are US States, Canadian Provinces, and Mexican States, alongside a single multiplier per international country.<br><br>
+                <b style='color:#1bd2d4;'>[ v1.0.0 ] SYSTEM ONLINE:</b> Official launch of Operation SUMMER OF DX (DEFCON 6).
             </div>
             """, unsafe_allow_html=True)
             
@@ -1619,7 +1626,7 @@ with main_content:
                 # ROUTE 1: TACTICAL MAP VIEW
                 # ==========================================
                 if view_mode == "[ TACTICAL MAP VIEW ]":
-                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-bottom: 10px;'>*Geospatial Array Active. Click a target to lock coordinates.*</div>", unsafe_allow_html=True)
+                    st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-bottom: 10px;'>*Geospatial Array Active. Hover over a target to view telemetry.*</div>", unsafe_allow_html=True)
                     
                     # Strip null coordinate rows to prevent map crashing
                     map_results = results.dropna(subset=['LAT', 'LON'])
@@ -1641,7 +1648,6 @@ with main_content:
                         # Station Data Layer
                         station_layer = pdk.Layer(
                             "ScatterplotLayer",
-                            id="nwr_targets",
                             data=map_results,
                             get_position=["LON", "LAT"],
                             get_color="Color", # Uses dynamic logged/unlogged colors
@@ -1658,8 +1664,7 @@ with main_content:
                         if 'WFO' in map_results.columns:
                             tooltip_html += "<br/><b>WFO:</b> {WFO}"
                             
-                        # Build and Render Map with INTERACTIVE onClick Event
-                        deck = pdk.Deck(
+                        st.pydeck_chart(pdk.Deck(
                             map_style="mapbox://styles/mapbox/dark-v10",
                             layers=[state_borders, station_layer],
                             initial_view_state=view_state,
@@ -1672,44 +1677,7 @@ with main_content:
                                     "fontFamily": "monospace"
                                 }
                             }
-                        )
-                        
-                        deck_event = st.pydeck_chart(deck, on_select="rerun", selection_mode="single-object")
-                        
-                        # Safely Process Map Click from the PyDeck Event Dictionary
-                        if deck_event and deck_event.selection.objects:
-                            selected_items = []
-                            for layer_id, items in deck_event.selection.objects.items():
-                                if items:
-                                    selected_items.extend(items)
-                                    
-                            if selected_items:
-                                target = selected_items[0]
-                                dist_val = calculate_distance(active_lat, active_lon, target.get('LAT', 0.0), target.get('LON', 0.0))
-                                
-                                grid_str = f" | Grid: {target.get('Grid', '')}" if target.get('Grid') else ""
-                                dist_str = f" | {dist_val:.1f} mi" if dist_val > 0 else ""
-                                c_str = target.get('County', '')
-                                county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
-                                
-                                st.success(f"TARGET LOCKED VIA RADAR: {target.get('Callsign', 'Unknown')} ({target.get('City', '')}, {target.get('State', '')}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
-                                
-                                target_data = {
-                                    "freq": target.get('Frequency', ''), 
-                                    "call": target.get('Callsign', ''), 
-                                    "city": target.get('City', ''), 
-                                    "state": target.get('State', ''), 
-                                    "county": target.get('County', 'Unknown'), 
-                                    "country": target.get('Country', 'United States'), 
-                                    "grid": target.get('Grid', ''), 
-                                    "pi": "", 
-                                    "dist": dist_val
-                                }
-                                
-                                st.markdown("#### RECEPTION VIA SDR?")
-                                sdr_choice_map = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_map_{fk}")
-                                target_data["sdr"] = sdr_choice_map
-
+                        ))
                     else:
                         st.warning("NO TARGETS FOUND TO PLOT ON RADAR.")
 
