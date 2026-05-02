@@ -24,7 +24,7 @@ def render_terminal_home(awards_active=True, bounty_active=True):
     with col_news:
         st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
         st.markdown("""
-        <div class='classified-box' style='height: 250px; overflow-y: auto;'>
+        <div class='classified-box' style='height: 350px; overflow-y: auto;'>
             <b style='color:#1bd2d4;'>[ v1.0.2 ] GEOSPATIAL & UI OPTIMIZATION:</b> County and Gridsquare tactical maps upgraded with enhanced luminance scaling and density rendering for absolute precision. Intelligence Ledgers reconfigured to eliminate data truncation.<br><br>
             <b style='color:#1bd2d4;'>[ v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Fixed the scoring matrix so that the only multipliers are US States, Canadian Provinces, and Mexican States, alongside a single multiplier per international country.<br><br>
             <b style='color:#1bd2d4;'>[ v1.0.0 ] SYSTEM ONLINE:</b> Official launch of Operation SUMMER OF DX (DEFCON 6). All tracking databanks and tactical radars initialized.
@@ -34,7 +34,7 @@ def render_terminal_home(awards_active=True, bounty_active=True):
     with col_contact:
         st.markdown("### ⚠️ SECURE COMM LINK")
         st.markdown("""
-        <div class='classified-box' style='text-align: center; height: 250px;'>
+        <div class='classified-box' style='text-align: center; height: 350px;'>
             If you encounter systemic anomalies, rendering bugs, or require intel clarification, contact High Command immediately:<br><br>
             <b style='font-size: 1.4rem; color: #1bd2d4;'><a href='mailto:admin@summerofdx.com' style='color:#1bd2d4; text-decoration:none;'>admin@summerofdx.com</a></b><br><br>
             <i>Please include your Agent Identity and any active Terminal Error Codes in your transmission.</i>
