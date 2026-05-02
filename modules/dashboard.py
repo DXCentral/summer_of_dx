@@ -262,8 +262,8 @@ def render_dashboard():
     # DYNAMIC DISTANCE RECALCULATOR (Catches Manual 0-mile logs)
     df['Distance'] = df.apply(lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) if (pd.isna(r['Distance']) or r['Distance'] == 0.0) else r['Distance'], axis=1)
     
-    # Recalculate Base Score with New Distance
-    df['Dist_Points'] = df['Distance'].apply(lambda x: math.floor(x / 100) + 1 if x >= 0 else 0)
+    # Recalculate Base Score with New Distance (UPDATED FOR 0-199 MILE THRESHOLD)
+    df['Dist_Points'] = df['Distance'].apply(lambda x: max(1, math.floor(x / 100)) if x >= 0 else 0)
     df['Base_Score'] = df['Dist_Points'] + df['SDR_Bonus']
     
     df['Mid_Lat'] = (df['DX_Lat'] + df['ST_Lat']) / 2
