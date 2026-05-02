@@ -25,9 +25,9 @@ def render_terminal_home(awards_active=True, bounty_active=True):
         st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
         st.markdown("""
         <div class='classified-box' style='height: 350px; overflow-y: auto;'>
-            <b style='color:#1bd2d4;'>[ v1.0.2 ] GEOSPATIAL & UI OPTIMIZATION:</b> County and Gridsquare tactical maps upgraded with enhanced luminance scaling and density rendering for absolute precision. Intelligence Ledgers reconfigured to eliminate data truncation.<br><br>
-            <b style='color:#1bd2d4;'>[ v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Fixed the scoring matrix so that the only multipliers are US States, Canadian Provinces, and Mexican States, alongside a single multiplier per international country.<br><br>
-            <b style='color:#1bd2d4;'>[ v1.0.0 ] SYSTEM ONLINE:</b> Official launch of Operation SUMMER OF DX (DEFCON 6). All tracking databanks and tactical radars initialized.
+            <b style='color:#1bd2d4;'>[ 2026-05-02 | v1.0.2 ] GEOSPATIAL & UI OPTIMIZATION:</b> County and Gridsquare tactical maps upgraded with enhanced luminance scaling and density rendering for absolute precision. Intelligence Ledgers reconfigured to eliminate data truncation.<br><br>
+            <b style='color:#1bd2d4;'>[ 2026-05-02 | v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Fixed the scoring matrix so that the only multipliers are US States, Canadian Provinces, and Mexican States, alongside a single multiplier per international country.<br><br>
+            <b style='color:#1bd2d4;'>[ 2026-05-01 | v1.0.0 ] SYSTEM ONLINE:</b> Official launch of Operation SUMMER OF DX (DEFCON 6). All tracking databanks and tactical radars initialized.
         </div>
         """, unsafe_allow_html=True)
         
