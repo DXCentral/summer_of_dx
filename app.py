@@ -377,7 +377,34 @@ with main_content:
             st.warning("⚠️ AWARDS MODULE OFFLINE. Ensure 'modules/awards.py' is deployed to activate Century Club notifications.")
         if not BOUNTY_ACTIVE:
             st.warning("⚠️ BOUNTY MODULE OFFLINE. Ensure 'modules/bounty.py' is deployed.")
-        st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
+            
+        st.markdown("---")
+        
+        st.markdown("### 📡 COMMUNIQUE FROM HIGH COMMAND")
+        st.info("**ATTENTION ALL AGENTS:** Based on field intelligence, we have re-calibrated the geographic multiplier logic. Moving forward, individual States and Provinces within the **United States, Canada, and Mexico** will each grant an independent multiplier. For all other international intercepts, agents will receive a single multiplier for the **Country** as a whole.")
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        
+        col_news, col_contact = st.columns([2, 1])
+        
+        with col_news:
+            st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
+            st.markdown("""
+            <div class='classified-box' style='height: 250px; overflow-y: auto;'>
+                <b style='color:#1bd2d4;'>[ v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Geographic Multipliers updated. Multipliers are now strictly isolated to US States, Canadian Provinces, and Mexican States. All other intercepts grant a single Country multiplier.<br><br>
+                <b style='color:#1bd2d4;'>[ v1.0.0 ] SYSTEM ONLINE:</b> Operation SUMMER OF DX (DEFCON 6) officially launched. All tracking databanks and tactical radars initialized.
+            </div>
+            """, unsafe_allow_html=True)
+            
+        with col_contact:
+            st.markdown("### ⚠️ SECURE COMM LINK")
+            st.markdown("""
+            <div class='classified-box' style='text-align: center; height: 250px;'>
+                If you encounter systemic anomalies, rendering bugs, or require intel clarification, contact High Command immediately:<br><br>
+                <b style='font-size: 1.4rem; color: #1bd2d4;'><a href='mailto:admin@summerofdx.com' style='color:#1bd2d4; text-decoration:none;'>admin@summerofdx.com</a></b><br><br>
+                <i>Please include your Agent Identity and any active Terminal Error Codes in your transmission.</i>
+            </div>
+            """, unsafe_allow_html=True)
 
     # --- PROTOCOLS ---
     elif st.session_state.sys_state == "RULES":
