@@ -61,9 +61,13 @@ def get_custom_county_geojson():
         geojson = resp.json()
         for feature in geojson['features']:
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
-            state_abbr = FIPS_TO_ABBR.get(state_fips, "")
-            county_name = str(feature['properties'].get('NAME', '')).strip()
-            map_id = f"{state_abbr}_{county_name}"
+            state_abbr = FIPS_TO_ABBR.get(state_fips, "").upper()
+            county_name = str(feature['properties'].get('NAME', '')).strip().upper()
+            
+            # Sanitizer: Strip all punctuation and spaces to guarantee match
+            county_name_clean = re.sub(r'[^A-Z0-9]', '', county_name)
+            
+            map_id = f"{state_abbr}_{county_name_clean}"
             feature['id'] = map_id
         return geojson
     except Exception:
@@ -73,8 +77,12 @@ def get_custom_county_geojson():
 def generate_grid_geojson(_grids):
     features = []
     for g in _grids:
+        g = str(g).strip()
         if len(g) >= 4:
             g4 = g[:4].upper()
+            # Validator: Ensure it's a valid Maidenhead format (Letter, Letter, Number, Number)
+            if not (g4[0].isalpha() and g4[1].isalpha() and g4[2].isdigit() and g4[3].isdigit()):
+                continue
             try:
                 lon = (ord(g4[0]) - ord('A')) * 20 - 180 + int(g4[2]) * 2
                 lat = (ord(g4[1]) - ord('A')) * 10 - 90 + int(g4[3]) * 1
@@ -782,8 +790,10 @@ def render_dashboard():
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
                 if not us_c_df.empty:
-                    us_c_df['Clean_County'] = us_c_df['County'].str.replace(' County', '', case=False).str.replace(' Parish', '', case=False).str.strip()
-                    us_c_df['Map_ID'] = us_c_df['State'].str.strip() + "_" + us_c_df['Clean_County']
+                    us_c_df['Clean_County'] = us_c_df['County'].str.replace(' County', '', case=False).str.replace(' Parish', '', case=False).str.upper()
+                    us_c_df['Clean_County'] = us_c_df['Clean_County'].apply(lambda x: re.sub(r'[^A-Z0-9]', '', str(x)))
+                    us_c_df['Map_ID'] = us_c_df['State'].str.strip().str.upper() + "_" + us_c_df['Clean_County']
+                    
                     county_counts = us_c_df.groupby(['Map_ID', 'County', 'State']).size().reset_index(name='Logs')
                     county_counts['HoverName'] = county_counts['County'] + ", " + county_counts['State']
                     c_gj = get_custom_county_geojson()
@@ -818,8 +828,8 @@ def render_dashboard():
                     grid_df['Grid4'] = grid_df['Station_Grid'].str[:4].str.upper()
                     grid_geojson = generate_grid_geojson(list(grid_df['Grid4'].unique()))
                     grid_counts = grid_df.groupby('Grid4').size().reset_index(name='Logs')
-                    grid_counts['Active'] = 'Yes'
-                    fig_g = px.choropleth_mapbox(grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id', color='Active', color_discrete_map={'Yes': 'rgba(27, 210, 212, 0.4)'}, hover_name='Grid4', mapbox_style="carto-darkmatter", center=dict(lat=40, lon=-95), zoom=2.5)
+                    
+                    fig_g = px.choropleth_mapbox(grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id', color='Logs', color_continuous_scale=CYAN_SCALE, hover_name='Grid4', mapbox_style="carto-darkmatter", center=dict(lat=40, lon=-95), zoom=2.5)
                     fig_g.update_traces(marker_line_width=1.5, marker_line_color='#050505')
                     fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
                 else: fig_g = go.Figure()
@@ -872,38 +882,7 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
-        filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
-        filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
-        
-        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
-        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
-        
-        # Universal Geocoder Override to eliminate Null Island drops
-        mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
-        if mask.any():
-            missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
-            lats, lons = [], []
-            for _, r in missing_locs.iterrows():
-                city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') != '' else r['DXer_City']
-                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
-                lats.append(lat)
-                lons.append(lon)
-            missing_locs['New_Lat'] = lats
-            missing_locs['New_Lon'] = lons
-            
-            filt_df = filt_df.merge(missing_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
-            filt_df['DX_Lat'] = filt_df['DX_Lat'].where(~mask, filt_df['New_Lat'])
-            filt_df['DX_Lon'] = filt_df['DX_Lon'].where(~mask, filt_df['New_Lon'])
-            filt_df.drop(columns=['New_Lat', 'New_Lon'], inplace=True)
-            
-        if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
-        if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
-        
-        filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
-        filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
-        
-        # --- 2. TACTICAL SECTORS ---
+        # --- TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
