@@ -22,6 +22,7 @@ from modules.data_forge import (
     get_gsheet, get_full_logs_df, itu_map, load_mw_intel, load_fm_intel, load_nwr_intel
 )
 from modules.dashboard import render_dashboard
+from modules.terminal_home import render_terminal_home # INJECTED THE NEW HOME MODULE
 from challenge_rules import is_terminal_open, is_reception_valid, filter_bulk_dataframe
 
 # --- BULLETPROOF IMPORT FAILSAFES ---
@@ -375,43 +376,7 @@ with main_content:
 
     # --- 8B. THE HOME TERMINAL ---
     elif st.session_state.sys_state == "TERMINAL_HOME":
-        st.markdown('<div class="typewriter">GREETINGS, FELLOW SIGNAL TRAVELER.<br>WOULD YOU LIKE TO PLAY A GAME?<span class="blink">_</span></div>', unsafe_allow_html=True)
-        if "gcp_service_account" not in st.secrets:
-            st.error("🚨 [ SYSTEM ALERT ] DATALINK OFFLINE. Streamlit Secrets not configured. Logs cannot be submitted to the Google Sheet.")
-        if not AWARDS_ACTIVE:
-            st.warning("⚠️ AWARDS MODULE OFFLINE. Ensure 'modules/awards.py' is deployed to activate Century Club notifications.")
-        if not BOUNTY_ACTIVE:
-            st.warning("⚠️ BOUNTY MODULE OFFLINE. Ensure 'modules/bounty.py' is deployed.")
-            
-        st.write("Use the **[ SYSTEM COMMAND MENU ]** in the sidebar to navigate the mainframe.")
-        
-        st.markdown("---")
-        
-        st.markdown("### 📡 COMMUNIQUE FROM HIGH COMMAND")
-        st.info("**ATTENTION ALL AGENTS:** Due to feedback from field operatives, we have re-calibrated the multiplier logic. Moving forward, individual States and Provinces within the **United States, Canada, and Mexico** will each independently count as a multiplier. For all other international intercepts, agents will receive a single multiplier for the **Country** as a whole.")
-        
-        st.markdown("<br>", unsafe_allow_html=True)
-        
-        col_news, col_contact = st.columns([2, 1])
-        
-        with col_news:
-            st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
-            st.markdown("""
-            <div class='classified-box' style='height: 250px; overflow-y: auto;'>
-                <b style='color:#1bd2d4;'>[ v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Fixed the scoring matrix so that the only multipliers are US States, Canadian Provinces, and Mexican States, alongside a single multiplier per international country.<br><br>
-                <b style='color:#1bd2d4;'>[ v1.0.0 ] SYSTEM ONLINE:</b> Official launch of Operation SUMMER OF DX (DEFCON 6).
-            </div>
-            """, unsafe_allow_html=True)
-            
-        with col_contact:
-            st.markdown("### ⚠️ SECURE COMM LINK")
-            st.markdown("""
-            <div class='classified-box' style='text-align: center; height: 250px;'>
-                If you encounter systemic anomalies, rendering bugs, or require intel clarification, contact High Command immediately:<br><br>
-                <b style='font-size: 1.4rem; color: #1bd2d4;'><a href='mailto:admin@summerofdx.com' style='color:#1bd2d4; text-decoration:none;'>admin@summerofdx.com</a></b><br><br>
-                <i>Please include your Agent Identity and any active Terminal Error Codes in your transmission.</i>
-            </div>
-            """, unsafe_allow_html=True)
+        render_terminal_home(awards_active=AWARDS_ACTIVE, bounty_active=BOUNTY_ACTIVE)
 
     # --- PROTOCOLS ---
     elif st.session_state.sys_state == "RULES":
@@ -2042,17 +2007,11 @@ with main_content:
                                         get_logged_dict.clear()
                                     except Exception: pass
                                     
-                                    st.success(f"### [ {len(bulk_rows)} RECORDS TRANSMITTED ]")
-                                    if skipped_dupes > 0:
-                                        st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
-                                    if skipped_out_of_range > 0:
-                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
+                                    st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                                     st.balloons()
                                     
                                 except Exception as e: 
-                                    st.error(f"BULK FAILED: {e}")
-                except Exception as e: 
-                    st.error(f"FILE ERROR: {e}")
+                                    st.error(f"FAILED: {e}")
 
         st.markdown("#### 3. TIME SYNCHRONIZATION")
         log_mode = st.radio("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], horizontal=True, key="nwr_log_mode", label_visibility="collapsed")
