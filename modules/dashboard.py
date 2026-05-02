@@ -11,6 +11,7 @@ import re
 import math
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 from modules.awards import manual_award_claim_popup
+from modules.importers import calculate_distance  # INJECTED FOR DYNAMIC DISTANCE RECALCULATION
 
 # --- CYAN ESPIONAGE AESTHETIC ---
 CYAN_SCALE = [
@@ -214,7 +215,61 @@ def render_dashboard():
             else:
                 st.toast("🚨 FREQUENCY OUT OF BAND LIMITS", icon="⚠️")
         st.session_state.direct_freq_input = ""
-        
+
+    # =====================================================================
+    # THE PRE-FLIGHT GLOBAL GEOCODER & RECALCULATION OVERRIDE
+    # =====================================================================
+    df['Date_TS'] = pd.to_datetime(df['Date_Str'], errors='coerce')
+    df['Date_Obj'] = df['Date_TS'].dt.date
+    
+    if 'DX_Lat' not in df.columns: df['DX_Lat'] = 0.0
+    if 'DX_Lon' not in df.columns: df['DX_Lon'] = 0.0
+    if 'ST_Lat' not in df.columns: df['ST_Lat'] = 0.0
+    if 'ST_Lon' not in df.columns: df['ST_Lon'] = 0.0
+    
+    # Universal Geocoder Override: Fix Missing DXer Coordinates
+    mask_dx = df['DX_Lat'].isna() | (df['DX_Lat'] == 0.0)
+    if mask_dx.any():
+        missing_dx = df[mask_dx][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
+        lats, lons = [], []
+        for _, r in missing_dx.iterrows():
+            city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') not in ['', 'XX', 'DX'] else r['DXer_City']
+            lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
+            lats.append(lat)
+            lons.append(lon)
+        missing_dx['New_DX_Lat'], missing_dx['New_DX_Lon'] = lats, lons
+        df = df.merge(missing_dx, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
+        df['DX_Lat'] = df['DX_Lat'].where(~mask_dx, df['New_DX_Lat'])
+        df['DX_Lon'] = df['DX_Lon'].where(~mask_dx, df['New_DX_Lon'])
+        df.drop(columns=['New_DX_Lat', 'New_DX_Lon'], inplace=True)
+
+    # Universal Geocoder Override: Fix Missing Station Coordinates (Null Island Anomaly)
+    mask_st = df['ST_Lat'].isna() | (df['ST_Lat'] == 0.0)
+    if mask_st.any():
+        missing_st = df[mask_st][['City', 'State', 'Country']].drop_duplicates()
+        lats, lons = [], []
+        for _, r in missing_st.iterrows():
+            city_q = f"{r['City']}, {r['State']}" if pd.notna(r.get('State')) and r.get('State') not in ['', 'XX', 'DX', ' - '] else r['City']
+            lat, lon = get_lat_lon_from_city(city_q, r['Country'])
+            lats.append(lat)
+            lons.append(lon)
+        missing_st['New_ST_Lat'], missing_st['New_ST_Lon'] = lats, lons
+        df = df.merge(missing_st, on=['City', 'State', 'Country'], how='left')
+        df['ST_Lat'] = df['ST_Lat'].where(~mask_st, df['New_ST_Lat'])
+        df['ST_Lon'] = df['ST_Lon'].where(~mask_st, df['New_ST_Lon'])
+        df.drop(columns=['New_ST_Lat', 'New_ST_Lon'], inplace=True)
+
+    # DYNAMIC DISTANCE RECALCULATOR (Catches Manual 0-mile logs)
+    df['Distance'] = df.apply(lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) if (pd.isna(r['Distance']) or r['Distance'] == 0.0) else r['Distance'], axis=1)
+    
+    # Recalculate Base Score with New Distance
+    df['Dist_Points'] = df['Distance'].apply(lambda x: math.floor(x / 100) + 1 if x >= 0 else 0)
+    df['Base_Score'] = df['Dist_Points'] + df['SDR_Bonus']
+    
+    df['Mid_Lat'] = (df['DX_Lat'] + df['ST_Lat']) / 2
+    df['Mid_Lon'] = (df['DX_Lon'] + df['ST_Lon']) / 2
+
+    # =====================================================================
     st.markdown("<hr style='margin-top: 5px; margin-bottom: 15px;'>", unsafe_allow_html=True)
     
     # --- GLOBAL FILTERS ---
@@ -240,18 +295,6 @@ def render_dashboard():
     f_month = c_f12.selectbox("Month", ["ALL"] + sorted(df['Month'].dropna().unique().tolist()), key=f"f_month_{fk}")
 
     st.button("[ RESET ALL FILTERS ]", on_click=reset_filters, key=f"btn_reset_{fk}")
-
-    # Pre-process dates and geometry for the entire dataframe run
-    df['Date_TS'] = pd.to_datetime(df['Date_Str'], errors='coerce')
-    df['Date_Obj'] = df['Date_TS'].dt.date
-    
-    # Fallback geometry if missing
-    if 'DX_Lat' not in df.columns: df['DX_Lat'] = 0.0
-    if 'DX_Lon' not in df.columns: df['DX_Lon'] = 0.0
-    if 'ST_Lat' not in df.columns: df['ST_Lat'] = 0.0
-    if 'ST_Lon' not in df.columns: df['ST_Lon'] = 0.0
-    df['Mid_Lat'] = (df['DX_Lat'] + df['ST_Lat']) / 2
-    df['Mid_Lon'] = (df['DX_Lon'] + df['ST_Lon']) / 2
 
     # Apply Filters
     filt_df = df.copy()
@@ -811,38 +854,7 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
-        filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
-        filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
-        
-        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
-        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
-        
-        # Universal Geocoder Override to eliminate Null Island drops
-        mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
-        if mask.any():
-            missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
-            lats, lons = [], []
-            for _, r in missing_locs.iterrows():
-                city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') != '' else r['DXer_City']
-                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
-                lats.append(lat)
-                lons.append(lon)
-            missing_locs['New_Lat'] = lats
-            missing_locs['New_Lon'] = lons
-            
-            filt_df = filt_df.merge(missing_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
-            filt_df['DX_Lat'] = filt_df['DX_Lat'].where(~mask, filt_df['New_Lat'])
-            filt_df['DX_Lon'] = filt_df['DX_Lon'].where(~mask, filt_df['New_Lon'])
-            filt_df.drop(columns=['New_Lat', 'New_Lon'], inplace=True)
-            
-        if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
-        if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
-        
-        filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
-        filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
-        
-        # --- 2. TACTICAL SECTORS ---
+        # --- TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
