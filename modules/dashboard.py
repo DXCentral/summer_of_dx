@@ -274,17 +274,36 @@ def render_dashboard():
         st.warning("NO TELEMETRY MATCHES CURRENT FILTER PARAMETERS.")
         st.stop()
 
-    # --- THE MULTIPLIER SCORING ENGINE ---
+    # --- THE MULTIPLIER SCORING ENGINE (UPDATED TO UNIQUE LOGS ONLY) ---
     def calculate_scores(target_df):
         if target_df.empty: 
             return pd.DataFrame(columns=['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total'])
         
-        pb = target_df.groupby(['DXer', 'Band']).agg(
-            Band_Base=('Base_Score', 'sum'),
-            U_States=('State', 'nunique'),
-            U_Ctry=('Country', 'nunique')
+        # 1. PURGE DUPLICATES: Only score a station once per band per DXer.
+        unique_logs = target_df.drop_duplicates(subset=['DXer', 'Band', 'Callsign', 'Freq_Num']).copy()
+        
+        # 2. SEPARATE MULTIPLIERS (US/CAN/MEX vs. Rest of World)
+        valid_state_countries = ['United States', 'Canada', 'Mexico']
+        
+        # Calculate Base Score & State Multipliers (Only for valid countries)
+        base_scores = unique_logs.groupby(['DXer', 'Band']).agg(
+            Band_Base=('Base_Score', 'sum')
         ).reset_index()
         
+        state_mults = unique_logs[unique_logs['Country'].isin(valid_state_countries)].groupby(['DXer', 'Band']).agg(
+            U_States=('State', 'nunique')
+        ).reset_index()
+        
+        # Calculate Country Multipliers (Excluding US/CAN/MEX to avoid double-dipping)
+        ctry_mults = unique_logs[~unique_logs['Country'].isin(valid_state_countries)].groupby(['DXer', 'Band']).agg(
+            U_Ctry=('Country', 'nunique')
+        ).reset_index()
+
+        # Merge them back together
+        pb = base_scores.merge(state_mults, on=['DXer', 'Band'], how='left')
+        pb = pb.merge(ctry_mults, on=['DXer', 'Band'], how='left').fillna(0)
+        
+        # 3. CALCULATE MULTIPLIERS
         pb['Band_Mult'] = pb['U_States'] + pb['U_Ctry']
         pb['Band_Mult'] = pb['Band_Mult'].apply(lambda x: x if x > 0 else 1) 
         pb['Band_Total_Base'] = pb['Band_Base'] * pb['Band_Mult']
@@ -295,6 +314,7 @@ def render_dashboard():
             Base_x_Mult=('Band_Total_Base', 'sum')
         ).reset_index()
         
+        # 4. CALCULATE CONSISTENCY BONUS (10+ Logs per month on AM/FM)
         bonus_eligible = target_df[target_df['Band'].isin(['AM', 'FM'])]
         if not bonus_eligible.empty:
             b_counts = bonus_eligible.groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Logs')
