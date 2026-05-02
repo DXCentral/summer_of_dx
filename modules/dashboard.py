@@ -575,30 +575,48 @@ def render_dashboard():
             def build_log_board(b_target=None):
                 t_df = filt_df if not b_target else filt_df[filt_df['Band'] == b_target]
                 return t_df.groupby('DXer')['Callsign'].nunique().reset_index(name='Unique Stations').sort_values('Unique Stations', ascending=False)
-            c1, c2, c3, c4 = st.columns(4)
-            c1.markdown("#### TOTAL STATIONS")
-            c1.dataframe(build_log_board(), hide_index=True, use_container_width=True)
-            c2.markdown("#### MW STATIONS")
-            c2.dataframe(build_log_board('AM'), hide_index=True, use_container_width=True)
-            c3.markdown("#### FM STATIONS")
-            c3.dataframe(build_log_board('FM'), hide_index=True, use_container_width=True)
-            c4.markdown("#### NWR STATIONS")
-            c4.dataframe(build_log_board('NWR'), hide_index=True, use_container_width=True)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### TOTAL STATIONS")
+                st.dataframe(build_log_board(), hide_index=True, use_container_width=True)
+            with c2:
+                st.markdown("#### MW STATIONS")
+                st.dataframe(build_log_board('AM'), hide_index=True, use_container_width=True)
+                
+            st.markdown("---")
+            
+            c3, c4 = st.columns(2)
+            with c3:
+                st.markdown("#### FM STATIONS")
+                st.dataframe(build_log_board('FM'), hide_index=True, use_container_width=True)
+            with c4:
+                st.markdown("#### NWR STATIONS")
+                st.dataframe(build_log_board('NWR'), hide_index=True, use_container_width=True)
 
         elif mx_tab == "STATE LEDGER":
             us_df = filt_df[filt_df['Country'] == 'United States']
             def build_state_board(b_target=None):
                 t_df = us_df if not b_target else us_df[us_df['Band'] == b_target]
                 return t_df.groupby('DXer')['State'].nunique().reset_index(name='States Heard').sort_values('States Heard', ascending=False)
-            c1, c2, c3, c4 = st.columns(4)
-            c1.markdown("#### STATES (ALL)")
-            c1.dataframe(build_state_board(), hide_index=True, use_container_width=True)
-            c2.markdown("#### STATES (MW)")
-            c2.dataframe(build_state_board('AM'), hide_index=True, use_container_width=True)
-            c3.markdown("#### STATES (FM)")
-            c3.dataframe(build_state_board('FM'), hide_index=True, use_container_width=True)
-            c4.markdown("#### STATES (NWR)")
-            c4.dataframe(build_state_board('NWR'), hide_index=True, use_container_width=True)
+            
+            c1, c2 = st.columns(2)
+            with c1:
+                st.markdown("#### STATES (ALL)")
+                st.dataframe(build_state_board(), hide_index=True, use_container_width=True)
+            with c2:
+                st.markdown("#### STATES (MW)")
+                st.dataframe(build_state_board('AM'), hide_index=True, use_container_width=True)
+                
+            st.markdown("---")
+            
+            c3, c4 = st.columns(2)
+            with c3:
+                st.markdown("#### STATES (FM)")
+                st.dataframe(build_state_board('FM'), hide_index=True, use_container_width=True)
+            with c4:
+                st.markdown("#### STATES (NWR)")
+                st.dataframe(build_state_board('NWR'), hide_index=True, use_container_width=True)
 
         elif mx_tab == "COUNTRY LEDGER":
             def build_ctry_board(b_target=None):
@@ -854,7 +872,38 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # --- TACTICAL SECTORS ---
+        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
+        filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
+        filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
+        
+        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
+        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
+        
+        # Universal Geocoder Override to eliminate Null Island drops
+        mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
+        if mask.any():
+            missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
+            lats, lons = [], []
+            for _, r in missing_locs.iterrows():
+                city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') != '' else r['DXer_City']
+                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
+                lats.append(lat)
+                lons.append(lon)
+            missing_locs['New_Lat'] = lats
+            missing_locs['New_Lon'] = lons
+            
+            filt_df = filt_df.merge(missing_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
+            filt_df['DX_Lat'] = filt_df['DX_Lat'].where(~mask, filt_df['New_Lat'])
+            filt_df['DX_Lon'] = filt_df['DX_Lon'].where(~mask, filt_df['New_Lon'])
+            filt_df.drop(columns=['New_Lat', 'New_Lon'], inplace=True)
+            
+        if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
+        if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
+        
+        filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
+        filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
+        
+        # --- 2. TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
@@ -1234,5 +1283,5 @@ def render_dashboard():
                     prop_str = f" • Prop: {f_r['Prop_Mode']}" if f_r['Band'] in ['FM', 'NWR'] and f_r['Prop_Mode'] not in ['', ' - '] else ""
                     st.markdown("<div class='flyout-header'>MAX DISTANCE INTERCEPT</div>", unsafe_allow_html=True)
                     st.markdown(f"<div class='flyout-val' style='font-size:1.2rem; color:#1bd2d4;'>{f_r['Distance']:,.0f} mi</div>", unsafe_allow_html=True)
-                    st.markdown(f"<div class='flyout-micro'>{f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']}){prop_str}<br>By {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
+                    st.markdown(f"<div class='flyout-micro'>{f_r['Callsign']} ({f_r['City']}, {f_r['State']}, {f_r['Country']}){prop_str}<br>Caught by {f_r['DXer']} on {f_r['Date_Str']} at {f_r['Time_Str']}</div>", unsafe_allow_html=True)
                 st.markdown("</div>", unsafe_allow_html=True)
