@@ -157,7 +157,7 @@ def render_terminal_home(awards_active=True, bounty_active=True):
         st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
         st.markdown("""
         <div class='classified-box' style='height: 350px; overflow-y: auto;'>
-            <b style='color:#1bd2d4;'>[ 2026-05-02 21:50 UTC | v1.0.3 ] MAP RENDER OPTIMIZATION:</b> Tactical Radar and Geocoder upgraded with aggressive whitespace sanitizer. Grids and Counties drop-off anomaly eliminated.<br><br>
+            <b style='color:#1bd2d4;'>[ 2026-05-02 22:30 UTC | v1.0.4 ] TERMINAL HUD UPGRADE:</b> Deployed Real-Time Propagation Alerts and Live Intercept Ticker. Geospatial caches re-engineered to resolve Gridsquare and County drop-off anomalies.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-02 21:00 UTC | v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Fixed the scoring matrix so that the only multipliers are US States, Canadian Provinces, and Mexican States, alongside a single multiplier per international country.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-01 23:00 UTC | v1.0.0 ] SYSTEM ONLINE:</b> Official launch of Operation SUMMER OF DX (DEFCON 6). All tracking databanks and tactical radars initialized.
         </div>
