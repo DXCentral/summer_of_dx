@@ -199,11 +199,15 @@ if 'operator_profile' not in st.session_state:
 if 'dash_nav' not in st.session_state: 
     st.session_state.dash_nav = "OVERVIEW"
 
-# Sticky Memory Initialization for IQ Recordings
+# Sticky Memory Initialization for IQ Recordings & Logging Fields
 if 'iq_date' not in st.session_state: 
     st.session_state.iq_date = datetime.datetime.now(datetime.timezone.utc).date()
 if 'iq_time' not in st.session_state: 
     st.session_state.iq_time = datetime.datetime.now(datetime.timezone.utc).strftime("%H%M")
+if 'sticky_sdr' not in st.session_state:
+    st.session_state.sticky_sdr = "Yes"
+if 'sticky_prop' not in st.session_state:
+    st.session_state.sticky_prop = "Tropo"
 
 def nav_to(page): 
     st.session_state.sys_state = page
@@ -592,7 +596,8 @@ with main_content:
                         }
                         
                         st.markdown("#### RECEPTION VIA SDR?")
-                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"mw_sdr_db_{fk}")
+                        sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, index=sdr_idx, key=f"mw_sdr_db_{fk}")
                         target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
@@ -862,7 +867,8 @@ with main_content:
             if "sdr" in target_data: 
                 log_sdr = target_data["sdr"]
             else: 
-                log_sdr = col_s3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="mw_man_sdr")
+                sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                log_sdr = col_s3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="mw_man_sdr")
                 
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
             
@@ -871,6 +877,7 @@ with main_content:
                 # Instantly save the submitted date/time to memory so it sticks for the next record
                 st.session_state.iq_date = log_date
                 st.session_state.iq_time = log_time
+                st.session_state.sticky_sdr = log_sdr
                 
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
@@ -1085,7 +1092,8 @@ with main_content:
                         }
                         
                         st.markdown("#### RECEPTION VIA SDR?")
-                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"fm_sdr_db_{fk}")
+                        sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, index=sdr_idx, key=f"fm_sdr_db_{fk}")
                         target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
@@ -1194,7 +1202,7 @@ with main_content:
                         else:
                             bulk_rows = []
                             op = st.session_state.operator_profile
-                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
                             
                             vals = sheet.get_all_values()
                             existing_signatures = set()
@@ -1407,7 +1415,10 @@ with main_content:
             
             log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="fm_dt")
             log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="fm_tm")
-            log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"])
+            
+            prop_opts = ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"]
+            prop_idx = prop_opts.index(st.session_state.sticky_prop) if st.session_state.sticky_prop in prop_opts else 0
+            log_prop = col_s3.selectbox("PROPAGATION MODE", prop_opts, index=prop_idx)
             
             c_p1, c_p2, c_p3 = st.columns(3)
             log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
@@ -1417,7 +1428,8 @@ with main_content:
             if "sdr" in target_data:
                 log_sdr = target_data["sdr"]
             else:
-                log_sdr = c_p3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="fm_man_sdr")
+                sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                log_sdr = c_p3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="fm_man_sdr")
                 
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
             
@@ -1426,6 +1438,8 @@ with main_content:
                 # Instantly save the submitted date/time to memory so it sticks for the next record
                 st.session_state.iq_date = log_date
                 st.session_state.iq_time = log_time
+                st.session_state.sticky_prop = log_prop
+                st.session_state.sticky_sdr = log_sdr
                 
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
@@ -1438,7 +1452,7 @@ with main_content:
                     else:
                         try:
                             op = st.session_state.operator_profile
-                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
                             
                             row_data = [
                                 op.get('name', ''), 
@@ -1727,7 +1741,8 @@ with main_content:
                             }
                             
                             st.markdown("#### RECEPTION VIA SDR?")
-                            sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, key=f"nwr_sdr_db_{fk}")
+                            sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                            sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, index=sdr_idx, key=f"nwr_sdr_db_{fk}")
                             target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
@@ -1836,7 +1851,7 @@ with main_content:
                         else:
                             bulk_rows = []
                             op = st.session_state.operator_profile
-                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
                             
                             vals = sheet.get_all_values()
                             existing_signatures = set()
@@ -2046,12 +2061,16 @@ with main_content:
             
             log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="nwr_dt")
             log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="nwr_tm")
-            log_prop = col_s3.selectbox("PROPAGATION MODE", ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"], key="nwr_prop")
+            
+            prop_opts = ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"]
+            prop_idx = prop_opts.index(st.session_state.sticky_prop) if st.session_state.sticky_prop in prop_opts else 0
+            log_prop = col_s3.selectbox("PROPAGATION MODE", prop_opts, index=prop_idx, key="nwr_prop")
             
             if "sdr" in target_data:
                 log_sdr = target_data["sdr"]
             else:
-                log_sdr = st.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=0, key="nwr_man_sdr")
+                sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                log_sdr = st.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="nwr_man_sdr")
                 
             log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="nwr_nts")
             
@@ -2060,6 +2079,8 @@ with main_content:
                 # Instantly save the submitted date/time to memory so it sticks for the next record
                 st.session_state.iq_date = log_date
                 st.session_state.iq_time = log_time
+                st.session_state.sticky_prop = log_prop
+                st.session_state.sticky_sdr = log_sdr
                 
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
