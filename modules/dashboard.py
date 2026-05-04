@@ -154,9 +154,6 @@ def render_dashboard():
     .flyout-sub { font-size: 0.95rem; color: #ffffff; margin-top: 2px; }
     .flyout-micro { font-size: 0.9rem; color: #ffffff; margin-top: 2px; }
     
-    div[data-testid="stPills"] button { background-color: #050505 !important; border: 1px solid #139a9b !important; color: #1bd2d4 !important; font-family: 'VT323', monospace !important; }
-    div[data-testid="stPills"] button[aria-checked="true"] { background-color: #139a9b !important; color: #050505 !important; box-shadow: 0px 0px 10px rgba(27,210,212,0.6); }
-
     .radio-chassis { background-color: #1a1a1a; border: 4px solid #333; border-radius: 10px; padding: 20px; box-shadow: 10px 10px 0px #000; margin-bottom: 20px; }
     .lcd-recess { background-color: #0a2020; border: 4px inset #000; padding: 15px; text-align: center; margin-bottom: 15px; }
     .lcd-text { font-family: 'Digital7', monospace; color: #1bd2d4; font-size: 4rem; text-shadow: 0px 0px 15px rgba(27,210,212,0.8); line-height: 1; }
@@ -170,6 +167,22 @@ def render_dashboard():
     /* Notification Buttons */
     div.stButton > button[key*="award"] { border: 1px dashed #1bd2d4 !important; background-color: #0a1a1a !important; color: #1bd2d4 !important; }
     div.stButton > button[key*="award"]:hover { background-color: #1bd2d4 !important; color: #050505 !important; }
+    
+    /* RED RING ACTIVE PILLS OVERRIDE */
+    div[data-testid="stPills"] button { 
+        background-color: #050505 !important; 
+        border: 1px solid #139a9b !important; 
+        color: #1bd2d4 !important; 
+        font-family: 'VT323', monospace !important; 
+    }
+    div[data-testid="stPills"] button[data-checked="true"],
+    div[data-testid="stPills"] button[aria-checked="true"],
+    div[data-testid="stPills"] button[aria-pressed="true"] { 
+        background-color: #4a0000 !important; 
+        border: 2px solid #ff0000 !important; 
+        color: #ffffff !important; 
+        box-shadow: 0px 0px 10px rgba(255,0,0,0.8) !important; 
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -297,6 +310,17 @@ def render_dashboard():
     fk = st.session_state.filter_reset_key
     st.markdown("<div style='color:#139a9b; margin-bottom: 5px;'>[ GLOBAL INTERCEPT FILTERS ]</div>", unsafe_allow_html=True)
     
+    # --- THE DATA ISOLATOR TOGGLE ---
+    c_tog1, c_tog2 = st.columns([1, 1])
+    data_scope = c_tog1.pills("DATA SCOPE", ["GLOBAL SENSORS (ALL DATA)", "PERSONAL TELEMETRY (MY DATA)"], default="GLOBAL SENSORS (ALL DATA)", key=f"scope_{fk}", selection_mode="single", label_visibility="collapsed")
+    if c_tog2.button("⟳ FORCE REFRESH DATABANK", key=f"sync_db_{fk}"):
+        load_global_dashboard_data.clear()
+        st.rerun()
+
+    # Pre-filter all downstream UI if User locks into Personal Telemetry
+    if data_scope == "PERSONAL TELEMETRY (MY DATA)":
+        df = df[df['DXer'] == st.session_state.operator_profile.get('name', 'UNKNOWN')]
+
     c_f1, c_f2, c_f3, c_f4 = st.columns(4)
     f_dxer = c_f1.selectbox("DXer Name", ["ALL"] + sorted(df['DXer'].dropna().unique().tolist()), key=f"f_dxer_{fk}")
     f_dx_state = c_f2.selectbox("DXer State/Prov", ["ALL"] + sorted(df['DXer_State'].dropna().unique().tolist()), key=f"f_dx_st_{fk}")
@@ -516,6 +540,116 @@ def render_dashboard():
         rename_map = {'Date_Str': 'Date', 'Time_Str': 'Time', 'Freq_Num': 'Frequency', 'Callsign': 'Station', 'Station_Grid': 'Gridsquare', 'Prop_Mode': 'Propagation'}
         view_df = table_df[display_cols].rename(columns=rename_map)
         st.dataframe(view_df, hide_index=True, use_container_width=True, column_config={"Distance": st.column_config.NumberColumn("Distance (mi)", format="%.1f")})
+
+    # =====================================================================
+    # VIEW 1.5: AGENT DOSSIER (INTEL DEBRIEF)
+    # =====================================================================
+    elif st.session_state.dash_nav == "DOSSIER":
+        op_name = st.session_state.operator_profile.get('name', 'UNKNOWN')
+        st.markdown(f"### 📂 AGENT INTEL DEBRIEF: {op_name.upper()}")
+
+        my_df = df[df['DXer'] == op_name]
+
+        if my_df.empty:
+            st.warning("NO TELEMETRY DETECTED FOR YOUR AGENT IDENTITY.")
+        else:
+            def b_cnt(df_in, col=None, unique=False):
+                if df_in.empty: return 0, 0, 0, 0
+                t = df_in[col].nunique() if unique else len(df_in)
+                a = df_in[df_in['Band']=='AM'][col].nunique() if unique else len(df_in[df_in['Band']=='AM'])
+                f = df_in[df_in['Band']=='FM'][col].nunique() if unique else len(df_in[df_in['Band']=='FM'])
+                n = df_in[df_in['Band']=='NWR'][col].nunique() if unique else len(df_in[df_in['Band']=='NWR'])
+                return t, a, f, n
+
+            def get_list(df_in, col):
+                if df_in.empty: return "None"
+                items = sorted(df_in[col].dropna().unique())
+                return ", ".join([str(x) for x in items if str(x).strip() not in ["", "-", "Unknown"]])
+
+            t_logs, a_logs, f_logs, n_logs = b_cnt(my_df)
+            t_sta, a_sta, f_sta, n_sta = b_cnt(my_df, 'Callsign', True)
+
+            us_df = my_df[my_df['Country'] == 'United States']
+            t_us, a_us, f_us, n_us = b_cnt(us_df, 'State', True)
+            us_list = get_list(us_df, 'State')
+
+            can_df = my_df[my_df['Country'] == 'Canada']
+            t_can, a_can, f_can, n_can = b_cnt(can_df, 'State', True)
+            can_list = get_list(can_df, 'State')
+
+            mex_df = my_df[my_df['Country'] == 'Mexico']
+            t_mex, a_mex, f_mex, n_mex = b_cnt(mex_df, 'State', True)
+            mex_list = get_list(mex_df, 'State')
+
+            t_ctry, a_ctry, f_ctry, n_ctry = b_cnt(my_df, 'Country', True)
+            ctry_list = get_list(my_df, 'Country')
+
+            grid_df = my_df[(my_df['Station_Grid'].notna()) & (my_df['Station_Grid'] != '')]
+            grid_df = grid_df.copy()
+            grid_df['Grid4'] = grid_df['Station_Grid'].astype(str).str.strip().str[:4].str.upper()
+            t_grd, a_grd, f_grd, n_grd = b_cnt(grid_df, 'Grid4', True)
+            grd_list = get_list(grid_df, 'Grid4')
+
+            co_df = us_df[(us_df['County'].notna()) & (us_df['County'] != '') & (us_df['County'] != 'Unknown')]
+            t_co, a_co, f_co, n_co = b_cnt(co_df, 'County', True)
+            co_list = get_list(co_df, 'County')
+
+            def b_box(title, t, a, f, n, lst=""):
+                lh = f"<div style='margin-top:8px; font-size:0.9rem; color:#a3e8e9; word-wrap:break-word; max-height:80px; overflow-y:auto;'>{lst}</div>" if lst else ""
+                return f"""
+                <div class='classified-box' style='padding:15px; height: 100%;'>
+                    <div style='color:#139a9b; font-size:1.1rem; font-weight:bold;'>{title}</div>
+                    <div style='color:#ffffff; font-size:2.5rem; line-height:1.2;'>{t}</div>
+                    <div style='color:#1bd2d4; font-size:0.9rem;'>MW: {a} | FM: {f} | NWR: {n}</div>
+                    {lh}
+                </div>
+                """
+
+            c1, c2, c3 = st.columns(3)
+            c1.markdown(b_box("TOTAL LOGS", t_logs, a_logs, f_logs, n_logs), unsafe_allow_html=True)
+            c2.markdown(b_box("UNIQUE STATIONS", t_sta, a_sta, f_sta, n_sta), unsafe_allow_html=True)
+            c3.markdown(b_box("COUNTRIES HEARD", t_ctry, a_ctry, f_ctry, n_ctry, ctry_list), unsafe_allow_html=True)
+
+            c4, c5, c6 = st.columns(3)
+            c4.markdown(b_box("US STATES", t_us, a_us, f_us, n_us, us_list), unsafe_allow_html=True)
+            c5.markdown(b_box("CANADIAN PROVINCES", t_can, a_can, f_can, n_can, can_list), unsafe_allow_html=True)
+            c6.markdown(b_box("MEXICAN STATES", t_mex, a_mex, f_mex, n_mex, mex_list), unsafe_allow_html=True)
+
+            c7, c8 = st.columns(2)
+            c7.markdown(b_box("GRIDSQUARES", t_grd, a_grd, f_grd, n_grd, grd_list), unsafe_allow_html=True)
+            c8.markdown(b_box("US COUNTIES", t_co, a_co, f_co, n_co, co_list), unsafe_allow_html=True)
+
+            st.markdown("<hr>", unsafe_allow_html=True)
+            st.markdown("#### 📏 FURTHEST RECEPTIONS")
+            rc1, rc2, rc3 = st.columns(3)
+            for i, b in enumerate(["AM", "FM", "NWR"]):
+                b_df = my_df[my_df['Band'] == b]
+                with [rc1, rc2, rc3][i]:
+                    st.markdown(f"<div style='color:#139a9b; font-size:1.2rem; margin-bottom:5px;'>{b} BAND</div>", unsafe_allow_html=True)
+                    if not b_df.empty:
+                        fr = b_df.sort_values('Distance', ascending=False).iloc[0]
+                        st.markdown(f"""
+                        <div class='classified-box' style='padding:15px;'>
+                            <div style='color:#1bd2d4; font-size:1.8rem;'>{fr['Distance']:,.0f} mi</div>
+                            <div style='color:#ffffff; font-size:1.2rem;'>{fr['Callsign']} ({fr['Freq_Num']})</div>
+                            <div style='color:#a3e8e9; font-size:0.9rem;'>{fr['City']}, {fr['State']}, {fr['Country']}</div>
+                            <div style='color:#777777; font-size:0.8rem; margin-top:5px;'>{fr['Date_Str']} {fr['Time_Str']}</div>
+                        </div>
+                        """, unsafe_allow_html=True)
+                    else:
+                        st.caption("No logs for this band.")
+
+            st.markdown("#### 🏆 TOP 5 STATIONS HEARD")
+            tc1, tc2, tc3 = st.columns(3)
+            for i, b in enumerate(["AM", "FM", "NWR"]):
+                b_df = my_df[my_df['Band'] == b]
+                with [tc1, tc2, tc3][i]:
+                    st.markdown(f"<div style='color:#139a9b; font-size:1.2rem; margin-bottom:5px;'>{b} BAND</div>", unsafe_allow_html=True)
+                    if not b_df.empty:
+                        t5 = b_df.groupby(['Callsign', 'Freq_Num', 'State']).size().reset_index(name='Logs').sort_values('Logs', ascending=False).head(5)
+                        st.dataframe(t5, hide_index=True, use_container_width=True)
+                    else:
+                        st.caption("No logs for this band.")
 
     # =====================================================================
     # VIEW 2: CLASSIFICATION MATRIX
