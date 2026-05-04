@@ -129,6 +129,7 @@ def render_dashboard():
     df['Country'] = df['Country'].astype(str).replace({'USA': 'United States', 'US': 'United States', 'United states': 'United States'}).str.strip()
     df['Station_Grid'] = df['Station_Grid'].astype(str).str.strip()
     df['County'] = df['County'].astype(str).str.strip()
+    df['DXer'] = df['DXer'].astype(str).str.strip() # Agent Name Sanitizer
         
     st.markdown("""
     <style>
@@ -310,6 +311,9 @@ def render_dashboard():
     fk = st.session_state.filter_reset_key
     st.markdown("<div style='color:#139a9b; margin-bottom: 5px;'>[ GLOBAL INTERCEPT FILTERS ]</div>", unsafe_allow_html=True)
     
+    # GET ACTIVE AGENT IN EXACT UPPERCASE TO ENSURE BULLETPROOF MATCHING
+    active_agent = str(st.session_state.operator_profile.get('name', 'UNKNOWN')).strip().upper()
+    
     # --- THE DATA ISOLATOR TOGGLE ---
     c_tog1, c_tog2 = st.columns([1, 1])
     data_scope = c_tog1.pills("DATA SCOPE", ["GLOBAL SENSORS (ALL DATA)", "PERSONAL TELEMETRY (MY DATA)"], default="GLOBAL SENSORS (ALL DATA)", key=f"scope_{fk}", selection_mode="single", label_visibility="collapsed")
@@ -317,12 +321,22 @@ def render_dashboard():
         load_global_dashboard_data.clear()
         st.rerun()
 
-    # Pre-filter all downstream UI if User locks into Personal Telemetry
+    # Pre-filter all downstream UI if User locks into Personal Telemetry (Robust Case Insensitive Match)
     if data_scope == "PERSONAL TELEMETRY (MY DATA)":
-        df = df[df['DXer'] == st.session_state.operator_profile.get('name', 'UNKNOWN')]
+        df = df[df['DXer'].str.upper() == active_agent]
 
     c_f1, c_f2, c_f3, c_f4 = st.columns(4)
-    f_dxer = c_f1.selectbox("DXer Name", ["ALL"] + sorted(df['DXer'].dropna().unique().tolist()), key=f"f_dxer_{fk}")
+    
+    # Intelligently sort DXer dropdown so Active Agent is pinned to the top
+    all_dxers = sorted(df['DXer'].dropna().unique().tolist())
+    exact_match = next((x for x in all_dxers if str(x).strip().upper() == active_agent), None)
+    if exact_match and data_scope != "PERSONAL TELEMETRY (MY DATA)":
+        all_dxers.remove(exact_match)
+        dxer_options = ["ALL", exact_match] + all_dxers
+    else:
+        dxer_options = ["ALL"] + all_dxers
+        
+    f_dxer = c_f1.selectbox("DXer Name", dxer_options, key=f"f_dxer_{fk}")
     f_dx_state = c_f2.selectbox("DXer State/Prov", ["ALL"] + sorted(df['DXer_State'].dropna().unique().tolist()), key=f"f_dx_st_{fk}")
     f_dx_ctry = c_f3.selectbox("DXer Country", ["ALL"] + sorted(df['DXer_Country'].dropna().unique().tolist()), key=f"f_dx_co_{fk}")
     f_band = c_f4.selectbox("Band", ["ALL", "AM", "FM", "NWR"], index=0, key=f"f_band_{fk}")
@@ -548,7 +562,8 @@ def render_dashboard():
         op_name = st.session_state.operator_profile.get('name', 'UNKNOWN')
         st.markdown(f"### 📂 AGENT INTEL DEBRIEF: {op_name.upper()}")
 
-        my_df = df[df['DXer'] == op_name]
+        # ROBUST CASE-INSENSITIVE MATCHING ENGINE
+        my_df = df[df['DXer'].str.upper() == active_agent]
 
         if my_df.empty:
             st.warning("NO TELEMETRY DETECTED FOR YOUR AGENT IDENTITY.")
