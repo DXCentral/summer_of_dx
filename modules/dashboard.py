@@ -294,16 +294,20 @@ def render_dashboard():
         df['ST_Lon'] = df['ST_Lon'].where(~mask_st, df['New_ST_Lon'])
         df.drop(columns=['New_ST_Lat', 'New_ST_Lon'], inplace=True)
 
-    # DYNAMIC DISTANCE RECALCULATOR (Catches Manual 0-mile logs)
-    df['Distance'] = df.apply(lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) if (pd.isna(r['Distance']) or r['Distance'] == 0.0) else r['Distance'], axis=1)
-    
     # EXPLICIT HARDWARE (SDR) BONUS CALCULATOR
-    # Ensures accurate 5-point injection even if the data forge misses the column map
-    if 'SDR?' in df.columns:
+    # Dynamically targets the SDR column regardless of punctuation
+    if 'SDR' in df.columns:
+        df['SDR_Bonus'] = df['SDR'].apply(lambda x: 5 if str(x).strip().title() == "No" else 0)
+    elif 'SDR?' in df.columns:
         df['SDR_Bonus'] = df['SDR?'].apply(lambda x: 5 if str(x).strip().title() == "No" else 0)
-    else:
+    elif 'SDR_Bonus' not in df.columns:
         df['SDR_Bonus'] = 0
 
+    # DYNAMIC DISTANCE RECALCULATOR (Catches Manual 0-mile logs)
+    # Ensure Distance is float to prevent math errors before processing
+    df['Distance'] = pd.to_numeric(df['Distance'], errors='coerce').fillna(0.0)
+    df['Distance'] = df.apply(lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) if r['Distance'] == 0.0 else r['Distance'], axis=1)
+    
     # Recalculate Base Score with New Distance (UPDATED FOR 0-199 MILE THRESHOLD) AND HARDWARE BONUS
     df['Dist_Points'] = df['Distance'].apply(lambda x: max(1, math.floor(x / 100)) if x >= 0 else 0)
     df['Base_Score'] = df['Dist_Points'] + df['SDR_Bonus']
@@ -389,7 +393,8 @@ def render_dashboard():
             return pd.DataFrame(columns=['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total'])
         
         # 1. PURGE DUPLICATES: Only score a station once per band per DXer.
-        unique_logs = target_df.drop_duplicates(subset=['DXer', 'Band', 'Callsign', 'Freq_Num']).copy()
+        # Ensure we keep the highest scoring intercept of the same station!
+        unique_logs = target_df.sort_values('Base_Score', ascending=False).drop_duplicates(subset=['DXer', 'Band', 'Callsign', 'Freq_Num']).copy()
         
         # 2. SEPARATE MULTIPLIERS (US/CAN/MEX vs. Rest of World)
         valid_state_countries = ['United States', 'Canada', 'Mexico']
