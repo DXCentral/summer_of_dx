@@ -380,11 +380,20 @@ with main_content:
             remember_me = st.checkbox("[ SAVE CREDENTIALS TO LOCAL TERMINAL ]", value=True)
             
             if st.form_submit_button("> AUTHENTICATE"):
-                if op_name and st.session_state.op_lat_val != 0.0 and st.session_state.op_lon_val != 0.0:
+                # AGGRESSIVE VALIDATION ENGINE
+                if not op_name.strip():
+                    st.error("ACCESS DENIED. AGENT IDENTITY REQUIRED.")
+                elif st.session_state.op_lat_val == 0.0 or st.session_state.op_lon_val == 0.0:
+                    st.error("ACCESS DENIED. NON-ZERO LOCATION (LAT/LON) REQUIRED.")
+                elif not op_city.strip():
+                    st.error("ACCESS DENIED. HOME QTH CITY IS REQUIRED.")
+                elif op_country in ["United States", "Canada", "Mexico"] and not op_state.strip():
+                    st.error(f"ACCESS DENIED. STATE/PROV REQUIRED FOR {op_country.upper()}.")
+                else:
                     st.session_state.operator_profile = {
-                        "name": op_name, 
-                        "city": op_city, 
-                        "state": op_state, 
+                        "name": op_name.strip(), 
+                        "city": op_city.strip(), 
+                        "state": op_state.strip(), 
                         "country": op_country, 
                         "lat": st.session_state.op_lat_val, 
                         "lon": st.session_state.op_lon_val
@@ -393,8 +402,6 @@ with main_content:
                         st.session_state.profile_to_save = st.session_state.operator_profile
                     nav_to("TERMINAL_HOME")
                     st.rerun()
-                else: 
-                    st.error("ACCESS DENIED. AGENT IDENTITY AND NON-ZERO LOCATION REQUIRED.")
 
     # --- 8B. THE HOME TERMINAL ---
     elif st.session_state.sys_state == "TERMINAL_HOME":
@@ -726,12 +733,28 @@ with main_content:
                                     clean_call = clean_callsign(raw_call)
                                     clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
                                     
+                                    # DECIMAL COMMA SANITIZER INJECTED
                                     dist_val = 0.0
                                     if map_dist != "<Skip>":
                                         raw_dist = str(row[map_dist]).lower()
                                         try:
-                                            clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
-                                            if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                            is_km = "km" in raw_dist or "qrb" in str(map_dist).lower()
+                                            num_str = raw_dist.replace('km', '').replace('mi', '').strip()
+                                            
+                                            if ',' in num_str and '.' in num_str:
+                                                if num_str.rfind(',') > num_str.rfind('.'):
+                                                    num_str = num_str.replace('.', '').replace(',', '.')
+                                                else:
+                                                    num_str = num_str.replace(',', '')
+                                            elif ',' in num_str:
+                                                parts = num_str.split(',')
+                                                if len(parts) == 2 and len(parts[1]) == 3:
+                                                    num_str = num_str.replace(',', '')
+                                                else:
+                                                    num_str = num_str.replace(',', '.')
+                                                    
+                                            clean_dist = float(num_str)
+                                            if is_km: 
                                                 dist_val = clean_dist * 0.621371
                                             else: 
                                                 dist_val = clean_dist
@@ -1256,12 +1279,28 @@ with main_content:
                                     clean_call = clean_callsign(raw_call)
                                     clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
                                     
+                                    # DECIMAL COMMA SANITIZER INJECTED
                                     dist_val = 0.0
                                     if map_dist != "<Skip>":
                                         raw_dist = str(row[map_dist]).lower()
                                         try:
-                                            clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
-                                            if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                            is_km = "km" in raw_dist or "qrb" in str(map_dist).lower()
+                                            num_str = raw_dist.replace('km', '').replace('mi', '').strip()
+                                            
+                                            if ',' in num_str and '.' in num_str:
+                                                if num_str.rfind(',') > num_str.rfind('.'):
+                                                    num_str = num_str.replace('.', '').replace(',', '.')
+                                                else:
+                                                    num_str = num_str.replace(',', '')
+                                            elif ',' in num_str:
+                                                parts = num_str.split(',')
+                                                if len(parts) == 2 and len(parts[1]) == 3:
+                                                    num_str = num_str.replace(',', '')
+                                                else:
+                                                    num_str = num_str.replace(',', '.')
+                                                    
+                                            clean_dist = float(num_str)
+                                            if is_km: 
                                                 dist_val = clean_dist * 0.621371
                                             else: 
                                                 dist_val = clean_dist
@@ -1911,12 +1950,28 @@ with main_content:
                                     
                                     clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
                                     
+                                    # DECIMAL COMMA SANITIZER INJECTED
                                     dist_val = 0.0
                                     if map_dist != "<Skip>":
                                         raw_dist = str(row[map_dist]).lower()
                                         try:
-                                            clean_dist = float(raw_dist.replace('km', '').replace('mi', '').replace(',', '').strip())
-                                            if "km" in raw_dist or "qrb" in str(map_dist).lower(): 
+                                            is_km = "km" in raw_dist or "qrb" in str(map_dist).lower()
+                                            num_str = raw_dist.replace('km', '').replace('mi', '').strip()
+                                            
+                                            if ',' in num_str and '.' in num_str:
+                                                if num_str.rfind(',') > num_str.rfind('.'):
+                                                    num_str = num_str.replace('.', '').replace(',', '.')
+                                                else:
+                                                    num_str = num_str.replace(',', '')
+                                            elif ',' in num_str:
+                                                parts = num_str.split(',')
+                                                if len(parts) == 2 and len(parts[1]) == 3:
+                                                    num_str = num_str.replace(',', '')
+                                                else:
+                                                    num_str = num_str.replace(',', '.')
+                                                    
+                                            clean_dist = float(num_str)
+                                            if is_km: 
                                                 dist_val = clean_dist * 0.621371
                                             else: 
                                                 dist_val = clean_dist
