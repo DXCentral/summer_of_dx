@@ -157,6 +157,7 @@ def render_terminal_home(awards_active=True, bounty_active=True):
         st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
         st.markdown("""
         <div class='classified-box' style='height: 350px; overflow-y: auto;'>
+            <b style='color:#1bd2d4;'>[ 2026-05-04 21:08 UTC | v1.1.2 ] DATA SANITIZATION & METRIC CONVERSION UPDATE:</b> Deployed an intelligent Metric Conversion Engine to handle European comma-decimal distances in bulk imports automatically. Tightened Agent Authentication protocols to prevent blank profile coordinates and ensure accurate distance telemetry.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-04 18:52 UTC | v1.1.1 ] INTELLIGENCE MATRIX OPTIMIZED:</b> Fixed progress percentage anomalies on NWR Grid and County ledgers. Appended dynamic [ GLOBAL TOTAL ] rows to all classification matrix tables.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-04 18:04 UTC | v1.1.0 ] AGENT DOSSIER & UI OVERHAUL:</b> Deployed the Agent Dossier for deep-dive personal telemetry. Upgraded terminal inputs to tactical pill switches. Added Personal Telemetry data isolation toggle, force-refresh datalink, and enhanced identity sanitization for bulletproof log matching.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-02 22:30 UTC | v1.0.4 ] TERMINAL HUD UPGRADE:</b> Deployed Real-Time Propagation Alerts and Live Intercept Ticker. Geospatial caches re-engineered to resolve Gridsquare and County drop-off anomalies.<br><br>
