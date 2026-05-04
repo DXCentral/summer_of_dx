@@ -161,6 +161,22 @@ hr {
     margin-top: 20px;
     margin-bottom: 10px;
 }
+
+/* RED RING ACTIVE PILLS OVERRIDE */
+div[data-testid="stPills"] button { 
+    background-color: #050505 !important; 
+    border: 1px solid #139a9b !important; 
+    color: #1bd2d4 !important; 
+    font-family: 'VT323', monospace !important; 
+}
+div[data-testid="stPills"] button[data-checked="true"],
+div[data-testid="stPills"] button[aria-checked="true"],
+div[data-testid="stPills"] button[aria-pressed="true"] { 
+    background-color: #4a0000 !important; 
+    border: 2px solid #ff0000 !important; 
+    color: #ffffff !important; 
+    box-shadow: 0px 0px 10px rgba(255,0,0,0.8) !important; 
+}
 </style>
 """
 st.markdown(crt_css, unsafe_allow_html=True)
@@ -262,6 +278,8 @@ with st.sidebar:
         st.markdown("<div class='sidebar-header'>📡 INTERCEPT DEBRIEFING</div>", unsafe_allow_html=True)
         if st.button("MISSION OVERVIEW", key="nav_dash_over"): 
             nav_to("DASHBOARD"); st.session_state.dash_nav = "OVERVIEW"; st.rerun()
+        if st.button("AGENT DOSSIER", key="nav_dash_dos"): 
+            nav_to("DASHBOARD"); st.session_state.dash_nav = "DOSSIER"; st.rerun()
         if st.button("CLASSIFICATION MATRIX", key="nav_dash_mat"): 
             nav_to("DASHBOARD"); st.session_state.dash_nav = "MATRIX"; st.rerun()
         if st.button("GEOGRAPHIC INTEL", key="nav_dash_geo"): 
@@ -827,7 +845,7 @@ with main_content:
                     st.error(f"FILE PARSING ERROR: {e}")
 
         st.markdown("#### 3. TIME SYNCHRONIZATION")
-        log_mode = st.radio("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], horizontal=True, key="mw_log_mode", label_visibility="collapsed")
+        log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="mw_log_mode", label_visibility="collapsed")
 
         st.markdown("#### 4. SUBMIT INTERCEPT")
         with st.form("mw_submit_form", clear_on_submit=True):
@@ -835,8 +853,8 @@ with main_content:
             now = datetime.datetime.now(datetime.timezone.utc)
             
             # Use real-time for LIVE DX, use session state for IQ RECORDING
-            def_date = now.date() if "LIVE" in log_mode else st.session_state.iq_date
-            def_time = now.strftime("%H%M") if "LIVE" in log_mode else st.session_state.iq_time
+            def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
+            def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
             
             log_date = col_s1.date_input("DATE (UTC)", value=def_date)
             log_time = col_s2.text_input("TIME (UTC)", value=def_time)
@@ -916,13 +934,13 @@ with main_content:
             
         st.markdown("### [ FM INTERCEPT CONSOLE ACTIVE ]")
         st.markdown("#### 1. OPERATING PARAMETERS")
-        r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="fm_cat")
+        r_cat = st.pills("CATEGORY", ["HOME QTH", "ROVER"], default="HOME QTH", selection_mode="single", label_visibility="collapsed", key="fm_cat")
         rover_grid = ""
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
         
-        if r_cat == "ROVER":
+        if r_cat and r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
             rover_grid = st.text_input("ROVER GRID (e.g., EM40)", key="fm_rov")
             if len(rover_grid) >= 4:
@@ -1377,15 +1395,15 @@ with main_content:
                     st.error(f"FILE PARSING ERROR: {e}")
 
         st.markdown("#### 3. TIME SYNCHRONIZATION")
-        log_mode = st.radio("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], horizontal=True, key="fm_log_mode", label_visibility="collapsed")
+        log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="fm_log_mode", label_visibility="collapsed")
 
         st.markdown("#### 4. SUBMIT INTERCEPT")
         with st.form("fm_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns(3)
             now = datetime.datetime.now(datetime.timezone.utc)
             
-            def_date = now.date() if "LIVE" in log_mode else st.session_state.iq_date
-            def_time = now.strftime("%H%M") if "LIVE" in log_mode else st.session_state.iq_time
+            def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
+            def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
             
             log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="fm_dt")
             log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="fm_tm")
@@ -1473,13 +1491,13 @@ with main_content:
             
         st.markdown("### [ NOAA WEATHER RADIO (NWR) CONSOLE ACTIVE ]")
         st.markdown("#### 1. OPERATING PARAMETERS")
-        r_cat = st.radio("CATEGORY", ["HOME QTH", "ROVER"], horizontal=True, label_visibility="collapsed", key="nwr_cat")
+        r_cat = st.pills("CATEGORY", ["HOME QTH", "ROVER"], default="HOME QTH", selection_mode="single", label_visibility="collapsed", key="nwr_cat")
         rover_grid = ""
         
         active_lat = float(st.session_state.operator_profile.get('lat', 0.0))
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
         
-        if r_cat == "ROVER":
+        if r_cat and r_cat == "ROVER":
             st.warning("ROVER MODE: ENTER CURRENT MAIDENHEAD GRID TO CALIBRATE DISTANCE.")
             rover_grid = st.text_input("ROVER GRID (e.g., EM40)", key="nwr_rov")
             if len(rover_grid) >= 4:
@@ -2016,15 +2034,15 @@ with main_content:
                     st.error(f"FILE ERROR: {e}")
 
         st.markdown("#### 3. TIME SYNCHRONIZATION")
-        log_mode = st.radio("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], horizontal=True, key="nwr_log_mode", label_visibility="collapsed")
+        log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="nwr_log_mode", label_visibility="collapsed")
 
         st.markdown("#### 4. SUBMIT INTERCEPT")
         with st.form("nwr_submit_form", clear_on_submit=True):
             col_s1, col_s2, col_s3 = st.columns(3)
             now = datetime.datetime.now(datetime.timezone.utc)
             
-            def_date = now.date() if "LIVE" in log_mode else st.session_state.iq_date
-            def_time = now.strftime("%H%M") if "LIVE" in log_mode else st.session_state.iq_time
+            def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
+            def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
             
             log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="nwr_dt")
             log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="nwr_tm")
@@ -2054,7 +2072,7 @@ with main_content:
                     else:
                         try:
                             op = st.session_state.operator_profile
-                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat == "ROVER" and rover_grid else r_cat
+                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
                             
                             row_data = [
                                 op.get('name', ''), 
