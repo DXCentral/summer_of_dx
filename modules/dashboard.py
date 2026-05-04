@@ -576,7 +576,7 @@ def render_dashboard():
                 n = df_in[df_in['Band']=='NWR'][col].nunique() if unique else len(df_in[df_in['Band']=='NWR'])
                 return t, a, f, n
 
-            # The New Dynamic HTML List Generator for Band Breakdowns
+            # The New Dynamic HTML List Generator for Band Breakdowns (Flattened to prevent Markdown parsing bugs)
             def b_box(title, t, a, f, n, df_in=None, col=None):
                 if df_in is not None and col is not None:
                     lst_html = ""
@@ -588,20 +588,17 @@ def render_dashboard():
                             if clean_items:
                                 lst_html += f"<b style='color:#1bd2d4;'>{b_name} ({len(clean_items)}):</b> <span style='color:#a3e8e9;'>{', '.join(clean_items)}</span><br>"
                     
-                    lh = f"<div style='margin-top:12px; font-size:0.9rem; word-wrap:break-word; max-height:120px; overflow-y:auto; line-height:1.4;'>{lst_html}</div>"
+                    if lst_html:
+                        lh = f"<div style='margin-top:12px; font-size:0.9rem; word-wrap:break-word; max-height:120px; overflow-y:auto; line-height:1.4;'>{lst_html}</div>"
+                    else:
+                        lh = ""
                     breakdown = "" # Hide the simple summary line because it's rendered in the list
                 else:
                     breakdown = f"<div style='color:#1bd2d4; font-size:0.9rem;'>MW: {a} | FM: {f} | NWR: {n}</div>"
                     lh = ""
                     
-                return f"""
-                <div class='classified-box' style='padding:15px; height: 100%;'>
-                    <div style='color:#139a9b; font-size:1.1rem; font-weight:bold;'>{title}</div>
-                    <div style='color:#ffffff; font-size:2.5rem; line-height:1.2;'>{t}</div>
-                    {breakdown}
-                    {lh}
-                </div>
-                """
+                # FLATTENED RETURN STRING TO PREVENT STREAMLIT MARKDOWN ESCAPING
+                return f"<div class='classified-box' style='padding:15px; height: 100%;'><div style='color:#139a9b; font-size:1.1rem; font-weight:bold;'>{title}</div><div style='color:#ffffff; font-size:2.5rem; line-height:1.2;'>{t}</div>{breakdown}{lh}</div>"
 
             t_logs, a_logs, f_logs, n_logs = b_cnt(my_df)
             t_sta, a_sta, f_sta, n_sta = b_cnt(my_df, 'Callsign', True)
