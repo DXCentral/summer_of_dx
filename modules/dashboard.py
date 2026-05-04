@@ -672,11 +672,25 @@ def render_dashboard():
     elif st.session_state.dash_nav == "MATRIX":
         st.markdown("### 🗄️ CLASSIFICATION MATRIX")
         mx_tab = st.pills("MATRIX SECTOR", ["SCORE LEDGER", "GRID LEDGER", "COUNTY/PARISH LEDGER", "INTERCEPT LEDGER", "STATE LEDGER", "COUNTRY LEDGER", "AGENT LOCATION MAP"], default="SCORE LEDGER")
+        
         def build_progress_board(target_df, group_col, metric_col, target_goal):
             if target_df.empty: return pd.DataFrame()
-            brd = target_df.groupby(group_col)[metric_col].nunique().reset_index(name='Count').sort_values('Count', ascending=False).head(10)
+            
+            clean_df = target_df[~target_df[metric_col].isin(['', ' - ', 'Unknown'])].dropna(subset=[metric_col])
+            
+            brd = clean_df.groupby(group_col)[metric_col].nunique().reset_index(name='Count').sort_values('Count', ascending=False).head(10)
             brd['Status'] = brd['Count'].apply(lambda x: "🥇 CENTURY CLUB ACHIEVED" if x >= target_goal and target_goal == 100 else ("🥇 MASTER ACHIEVED" if x >= target_goal else "⏳ IN PROGRESS"))
-            brd['Progress'] = brd['Count'].apply(lambda x: target_goal if x >= target_goal else x)
+            brd['Progress'] = (brd['Count'] / target_goal * 100).clip(upper=100)
+            
+            overall_unique = clean_df[metric_col].nunique()
+            total_row = pd.DataFrame([{
+                group_col: '[ GLOBAL TOTAL ]',
+                'Count': overall_unique,
+                'Status': '-',
+                'Progress': 0.0
+            }])
+            
+            brd = pd.concat([brd, total_row], ignore_index=True)
             return brd
 
         if mx_tab == "SCORE LEDGER":
@@ -685,9 +699,21 @@ def render_dashboard():
             
             def render_score_df(b_target):
                 df_slice = filt_df if b_target == "ALL" else filt_df[filt_df['Band'] == b_target]
-                s_df = calculate_scores(df_slice).head(10)
+                s_df = calculate_scores(df_slice)
                 if not s_df.empty:
-                    disp = s_df[['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total']].rename(columns={'Base_Score': 'Base', 'Multiplier': 'Mult (x)'})
+                    top10 = s_df.head(10).copy()
+                    
+                    # Global Totals
+                    total_row = pd.DataFrame([{
+                        'DXer': '[ GLOBAL TOTAL ]',
+                        'Base_Score': s_df['Base_Score'].sum(),
+                        'Multiplier': '-',
+                        'Bonus': s_df['Bonus'].sum(),
+                        'Total': s_df['Total'].sum()
+                    }])
+                    
+                    disp = pd.concat([top10, total_row], ignore_index=True)
+                    disp = disp[['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total']].rename(columns={'Base_Score': 'Base', 'Multiplier': 'Mult (x)'})
                     return disp
                 return pd.DataFrame()
 
@@ -712,15 +738,15 @@ def render_dashboard():
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### MW GRID MASTERS")
-                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'AM'], 'DXer', 'Station_Grid', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
+                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'AM'], 'DXer', 'Station_Grid', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             with c2:
                 st.markdown("#### FM GRID MASTERS")
-                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'FM'], 'DXer', 'Station_Grid', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
+                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'FM'], 'DXer', 'Station_Grid', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             st.markdown("---")
             c3, c4 = st.columns(2)
             with c3:
                 st.markdown("#### NWR GRID MASTERS")
-                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'NWR'], 'DXer', 'Station_Grid', 25), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("To 25", min_value=0, max_value=25)})
+                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'NWR'], 'DXer', 'Station_Grid', 25), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
 
         elif mx_tab == "COUNTY/PARISH LEDGER":
             if st.button("🎖️ QUALIFY FOR CENTURY CLUB? CLICK HERE TO NOTIFY HIGH COMMAND TO PROCURE YOUR AWARD.", use_container_width=True, key="btn_county_award"):
@@ -731,20 +757,27 @@ def render_dashboard():
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### MW COUNTY MASTERS")
-                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'AM'], 'DXer', 'County', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
+                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'AM'], 'DXer', 'County', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             with c2:
                 st.markdown("#### FM COUNTY MASTERS")
-                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'FM'], 'DXer', 'County', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("To 100", min_value=0, max_value=100)})
+                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'FM'], 'DXer', 'County', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             st.markdown("---")
             c3, c4 = st.columns(2)
             with c3:
                 st.markdown("#### NWR COUNTY MASTERS")
-                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'NWR'], 'DXer', 'County', 25), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("To 25", min_value=0, max_value=25)})
+                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'NWR'], 'DXer', 'County', 25), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
 
         elif mx_tab == "INTERCEPT LEDGER":
             def build_log_board(b_target=None):
                 t_df = filt_df if not b_target else filt_df[filt_df['Band'] == b_target]
-                return t_df.groupby('DXer')['Callsign'].nunique().reset_index(name='Unique Stations').sort_values('Unique Stations', ascending=False)
+                if t_df.empty: return pd.DataFrame()
+                brd = t_df.groupby('DXer')['Callsign'].nunique().reset_index(name='Unique Stations').sort_values('Unique Stations', ascending=False).head(10)
+                
+                total_row = pd.DataFrame([{
+                    'DXer': '[ GLOBAL TOTAL ]', 
+                    'Unique Stations': t_df['Callsign'].nunique()
+                }])
+                return pd.concat([brd, total_row], ignore_index=True)
             
             c1, c2 = st.columns(2)
             with c1:
@@ -768,7 +801,14 @@ def render_dashboard():
             us_df = filt_df[filt_df['Country'] == 'United States']
             def build_state_board(b_target=None):
                 t_df = us_df if not b_target else us_df[us_df['Band'] == b_target]
-                return t_df.groupby('DXer')['State'].nunique().reset_index(name='States Heard').sort_values('States Heard', ascending=False)
+                if t_df.empty: return pd.DataFrame()
+                brd = t_df.groupby('DXer')['State'].nunique().reset_index(name='States Heard').sort_values('States Heard', ascending=False).head(10)
+                
+                total_row = pd.DataFrame([{
+                    'DXer': '[ GLOBAL TOTAL ]', 
+                    'States Heard': t_df['State'].nunique()
+                }])
+                return pd.concat([brd, total_row], ignore_index=True)
             
             c1, c2 = st.columns(2)
             with c1:
@@ -791,7 +831,15 @@ def render_dashboard():
         elif mx_tab == "COUNTRY LEDGER":
             def build_ctry_board(b_target=None):
                 t_df = filt_df if not b_target else filt_df[filt_df['Band'] == b_target]
-                return t_df.groupby('DXer')['Country'].nunique().reset_index(name='Countries Heard').sort_values('Countries Heard', ascending=False)
+                if t_df.empty: return pd.DataFrame()
+                brd = t_df.groupby('DXer')['Country'].nunique().reset_index(name='Countries Heard').sort_values('Countries Heard', ascending=False).head(10)
+                
+                total_row = pd.DataFrame([{
+                    'DXer': '[ GLOBAL TOTAL ]', 
+                    'Countries Heard': t_df['Country'].nunique()
+                }])
+                return pd.concat([brd, total_row], ignore_index=True)
+                
             c1, c2, c3 = st.columns(3)
             c1.markdown("#### COUNTRIES (ALL)")
             c1.dataframe(build_ctry_board(), hide_index=True, use_container_width=True)
