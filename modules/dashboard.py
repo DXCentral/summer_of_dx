@@ -576,63 +576,67 @@ def render_dashboard():
                 n = df_in[df_in['Band']=='NWR'][col].nunique() if unique else len(df_in[df_in['Band']=='NWR'])
                 return t, a, f, n
 
-            def get_list(df_in, col):
-                if df_in.empty: return "None"
-                items = sorted(df_in[col].dropna().unique())
-                return ", ".join([str(x) for x in items if str(x).strip() not in ["", "-", "Unknown"]])
+            # The New Dynamic HTML List Generator for Band Breakdowns
+            def b_box(title, t, a, f, n, df_in=None, col=None):
+                if df_in is not None and col is not None:
+                    lst_html = ""
+                    for b_code, b_name in [('AM', 'MW'), ('FM', 'FM'), ('NWR', 'NWR')]:
+                        b_df = df_in[df_in['Band'] == b_code]
+                        if not b_df.empty:
+                            items = sorted(b_df[col].dropna().unique())
+                            clean_items = [str(x) for x in items if str(x).strip() not in ["", "-", "Unknown"]]
+                            if clean_items:
+                                lst_html += f"<b style='color:#1bd2d4;'>{b_name} ({len(clean_items)}):</b> <span style='color:#a3e8e9;'>{', '.join(clean_items)}</span><br>"
+                    
+                    lh = f"<div style='margin-top:12px; font-size:0.9rem; word-wrap:break-word; max-height:120px; overflow-y:auto; line-height:1.4;'>{lst_html}</div>"
+                    breakdown = "" # Hide the simple summary line because it's rendered in the list
+                else:
+                    breakdown = f"<div style='color:#1bd2d4; font-size:0.9rem;'>MW: {a} | FM: {f} | NWR: {n}</div>"
+                    lh = ""
+                    
+                return f"""
+                <div class='classified-box' style='padding:15px; height: 100%;'>
+                    <div style='color:#139a9b; font-size:1.1rem; font-weight:bold;'>{title}</div>
+                    <div style='color:#ffffff; font-size:2.5rem; line-height:1.2;'>{t}</div>
+                    {breakdown}
+                    {lh}
+                </div>
+                """
 
             t_logs, a_logs, f_logs, n_logs = b_cnt(my_df)
             t_sta, a_sta, f_sta, n_sta = b_cnt(my_df, 'Callsign', True)
 
             us_df = my_df[my_df['Country'] == 'United States']
             t_us, a_us, f_us, n_us = b_cnt(us_df, 'State', True)
-            us_list = get_list(us_df, 'State')
 
             can_df = my_df[my_df['Country'] == 'Canada']
             t_can, a_can, f_can, n_can = b_cnt(can_df, 'State', True)
-            can_list = get_list(can_df, 'State')
 
             mex_df = my_df[my_df['Country'] == 'Mexico']
             t_mex, a_mex, f_mex, n_mex = b_cnt(mex_df, 'State', True)
-            mex_list = get_list(mex_df, 'State')
 
             t_ctry, a_ctry, f_ctry, n_ctry = b_cnt(my_df, 'Country', True)
-            ctry_list = get_list(my_df, 'Country')
 
-            grid_df = my_df[(my_df['Station_Grid'].notna()) & (my_df['Station_Grid'] != '')]
-            grid_df = grid_df.copy()
+            grid_df = my_df[(my_df['Station_Grid'].notna()) & (my_df['Station_Grid'] != '')].copy()
             grid_df['Grid4'] = grid_df['Station_Grid'].astype(str).str.strip().str[:4].str.upper()
             t_grd, a_grd, f_grd, n_grd = b_cnt(grid_df, 'Grid4', True)
-            grd_list = get_list(grid_df, 'Grid4')
 
             co_df = us_df[(us_df['County'].notna()) & (us_df['County'] != '') & (us_df['County'] != 'Unknown')]
             t_co, a_co, f_co, n_co = b_cnt(co_df, 'County', True)
-            co_list = get_list(co_df, 'County')
-
-            def b_box(title, t, a, f, n, lst=""):
-                lh = f"<div style='margin-top:8px; font-size:0.9rem; color:#a3e8e9; word-wrap:break-word; max-height:80px; overflow-y:auto;'>{lst}</div>" if lst else ""
-                return f"""
-                <div class='classified-box' style='padding:15px; height: 100%;'>
-                    <div style='color:#139a9b; font-size:1.1rem; font-weight:bold;'>{title}</div>
-                    <div style='color:#ffffff; font-size:2.5rem; line-height:1.2;'>{t}</div>
-                    <div style='color:#1bd2d4; font-size:0.9rem;'>MW: {a} | FM: {f} | NWR: {n}</div>
-                    {lh}
-                </div>
-                """
 
             c1, c2, c3 = st.columns(3)
             c1.markdown(b_box("TOTAL LOGS", t_logs, a_logs, f_logs, n_logs), unsafe_allow_html=True)
             c2.markdown(b_box("UNIQUE STATIONS", t_sta, a_sta, f_sta, n_sta), unsafe_allow_html=True)
-            c3.markdown(b_box("COUNTRIES HEARD", t_ctry, a_ctry, f_ctry, n_ctry, ctry_list), unsafe_allow_html=True)
+            c3.markdown(b_box("COUNTRIES HEARD", t_ctry, a_ctry, f_ctry, n_ctry, my_df, 'Country'), unsafe_allow_html=True)
 
             c4, c5, c6 = st.columns(3)
-            c4.markdown(b_box("US STATES", t_us, a_us, f_us, n_us, us_list), unsafe_allow_html=True)
-            c5.markdown(b_box("CANADIAN PROVINCES", t_can, a_can, f_can, n_can, can_list), unsafe_allow_html=True)
-            c6.markdown(b_box("MEXICAN STATES", t_mex, a_mex, f_mex, n_mex, mex_list), unsafe_allow_html=True)
+            c4.markdown(b_box("US STATES", t_us, a_us, f_us, n_us, us_df, 'State'), unsafe_allow_html=True)
+            c5.markdown(b_box("CANADIAN PROVINCES", t_can, a_can, f_can, n_can, can_df, 'State'), unsafe_allow_html=True)
+            c6.markdown(b_box("MEXICAN STATES", t_mex, a_mex, f_mex, n_mex, mex_df, 'State'), unsafe_allow_html=True)
 
             c7, c8 = st.columns(2)
-            c7.markdown(b_box("GRIDSQUARES", t_grd, a_grd, f_grd, n_grd, grd_list), unsafe_allow_html=True)
-            c8.markdown(b_box("US COUNTIES", t_co, a_co, f_co, n_co, co_list), unsafe_allow_html=True)
+            c7.markdown(b_box("GRIDSQUARES", t_grd, a_grd, f_grd, n_grd, grid_df, 'Grid4'), unsafe_allow_html=True)
+            c8.markdown(b_box("US COUNTIES", t_co, a_co, f_co, n_co, co_df, 'County'), unsafe_allow_html=True)
 
             st.markdown("<hr>", unsafe_allow_html=True)
             st.markdown("#### 📏 FURTHEST RECEPTIONS")
