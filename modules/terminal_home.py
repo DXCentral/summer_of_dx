@@ -147,7 +147,16 @@ def render_terminal_home(awards_active=True, bounty_active=True):
                 """, unsafe_allow_html=True)
 
     st.markdown("### 📡 COMMUNIQUE FROM HIGH COMMAND")
-    st.info("**ATTENTION ALL AGENTS:** Due to feedback from field operatives, we have re-calibrated the multiplier logic. Moving forward, individual States and Provinces within the **United States, Canada, and Mexico** will each independently count as a multiplier. For all other international intercepts, agents will receive a single multiplier for the **Country** as a whole.")
+    st.info("""**ATTENTION ALL AGENTS:** High Command has pushed a massive wave of tactical upgrades to your terminals based on recent field intel:
+    
+- **Personal Telemetry Toggle:** A new switch on the Dashboards allows you to instantly isolate the matrix to 'Personal Telemetry', filtering all visualizations strictly to your own data.
+- **Agent Dossier:** Access this new debrief module from the sidebar for a granular breakdown of your personal metrics (States, Provinces, Countries, Grids, Counties) categorized by band.
+- **Sticky Form Memory:** The FM and NWR intercept forms now permanently remember your last-used Propagation Mode and SDR setting to ensure maximum efficiency during rapid band openings.
+- **Tactical UI Enhancements:** We have swapped standard dropdown boxes for high-visibility 'Pill' toggles across the terminal.
+- **Live Intercept Ticker:** This home console now features a rotating live-feed of the 5 most recently acquired global targets.
+- **Real-Time Propagation Alerts:** The mainframe is now scanning all incoming telemetry. Any log with a received time within the last 30 minutes will trigger active HUD alerts for Sporadic Es (FM/NWR), Extreme Tropo (500+ miles), or Enhanced MW conditions.
+    
+Due to feedback from field operatives, we have also re-calibrated the multiplier logic. Individual States and Provinces within the **United States, Canada, and Mexico** will each independently count as a multiplier. For all other international intercepts, agents will receive a single multiplier for the **Country** as a whole.""")
     
     st.markdown("<br>", unsafe_allow_html=True)
     
