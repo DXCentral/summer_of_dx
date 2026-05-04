@@ -297,7 +297,14 @@ def render_dashboard():
     # DYNAMIC DISTANCE RECALCULATOR (Catches Manual 0-mile logs)
     df['Distance'] = df.apply(lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) if (pd.isna(r['Distance']) or r['Distance'] == 0.0) else r['Distance'], axis=1)
     
-    # Recalculate Base Score with New Distance (UPDATED FOR 0-199 MILE THRESHOLD)
+    # EXPLICIT HARDWARE (SDR) BONUS CALCULATOR
+    # Ensures accurate 5-point injection even if the data forge misses the column map
+    if 'SDR?' in df.columns:
+        df['SDR_Bonus'] = df['SDR?'].apply(lambda x: 5 if str(x).strip().title() == "No" else 0)
+    else:
+        df['SDR_Bonus'] = 0
+
+    # Recalculate Base Score with New Distance (UPDATED FOR 0-199 MILE THRESHOLD) AND HARDWARE BONUS
     df['Dist_Points'] = df['Distance'].apply(lambda x: max(1, math.floor(x / 100)) if x >= 0 else 0)
     df['Base_Score'] = df['Dist_Points'] + df['SDR_Bonus']
     
@@ -929,8 +936,16 @@ def render_dashboard():
         
         if geo_tab == "US STATES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_us")
+            p_sel = "ALL"
+            if b_sel in ["ALL BANDS", "FM", "NWR"]:
+                p_sel = st.pills("PROPAGATION OVERRIDE", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL", key="p_us")
+            
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
+            
             us_df = map_df[map_df['Country'] == 'United States']
+            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {us_df['State'].nunique()} STATES ]</div>", unsafe_allow_html=True)
+            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_us_state else st.columns([1, 0.001])
             with cm1:
                 state_counts = us_df.groupby('State').size().reset_index(name='Logs')
@@ -950,7 +965,15 @@ def render_dashboard():
 
         elif geo_tab == "INTERNATIONAL":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM"], default="ALL BANDS", key="b_intl")
+            p_sel = "ALL"
+            if b_sel in ["ALL BANDS", "FM"]:
+                p_sel = st.pills("PROPAGATION OVERRIDE", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL", key="p_intl")
+
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
+            
+            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {map_df['Country'].nunique()} COUNTRIES ]</div>", unsafe_allow_html=True)
+            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_intl_ctry else st.columns([1, 0.001])
             with cm1:
                 world_counts = map_df.groupby('Country').size().reset_index(name='Logs')
@@ -970,8 +993,16 @@ def render_dashboard():
 
         elif geo_tab == "CANADA":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM"], default="ALL BANDS", key="b_can")
+            p_sel = "ALL"
+            if b_sel in ["ALL BANDS", "FM"]:
+                p_sel = st.pills("PROPAGATION OVERRIDE", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL", key="p_can")
+
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
             can_df = map_df[map_df['Country'] == 'Canada'].copy()
+            
+            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {can_df['State'].nunique()} PROVINCES/TERRITORIES ]</div>", unsafe_allow_html=True)
+            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_can_prov else st.columns([1, 0.001])
             with cm1:
                 prov_counts = can_df.groupby('State').size().reset_index(name='Logs')
@@ -996,8 +1027,16 @@ def render_dashboard():
 
         elif geo_tab == "US COUNTIES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_co")
+            p_sel = "ALL"
+            if b_sel in ["ALL BANDS", "FM", "NWR"]:
+                p_sel = st.pills("PROPAGATION OVERRIDE", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL", key="p_co")
+
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
             us_c_df = map_df[(map_df['Country'] == 'United States') & (map_df['County'] != 'Unknown') & (map_df['County'] != ' - ')].copy()
+            
+            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {us_c_df['County'].nunique()} COUNTRIES/PARISHES ]</div>", unsafe_allow_html=True)
+            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
                 if not us_c_df.empty:
@@ -1030,12 +1069,19 @@ def render_dashboard():
 
         elif geo_tab == "GRIDSQUARES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_grid")
+            p_sel = "ALL"
+            if b_sel in ["ALL BANDS", "FM", "NWR"]:
+                p_sel = st.pills("PROPAGATION OVERRIDE", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL", key="p_grid")
+
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
             
             # The Whitespace Anomaly Eliminator
             grid_df = map_df[map_df['Station_Grid'].notna() & (map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')].copy()
             grid_df['Grid4'] = grid_df['Station_Grid'].astype(str).str.strip().str[:4].str.upper()
             grid_df = grid_df[grid_df['Grid4'].str.match(r'^[A-Z]{2}[0-9]{2}$', na=False)]
+            
+            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {grid_df['Grid4'].nunique()} GRIDSQUARES ]</div>", unsafe_allow_html=True)
             
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_grid else st.columns([1, 0.001])
             with cm1:
@@ -1062,7 +1108,15 @@ def render_dashboard():
                     
         elif geo_tab == "STATION LOCATIONS":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_st_loc")
+            p_sel = "ALL"
+            if b_sel in ["ALL BANDS", "FM", "NWR"]:
+                p_sel = st.pills("PROPAGATION OVERRIDE", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], default="ALL", key="p_st_loc")
+
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
+            if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
+            
+            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {map_df['Callsign'].nunique()} UNIQUE STATIONS ]</div>", unsafe_allow_html=True)
+            
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_st_loc else st.columns([1, 0.001])
             with cm1:
                 if not map_df.empty:
