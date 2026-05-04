@@ -157,6 +157,7 @@ def render_terminal_home(awards_active=True, bounty_active=True):
         st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
         st.markdown("""
         <div class='classified-box' style='height: 350px; overflow-y: auto;'>
+            <b style='color:#1bd2d4;'>[ 2026-05-04 18:52 UTC | v1.1.1 ] INTELLIGENCE MATRIX OPTIMIZED:</b> Fixed progress percentage anomalies on NWR Grid and County ledgers. Appended dynamic [ GLOBAL TOTAL ] rows to all classification matrix tables.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-04 18:04 UTC | v1.1.0 ] AGENT DOSSIER & UI OVERHAUL:</b> Deployed the Agent Dossier for deep-dive personal telemetry. Upgraded terminal inputs to tactical pill switches. Added Personal Telemetry data isolation toggle, force-refresh datalink, and enhanced identity sanitization for bulletproof log matching.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-02 22:30 UTC | v1.0.4 ] TERMINAL HUD UPGRADE:</b> Deployed Real-Time Propagation Alerts and Live Intercept Ticker. Geospatial caches re-engineered to resolve Gridsquare and County drop-off anomalies.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-02 21:00 UTC | v1.0.1 ] SCORING MATRIX RECALIBRATED:</b> Fixed the scoring matrix so that the only multipliers are US States, Canadian Provinces, and Mexican States, alongside a single multiplier per international country.<br><br>
