@@ -166,6 +166,7 @@ Due to feedback from field operatives, we have also re-calibrated the multiplier
         st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
         st.markdown("""
         <div class='classified-box' style='height: 350px; overflow-y: auto;'>
+            <b style='color:#1bd2d4;'>[ 2026-05-05 15:33 UTC | v1.1.4 ] TACTICAL UI PATCH:</b> Upgraded the post-search "Reception via SDR?" toggle to the high-visibility Pill format, ensuring aesthetic consistency across all data entry modules and linking it securely to the sticky memory state.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-04 21:57 UTC | v1.1.3 ] GEOSPATIAL INTELLIGENCE UPGRADE:</b> Deployed propagation mode filters (Tropo, Sporadic E, etc.) across all interactive maps for FM and NWR bands. Integrated dynamic active target counters above the HUD to provide instant geospatial context.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-04 21:08 UTC | v1.1.2 ] DATA SANITIZATION & METRIC CONVERSION UPDATE:</b> Deployed an intelligent Metric Conversion Engine to handle European comma-decimal distances in bulk imports automatically. Tightened Agent Authentication protocols to prevent blank profile coordinates and ensure accurate distance telemetry.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-04 18:52 UTC | v1.1.1 ] INTELLIGENCE MATRIX OPTIMIZED:</b> Fixed progress percentage anomalies on NWR Grid and County ledgers. Appended dynamic [ GLOBAL TOTAL ] rows to all classification matrix tables.<br><br>
