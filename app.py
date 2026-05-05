@@ -591,6 +591,11 @@ with main_content:
                         grid_str = f" | Grid: {target['Grid']}" if target['Grid'] else ""
                         dist_str = f" | {target['Dist']} mi" if target['Dist'] > 0 else ""
                         st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                        
+                        st.markdown("#### RECEPTION VIA SDR?")
+                        sdr_choice_db = st.pills("SDR Used?", ["Yes", "No"], default=st.session_state.sticky_sdr, selection_mode="single", label_visibility="collapsed", key=f"mw_sdr_db_{fk}")
+                        if not sdr_choice_db: sdr_choice_db = st.session_state.sticky_sdr
+                        
                         target_data = {
                             "freq": target['Frequency'], 
                             "call": target['Callsign'], 
@@ -599,13 +604,9 @@ with main_content:
                             "county": target.get('County', 'Unknown'), 
                             "country": target.get('Country', 'United States'), 
                             "grid": target['Grid'], 
-                            "dist": target['Dist']
+                            "dist": target['Dist'],
+                            "sdr": sdr_choice_db
                         }
-                        
-                        st.markdown("#### RECEPTION VIA SDR?")
-                        sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
-                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, index=sdr_idx, key=f"mw_sdr_db_{fk}")
-                        target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
             st.write("INITIATE UNLISTED / INTERNATIONAL PROTOCOL...")
@@ -1102,6 +1103,11 @@ with main_content:
                         county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
                         
                         st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                        
+                        st.markdown("#### RECEPTION VIA SDR?")
+                        sdr_choice_db = st.pills("SDR Used?", ["Yes", "No"], default=st.session_state.sticky_sdr, selection_mode="single", label_visibility="collapsed", key=f"fm_sdr_db_{fk}")
+                        if not sdr_choice_db: sdr_choice_db = st.session_state.sticky_sdr
+                        
                         target_data = {
                             "freq": target['Frequency'], 
                             "call": target['Callsign'], 
@@ -1111,13 +1117,9 @@ with main_content:
                             "country": target.get('Country', 'United States'), 
                             "grid": target['Grid'], 
                             "pi": "", 
-                            "dist": target['Dist']
+                            "dist": target['Dist'],
+                            "sdr": sdr_choice_db
                         }
-                        
-                        st.markdown("#### RECEPTION VIA SDR?")
-                        sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
-                        sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, index=sdr_idx, key=f"fm_sdr_db_{fk}")
-                        target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
             st.write("INITIATE UNLISTED PROTOCOL...")
@@ -1767,6 +1769,11 @@ with main_content:
                             county_str = f" - {c_str} County" if c_str and c_str not in ["Unknown", " - "] else ""
                             
                             st.success(f"TARGET LOCKED: {target['Callsign']} ({target['City']}, {target['State']}{county_str} - {target.get('Country', 'United States')}{grid_str}{dist_str})")
+                            
+                            st.markdown("#### RECEPTION VIA SDR?")
+                            sdr_choice_db = st.pills("SDR Used?", ["Yes", "No"], default=st.session_state.sticky_sdr, selection_mode="single", label_visibility="collapsed", key=f"nwr_sdr_db_{fk}")
+                            if not sdr_choice_db: sdr_choice_db = st.session_state.sticky_sdr
+                            
                             target_data = {
                                 "freq": target['Frequency'], 
                                 "call": target['Callsign'], 
@@ -1776,13 +1783,9 @@ with main_content:
                                 "country": target.get('Country', 'United States'), 
                                 "grid": target['Grid'], 
                                 "pi": "", 
-                                "dist": target['Dist']
+                                "dist": target['Dist'],
+                                "sdr": sdr_choice_db
                             }
-                            
-                            st.markdown("#### RECEPTION VIA SDR?")
-                            sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
-                            sdr_choice_db = st.radio("SDR Used?", ["Yes", "No"], horizontal=True, index=sdr_idx, key=f"nwr_sdr_db_{fk}")
-                            target_data["sdr"] = sdr_choice_db
 
         with tab_manual:
             st.write("INITIATE UNLISTED PROTOCOL...")
