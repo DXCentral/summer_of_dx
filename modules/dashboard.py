@@ -301,7 +301,6 @@ def render_dashboard():
         df.drop(columns=['New_ST_Lat', 'New_ST_Lon'], inplace=True)
 
     # EXPLICIT HARDWARE (SDR) BONUS CALCULATOR
-    # Dynamically targets the SDR column regardless of punctuation
     if 'SDR' in df.columns:
         df['SDR_Bonus'] = df['SDR'].apply(lambda x: 5 if str(x).strip().title() == "No" else 0)
     elif 'SDR?' in df.columns:
@@ -309,12 +308,11 @@ def render_dashboard():
     elif 'SDR_Bonus' not in df.columns:
         df['SDR_Bonus'] = 0
 
-    # DYNAMIC DISTANCE RECALCULATOR (Catches Manual 0-mile logs)
-    # Ensure Distance is float to prevent math errors before processing
+    # DYNAMIC DISTANCE RECALCULATOR
     df['Distance'] = pd.to_numeric(df['Distance'], errors='coerce').fillna(0.0)
     df['Distance'] = df.apply(lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) if r['Distance'] == 0.0 else r['Distance'], axis=1)
     
-    # Recalculate Base Score with New Distance (UPDATED FOR 0-199 MILE THRESHOLD) AND HARDWARE BONUS
+    # Recalculate Base Score
     df['Dist_Points'] = df['Distance'].apply(lambda x: max(1, math.floor(x / 100)) if x >= 0 else 0)
     df['Base_Score'] = df['Dist_Points'] + df['SDR_Bonus']
     
@@ -328,7 +326,7 @@ def render_dashboard():
     fk = st.session_state.filter_reset_key
     st.markdown("<div style='color:#139a9b; margin-bottom: 5px;'>[ GLOBAL INTERCEPT FILTERS ]</div>", unsafe_allow_html=True)
     
-    # GET ACTIVE AGENT IN EXACT UPPERCASE TO ENSURE BULLETPROOF MATCHING
+    # GET ACTIVE AGENT IN EXACT UPPERCASE
     active_agent = str(st.session_state.operator_profile.get('name', 'UNKNOWN')).strip().upper()
     
     # --- THE DATA ISOLATOR TOGGLE ---
@@ -338,13 +336,15 @@ def render_dashboard():
         load_global_dashboard_data.clear()
         st.rerun()
 
-    # Pre-filter all downstream UI if User locks into Personal Telemetry (Robust Case Insensitive Match)
     if data_scope == "PERSONAL TELEMETRY (MY DATA)":
         df = df[df['DXer'].str.upper() == active_agent]
 
+    # MATHEMATICAL FREQUENCY SORT HEURISTIC
+    def safe_freq_sort(x):
+        try: return float(x)
+        except: return float('inf')
+
     c_f1, c_f2, c_f3, c_f4 = st.columns(4)
-    
-    # Intelligently sort DXer dropdown so Active Agent is pinned to the top
     all_dxers = sorted(df['DXer'].dropna().unique().tolist())
     exact_match = next((x for x in all_dxers if str(x).strip().upper() == active_agent), None)
     if exact_match and data_scope != "PERSONAL TELEMETRY (MY DATA)":
@@ -360,7 +360,10 @@ def render_dashboard():
 
     c_f5, c_f6, c_f7, c_f8 = st.columns(4)
     f_prop = c_f5.selectbox("Propagation (FM/NWR)", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], key=f"f_prop_{fk}")
-    f_freq = c_f6.selectbox("Frequency", ["ALL"] + sorted(df['Freq_Num'].dropna().unique().tolist()), key=f"f_freq_{fk}")
+    
+    # INJECTED: SECURE NUMERICAL SORT FOR FREQUENCIES
+    f_freq = c_f6.selectbox("Frequency", ["ALL"] + sorted(df['Freq_Num'].dropna().unique().tolist(), key=safe_freq_sort), key=f"f_freq_{fk}")
+    
     f_stat = c_f7.selectbox("Station", ["ALL"] + sorted(df['Callsign'].dropna().unique().tolist()), key=f"f_stat_{fk}")
     f_st_state = c_f8.selectbox("Station State/Prov", ["ALL"] + sorted(df['State'].dropna().unique().tolist()), key=f"f_st_st_{fk}")
 
@@ -393,37 +396,21 @@ def render_dashboard():
         st.warning("NO TELEMETRY MATCHES CURRENT FILTER PARAMETERS.")
         st.stop()
 
-    # --- THE MULTIPLIER SCORING ENGINE (UPDATED TO UNIQUE LOGS ONLY) ---
+    # --- THE MULTIPLIER SCORING ENGINE ---
     def calculate_scores(target_df):
         if target_df.empty: 
             return pd.DataFrame(columns=['DXer', 'Base_Score', 'Multiplier', 'Bonus', 'Total'])
         
-        # 1. PURGE DUPLICATES: Only score a station once per band per DXer.
-        # Ensure we keep the highest scoring intercept of the same station!
         unique_logs = target_df.sort_values('Base_Score', ascending=False).drop_duplicates(subset=['DXer', 'Band', 'Callsign', 'Freq_Num']).copy()
-        
-        # 2. SEPARATE MULTIPLIERS (US/CAN/MEX vs. Rest of World)
         valid_state_countries = ['United States', 'Canada', 'Mexico']
         
-        # Calculate Base Score & State Multipliers (Only for valid countries)
-        base_scores = unique_logs.groupby(['DXer', 'Band']).agg(
-            Band_Base=('Base_Score', 'sum')
-        ).reset_index()
-        
-        state_mults = unique_logs[unique_logs['Country'].isin(valid_state_countries)].groupby(['DXer', 'Band']).agg(
-            U_States=('State', 'nunique')
-        ).reset_index()
-        
-        # Calculate Country Multipliers (Excluding US/CAN/MEX to avoid double-dipping)
-        ctry_mults = unique_logs[~unique_logs['Country'].isin(valid_state_countries)].groupby(['DXer', 'Band']).agg(
-            U_Ctry=('Country', 'nunique')
-        ).reset_index()
+        base_scores = unique_logs.groupby(['DXer', 'Band']).agg(Band_Base=('Base_Score', 'sum')).reset_index()
+        state_mults = unique_logs[unique_logs['Country'].isin(valid_state_countries)].groupby(['DXer', 'Band']).agg(U_States=('State', 'nunique')).reset_index()
+        ctry_mults = unique_logs[~unique_logs['Country'].isin(valid_state_countries)].groupby(['DXer', 'Band']).agg(U_Ctry=('Country', 'nunique')).reset_index()
 
-        # Merge them back together
         pb = base_scores.merge(state_mults, on=['DXer', 'Band'], how='left')
         pb = pb.merge(ctry_mults, on=['DXer', 'Band'], how='left').fillna(0)
         
-        # 3. CALCULATE MULTIPLIERS
         pb['Band_Mult'] = pb['U_States'] + pb['U_Ctry']
         pb['Band_Mult'] = pb['Band_Mult'].apply(lambda x: x if x > 0 else 1) 
         pb['Band_Total_Base'] = pb['Band_Base'] * pb['Band_Mult']
@@ -434,7 +421,6 @@ def render_dashboard():
             Base_x_Mult=('Band_Total_Base', 'sum')
         ).reset_index()
         
-        # 4. CALCULATE CONSISTENCY BONUS (10+ Logs per month on AM/FM)
         bonus_eligible = target_df[target_df['Band'].isin(['AM', 'FM'])]
         if not bonus_eligible.empty:
             b_counts = bonus_eligible.groupby(['DXer', 'Band', 'Month']).size().reset_index(name='Logs')
@@ -594,7 +580,6 @@ def render_dashboard():
                 n = df_in[df_in['Band']=='NWR'][col].nunique() if unique else len(df_in[df_in['Band']=='NWR'])
                 return t, a, f, n
 
-            # The New Dynamic HTML List Generator for Band Breakdowns (Flattened to prevent Markdown parsing bugs)
             def b_box(title, t, a, f, n, df_in=None, col=None):
                 if df_in is not None and col is not None:
                     lst_html = ""
@@ -610,12 +595,11 @@ def render_dashboard():
                         lh = f"<div style='margin-top:12px; font-size:0.9rem; word-wrap:break-word; max-height:120px; overflow-y:auto; line-height:1.4;'>{lst_html}</div>"
                     else:
                         lh = ""
-                    breakdown = "" # Hide the simple summary line because it's rendered in the list
+                    breakdown = "" 
                 else:
                     breakdown = f"<div style='color:#1bd2d4; font-size:0.9rem;'>MW: {a} | FM: {f} | NWR: {n}</div>"
                     lh = ""
                     
-                # FLATTENED RETURN STRING TO PREVENT STREAMLIT MARKDOWN ESCAPING
                 return f"<div class='classified-box' style='padding:15px; height: 100%;'><div style='color:#139a9b; font-size:1.1rem; font-weight:bold;'>{title}</div><div style='color:#ffffff; font-size:2.5rem; line-height:1.2;'>{t}</div>{breakdown}{lh}</div>"
 
             t_logs, a_logs, f_logs, n_logs = b_cnt(my_df)
@@ -721,7 +705,6 @@ def render_dashboard():
                 if not s_df.empty:
                     top10 = s_df.head(10).copy()
                     
-                    # Global Totals
                     total_row = pd.DataFrame([{
                         'DXer': '[ GLOBAL TOTAL ]',
                         'Base_Score': s_df['Base_Score'].sum(),
