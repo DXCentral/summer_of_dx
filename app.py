@@ -253,6 +253,11 @@ def update_from_search():
         except Exception: 
             pass
 
+# MATHEMATICAL FREQUENCY SORT HEURISTIC
+def safe_freq_sort(x):
+    try: return float(x)
+    except: return float('inf')
+
 if st.session_state.sys_state != "OPERATOR_LOGIN":
     prof = st.session_state.operator_profile
     if not prof.get('name') or float(prof.get('lat', 0.0)) == 0.0 or float(prof.get('lon', 0.0)) == 0.0:
@@ -499,7 +504,8 @@ with main_content:
                 fk = st.session_state.mw_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                all_freqs = sorted([str(x) for x in mw_db['Frequency'].dropna().unique()])
+                # INJECTED: SAFE NUMERICAL SORT FOR MW FREQUENCIES
+                all_freqs = sorted([str(x) for x in mw_db['Frequency'].dropna().unique()], key=safe_freq_sort)
                 mw_states = sorted([str(x) for x in mw_db['State'].dropna().unique()])
                 mw_countries = sorted([str(x) for x in mw_db['Country'].dropna().unique()]) if 'Country' in mw_db.columns else ["United States"]
                 
@@ -1007,7 +1013,8 @@ with main_content:
                 fk = st.session_state.fm_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                all_freqs = sorted([str(x) for x in fm_db['Frequency'].dropna().unique()])
+                # INJECTED: SAFE NUMERICAL SORT FOR FM FREQUENCIES
+                all_freqs = sorted([str(x) for x in fm_db['Frequency'].dropna().unique()], key=safe_freq_sort)
                 fm_states = sorted([str(x) for x in fm_db['State'].dropna().unique()])
                 fm_countries = sorted([str(x) for x in fm_db['Country'].dropna().unique()]) if 'Country' in fm_db.columns else ["United States"]
                 
@@ -1596,7 +1603,8 @@ with main_content:
                 # --- UNIVERSAL FILTERS (APPLIES TO BOTH VIEWS) ---
                 c1, c2, c3, c4 = st.columns(4)
                 
-                all_freqs = sorted([str(x) for x in nwr_db['Frequency'].dropna().unique()])
+                # INJECTED: SAFE NUMERICAL SORT FOR NWR FREQUENCIES
+                all_freqs = sorted([str(x) for x in nwr_db['Frequency'].dropna().unique()], key=safe_freq_sort)
                 nwr_states = sorted([str(x) for x in nwr_db['State'].dropna().unique()])
                 nwr_wfos = sorted([str(x) for x in nwr_db['WFO'].dropna().unique()]) if 'WFO' in nwr_db.columns else []
                 
