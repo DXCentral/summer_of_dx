@@ -124,12 +124,18 @@ def render_dashboard():
         st.stop()
         
     # =====================================================================
-    # GLOBAL DATA SANITIZER (Eliminates Whitespace Anomalies)
+    # GLOBAL DATA SANITIZER & MATHEMATICAL COUNTER COLUMNS
     # =====================================================================
     df['Country'] = df['Country'].astype(str).replace({'USA': 'United States', 'US': 'United States', 'United states': 'United States'}).str.strip()
     df['Station_Grid'] = df['Station_Grid'].astype(str).str.strip()
     df['County'] = df['County'].astype(str).str.strip()
     df['DXer'] = df['DXer'].astype(str).str.strip() # Agent Name Sanitizer
+    
+    # 1. MATHEMATICAL GRID TRACKER: Extracts the 4-character Maidenhead Base to prevent 6-char overcounting
+    df['Grid4'] = df['Station_Grid'].apply(lambda x: x[:4].upper() if pd.notna(x) and str(x).strip().upper() not in ['NAN', '-', 'UNKNOWN', ''] and len(str(x).strip()) >= 4 else pd.NA)
+    
+    # 2. MATHEMATICAL COUNTY TRACKER: Binds State to County to prevent cross-state naming collisions (e.g. Washington (PA) vs Washington (OH))
+    df['County_Display'] = df.apply(lambda x: f"{str(x['County']).strip()} ({str(x['State']).strip()})" if pd.notna(x['County']) and str(x['County']).strip() not in ['nan', '-', 'Unknown', ''] else pd.NA, axis=1)
         
     st.markdown("""
     <style>
@@ -485,10 +491,10 @@ def render_dashboard():
         c1, c2 = st.columns(2)
         with c1:
             st.markdown("<div class='flyout-header'>GRIDSQUARES</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='flyout-sub'>{loc_df['Station_Grid'].nunique():,}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='flyout-sub'>{loc_df['Grid4'].nunique():,}</div>", unsafe_allow_html=True)
         with c2:
             st.markdown("<div class='flyout-header'>COUNTIES</div>", unsafe_allow_html=True)
-            st.markdown(f"<div class='flyout-sub'>{loc_df['County'].nunique():,}</div>", unsafe_allow_html=True)
+            st.markdown(f"<div class='flyout-sub'>{loc_df['County_Display'].nunique():,}</div>", unsafe_allow_html=True)
             
         st.markdown("<div class='flyout-header'>TOP 5 HEARD STATIONS</div>", unsafe_allow_html=True)
         for b in ['AM', 'FM', 'NWR']:
@@ -547,8 +553,8 @@ def render_dashboard():
         us_only = filt_df[filt_df['Country'] == 'United States']
         m5.metric("US States Heard (Inc DC)", us_only['State'].nunique())
         m6.metric("Countries Heard", filt_df['Country'].nunique())
-        m7.metric("Unique Gridsquares", filt_df['Station_Grid'].nunique())
-        m8.metric("Unique Counties/Parishes", filt_df['County'].nunique())
+        m7.metric("Unique Gridsquares", filt_df['Grid4'].nunique())
+        m8.metric("Unique Counties/Parishes", filt_df['County_Display'].nunique())
         am_name, am_score = get_leader_data('AM')
         fm_name, fm_score = get_leader_data('FM')
         nwr_name, nwr_score = get_leader_data('NWR')
@@ -626,12 +632,11 @@ def render_dashboard():
 
             t_ctry, a_ctry, f_ctry, n_ctry = b_cnt(my_df, 'Country', True)
 
-            grid_df = my_df[(my_df['Station_Grid'].notna()) & (my_df['Station_Grid'] != '')].copy()
-            grid_df['Grid4'] = grid_df['Station_Grid'].astype(str).str.strip().str[:4].str.upper()
+            grid_df = my_df.dropna(subset=['Grid4']).copy()
             t_grd, a_grd, f_grd, n_grd = b_cnt(grid_df, 'Grid4', True)
 
-            co_df = us_df[(us_df['County'].notna()) & (us_df['County'] != '') & (us_df['County'] != 'Unknown')]
-            t_co, a_co, f_co, n_co = b_cnt(co_df, 'County', True)
+            co_df = my_df.dropna(subset=['County_Display']).copy()
+            t_co, a_co, f_co, n_co = b_cnt(co_df, 'County_Display', True)
 
             c1, c2, c3 = st.columns(3)
             c1.markdown(b_box("TOTAL LOGS", t_logs, a_logs, f_logs, n_logs), unsafe_allow_html=True)
@@ -645,7 +650,7 @@ def render_dashboard():
 
             c7, c8 = st.columns(2)
             c7.markdown(b_box("GRIDSQUARES", t_grd, a_grd, f_grd, n_grd, grid_df, 'Grid4'), unsafe_allow_html=True)
-            c8.markdown(b_box("US COUNTIES", t_co, a_co, f_co, n_co, co_df, 'County'), unsafe_allow_html=True)
+            c8.markdown(b_box("US COUNTIES", t_co, a_co, f_co, n_co, co_df, 'County_Display'), unsafe_allow_html=True)
 
             st.markdown("<hr>", unsafe_allow_html=True)
             st.markdown("#### 📏 FURTHEST RECEPTIONS")
@@ -751,15 +756,15 @@ def render_dashboard():
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### MW GRID MASTERS")
-                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'AM'], 'DXer', 'Station_Grid', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
+                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'AM'], 'DXer', 'Grid4', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             with c2:
                 st.markdown("#### FM GRID MASTERS")
-                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'FM'], 'DXer', 'Station_Grid', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
+                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'FM'], 'DXer', 'Grid4', 100), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             st.markdown("---")
             c3, c4 = st.columns(2)
             with c3:
                 st.markdown("#### NWR GRID MASTERS")
-                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'NWR'], 'DXer', 'Station_Grid', 25), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
+                st.dataframe(build_progress_board(filt_df[filt_df['Band'] == 'NWR'], 'DXer', 'Grid4', 25), hide_index=True, use_container_width=True, column_config={"Count": "Grids", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
 
         elif mx_tab == "COUNTY/PARISH LEDGER":
             if st.button("🎖️ QUALIFY FOR CENTURY CLUB? CLICK HERE TO NOTIFY HIGH COMMAND TO PROCURE YOUR AWARD.", use_container_width=True, key="btn_county_award"):
@@ -770,15 +775,15 @@ def render_dashboard():
             c1, c2 = st.columns(2)
             with c1:
                 st.markdown("#### MW COUNTY MASTERS")
-                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'AM'], 'DXer', 'County', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
+                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'AM'], 'DXer', 'County_Display', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             with c2:
                 st.markdown("#### FM COUNTY MASTERS")
-                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'FM'], 'DXer', 'County', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
+                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'FM'], 'DXer', 'County_Display', 100), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
             st.markdown("---")
             c3, c4 = st.columns(2)
             with c3:
                 st.markdown("#### NWR COUNTY MASTERS")
-                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'NWR'], 'DXer', 'County', 25), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
+                st.dataframe(build_progress_board(us_df[us_df['Band'] == 'NWR'], 'DXer', 'County_Display', 25), hide_index=True, use_container_width=True, column_config={"Count": "Counties", "Progress": st.column_config.ProgressColumn("Progress", min_value=0, max_value=100, format="%d%%")})
 
         elif mx_tab == "INTERCEPT LEDGER":
             def build_log_board(b_target=None):
@@ -1038,9 +1043,9 @@ def render_dashboard():
 
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
             if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
-            us_c_df = map_df[(map_df['Country'] == 'United States') & (map_df['County'] != 'Unknown') & (map_df['County'] != ' - ')].copy()
+            us_c_df = map_df[(map_df['Country'] == 'United States') & map_df['County_Display'].notna()].copy()
             
-            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {us_c_df['County'].nunique()} COUNTRIES/PARISHES ]</div>", unsafe_allow_html=True)
+            st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {us_c_df['County_Display'].nunique()} COUNTRIES/PARISHES ]</div>", unsafe_allow_html=True)
             
             cm1, cm2 = st.columns([3, 2]) if st.session_state.geo_county else st.columns([1, 0.001])
             with cm1:
@@ -1048,11 +1053,10 @@ def render_dashboard():
                     us_c_df['Clean_County'] = us_c_df['County'].apply(sanitize_county)
                     us_c_df['Map_ID'] = us_c_df['State'].str.strip().str.upper() + "_" + us_c_df['Clean_County']
                     
-                    county_counts = us_c_df.groupby(['Map_ID', 'County', 'State']).size().reset_index(name='Logs')
-                    county_counts['HoverName'] = county_counts['County'] + ", " + county_counts['State']
+                    county_counts = us_c_df.groupby(['Map_ID', 'County_Display', 'State']).size().reset_index(name='Logs')
                     c_gj = get_custom_county_geojson()
                     if c_gj:
-                        fig_co = px.choropleth(county_counts, geojson=c_gj, locations='Map_ID', featureidkey='id', color='Logs', hover_name='HoverName', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
+                        fig_co = px.choropleth(county_counts, geojson=c_gj, locations='Map_ID', featureidkey='id', color='Logs', hover_name='County_Display', scope="usa", color_continuous_scale=CYAN_SCALE, template="plotly_dark")
                         fig_co.update_traces(marker_line_width=0.5, marker_line_color='#050505')
                     else:
                         fig_co = px.scatter_geo(county_counts, scope='usa')
@@ -1062,15 +1066,18 @@ def render_dashboard():
                 ev_co = st.plotly_chart(fig_co, use_container_width=True, on_select="rerun", key=f"m_geo_co_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_co and ev_co.get("selection") and ev_co["selection"].get("points"):
                     pt = ev_co["selection"]["points"][0]
-                    if "hovertext" in pt:
-                        n_co = pt["hovertext"]
+                    if "location" in pt:
+                        n_co = pt["location"]
                         if st.session_state.geo_county != n_co:
                             st.session_state.geo_county = n_co
                             st.rerun()
             if st.session_state.geo_county:
                 with cm2:
-                    co_df = filt_df[(filt_df['Country'] == 'United States') & ((filt_df['County'] + ", " + filt_df['State']) == st.session_state.geo_county)]
-                    render_geo_flyout("COUNTY", st.session_state.geo_county, co_df)
+                    co_df = filt_df[(filt_df['Country'] == 'United States')]
+                    co_df['Clean_County'] = co_df['County'].apply(sanitize_county)
+                    co_df['Map_ID'] = co_df['State'].str.strip().str.upper() + "_" + co_df['Clean_County']
+                    co_df_filtered = co_df[co_df['Map_ID'] == st.session_state.geo_county]
+                    render_geo_flyout("COUNTY", co_df_filtered.iloc[0]['County_Display'] if not co_df_filtered.empty else "UNKNOWN", co_df_filtered)
 
         elif geo_tab == "GRIDSQUARES":
             b_sel = st.pills("BAND OVERRIDE", ["ALL BANDS", "AM", "FM", "NWR"], default="ALL BANDS", key="b_grid")
@@ -1081,9 +1088,7 @@ def render_dashboard():
             map_df = filt_df if b_sel == "ALL BANDS" else filt_df[filt_df['Band'] == b_sel]
             if p_sel != "ALL": map_df = map_df[(map_df['Band'] == 'AM') | (map_df['Prop_Mode'] == p_sel)]
             
-            # The Whitespace Anomaly Eliminator
-            grid_df = map_df[map_df['Station_Grid'].notna() & (map_df['Station_Grid'] != '') & (map_df['Station_Grid'] != ' - ')].copy()
-            grid_df['Grid4'] = grid_df['Station_Grid'].astype(str).str.strip().str[:4].str.upper()
+            grid_df = map_df.dropna(subset=['Grid4']).copy()
             grid_df = grid_df[grid_df['Grid4'].str.match(r'^[A-Z]{2}[0-9]{2}$', na=False)]
             
             st.markdown(f"<div style='color: #1bd2d4; font-size: 1.1rem; font-weight: bold; margin-bottom: 10px;'>[ MAP TARGETS ACQUIRED: {grid_df['Grid4'].nunique()} GRIDSQUARES ]</div>", unsafe_allow_html=True)
@@ -1108,7 +1113,7 @@ def render_dashboard():
                             st.rerun()
             if st.session_state.geo_grid:
                 with cm2:
-                    g_df = filt_df[filt_df['Station_Grid'].astype(str).str.strip().str.upper().str.startswith(st.session_state.geo_grid)]
+                    g_df = filt_df[filt_df['Grid4'] == st.session_state.geo_grid]
                     render_geo_flyout("GRIDSQUARE", st.session_state.geo_grid, g_df)
                     
         elif geo_tab == "STATION LOCATIONS":
