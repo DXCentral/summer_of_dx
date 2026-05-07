@@ -11,11 +11,11 @@ import re
 import math
 from modules.data_forge import load_global_dashboard_data, get_lat_lon_from_city
 from modules.awards import manual_award_claim_popup
-from modules.importers import calculate_distance  # INJECTED FOR DYNAMIC DISTANCE RECALCULATION
+from modules.importers import calculate_distance  
 
 # --- CYAN ESPIONAGE AESTHETIC ---
 CYAN_SCALE = [
-    '#167a7b', # Brightened from #0a4040 to prevent optical camouflage
+    '#167a7b', 
     '#1bd2d4', 
     '#5ce1e2', 
     '#a3e8e9', 
@@ -24,7 +24,7 @@ CYAN_SCALE = [
 
 # RGB Scale for PyDeck Heatmap
 CYAN_RGB_SCALE = [
-    [22, 122, 123], # Brightened from [10, 64, 64]
+    [22, 122, 123], 
     [27, 210, 212], 
     [92, 225, 226], 
     [163, 232, 233], 
@@ -71,22 +71,18 @@ def get_custom_county_geojson():
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
             state_abbr = FIPS_TO_ABBR.get(state_fips, "").upper()
             county_name = str(feature['properties'].get('NAME', ''))
-            
-            # Apply universal sanitizer
             map_id = f"{state_abbr}_{sanitize_county(county_name)}"
             feature['id'] = map_id
         return geojson
     except Exception:
         return None
 
-# CACHE ENGINE REMOVED TO PREVENT STALE GRID RENDER BUGS
 def generate_grid_geojson(grids):
     features = []
     for g in grids:
         g = str(g).strip()
         if len(g) >= 4:
             g4 = g[:4].upper()
-            # Strict format validation to prevent geocoding crashes
             if not (len(g4) == 4 and g4[0].isalpha() and g4[1].isalpha() and g4[2].isdigit() and g4[3].isdigit()):
                 continue
             try:
@@ -116,6 +112,18 @@ def get_target_circle(lat, lon, radius_mi, pts=64):
         coords.append([math.degrees(lon2), math.degrees(lat2)])
     return coords
 
+# MATHEMATICAL FREQUENCY SORT HEURISTIC
+def safe_freq_sort(x):
+    try: return float(x)
+    except: return float('inf')
+
+# TACTICAL QUICK-STEP CALLBACK
+def step_freq_cb(state_key, opts, direction):
+    val = st.session_state.get(state_key, opts[0])
+    try: idx = opts.index(val)
+    except: idx = 0
+    st.session_state[state_key] = opts[(idx + direction) % len(opts)]
+
 def render_dashboard():
     df = load_global_dashboard_data()
     
@@ -129,12 +137,9 @@ def render_dashboard():
     df['Country'] = df['Country'].astype(str).replace({'USA': 'United States', 'US': 'United States', 'United states': 'United States'}).str.strip()
     df['Station_Grid'] = df['Station_Grid'].astype(str).str.strip()
     df['County'] = df['County'].astype(str).str.strip()
-    df['DXer'] = df['DXer'].astype(str).str.strip() # Agent Name Sanitizer
+    df['DXer'] = df['DXer'].astype(str).str.strip() 
     
-    # 1. MATHEMATICAL GRID TRACKER: Extracts the 4-character Maidenhead Base to prevent 6-char overcounting
     df['Grid4'] = df['Station_Grid'].apply(lambda x: x[:4].upper() if pd.notna(x) and str(x).strip().upper() not in ['NAN', '-', 'UNKNOWN', ''] and len(str(x).strip()) >= 4 else pd.NA)
-    
-    # 2. MATHEMATICAL COUNTY TRACKER: Binds State to County to prevent cross-state naming collisions (e.g. Washington (PA) vs Washington (OH))
     df['County_Display'] = df.apply(lambda x: f"{str(x['County']).strip()} ({str(x['State']).strip()})" if pd.notna(x['County']) and str(x['County']).strip() not in ['nan', '-', 'Unknown', ''] else pd.NA, axis=1)
         
     st.markdown("""
@@ -339,11 +344,6 @@ def render_dashboard():
     if data_scope == "PERSONAL TELEMETRY (MY DATA)":
         df = df[df['DXer'].str.upper() == active_agent]
 
-    # MATHEMATICAL FREQUENCY SORT HEURISTIC
-    def safe_freq_sort(x):
-        try: return float(x)
-        except: return float('inf')
-
     c_f1, c_f2, c_f3, c_f4 = st.columns(4)
     all_dxers = sorted(df['DXer'].dropna().unique().tolist())
     exact_match = next((x for x in all_dxers if str(x).strip().upper() == active_agent), None)
@@ -361,8 +361,13 @@ def render_dashboard():
     c_f5, c_f6, c_f7, c_f8 = st.columns(4)
     f_prop = c_f5.selectbox("Propagation (FM/NWR)", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], key=f"f_prop_{fk}")
     
-    # INJECTED: SECURE NUMERICAL SORT FOR FREQUENCIES
-    f_freq = c_f6.selectbox("Frequency", ["ALL"] + sorted(df['Freq_Num'].dropna().unique().tolist(), key=safe_freq_sort), key=f"f_freq_{fk}")
+    # INJECTED: TACTICAL QUICK-STEP FOR GLOBAL FREQUENCY
+    f_freq_opts = ["ALL"] + sorted(df['Freq_Num'].dropna().unique().tolist(), key=safe_freq_sort)
+    c_f6.markdown("<div style='font-size: 14px; color: #1bd2d4; margin-bottom: 5px;'>Frequency Quick-Step</div>", unsafe_allow_html=True)
+    c_f6_p, c_f6_s, c_f6_n = c_f6.columns([1, 2.5, 1])
+    c_f6_p.button("◀", key=f"glb_f_p_{fk}", on_click=step_freq_cb, args=(f"f_freq_{fk}", f_freq_opts, -1), use_container_width=True)
+    f_freq = c_f6_s.selectbox("Frequency", f_freq_opts, key=f"f_freq_{fk}", label_visibility="collapsed")
+    c_f6_n.button("▶", key=f"glb_f_n_{fk}", on_click=step_freq_cb, args=(f"f_freq_{fk}", f_freq_opts, 1), use_container_width=True)
     
     f_stat = c_f7.selectbox("Station", ["ALL"] + sorted(df['Callsign'].dropna().unique().tolist()), key=f"f_stat_{fk}")
     f_st_state = c_f8.selectbox("Station State/Prov", ["ALL"] + sorted(df['State'].dropna().unique().tolist()), key=f"f_st_st_{fk}")
