@@ -8,9 +8,8 @@ import maidenhead as mh
 from geopy.geocoders import Nominatim
 import streamlit.components.v1 as components
 from streamlit_javascript import st_javascript
-import pydeck as pdk  # INJECTED FOR TACTICAL RADAR
+import pydeck as pdk  
 
-# Corrected modular imports
 from modules.importers import (
     get_idx, find_col, handle_mw_file_upload, handle_fm_file_upload,
     clean_callsign, simplify_string, super_clean, standardize_cuban_station,
@@ -22,10 +21,9 @@ from modules.data_forge import (
     get_gsheet, get_full_logs_df, itu_map, load_mw_intel, load_fm_intel, load_nwr_intel
 )
 from modules.dashboard import render_dashboard
-from modules.terminal_home import render_terminal_home # INJECTED THE NEW HOME MODULE
+from modules.terminal_home import render_terminal_home 
 from challenge_rules import is_terminal_open, is_reception_valid, filter_bulk_dataframe
 
-# --- BULLETPROOF IMPORT FAILSAFES ---
 try:
     from modules.awards import manual_award_claim_popup
     AWARDS_ACTIVE = True
@@ -41,15 +39,13 @@ except ImportError:
     def render_bounty_module():
         st.warning("🚨 ENCRYPTED INTERCEPT MODULE OFFLINE. (Ensure modules/bounty.py is deployed).")
 
-
-# --- 1. CORE CONFIGURATION ---
 st.set_page_config(
     page_title="SUMMER OF DX: DEFCON 6", 
     layout="wide", 
     initial_sidebar_state="expanded"
 )
 
-# --- 2. WARGAMES CRT CSS (CYAN ESPIONAGE EDITION) ---
+# --- WARGAMES CRT CSS (CYAN ESPIONAGE EDITION) ---
 crt_css = """
 <style>
 @import url('https://fonts.googleapis.com/css2?family=VT323&display=swap');
@@ -62,26 +58,23 @@ html, body, [class*="st-"] {
     letter-spacing: 2px;
 }
 
-header {
-    visibility: hidden;
-}
-footer {
-    visibility: hidden;
-}
+header { visibility: hidden; }
+footer { visibility: hidden; }
 
 [data-testid="stSidebar"] {
     background-color: #0a0a0a !important;
     border-right: 1px dashed #139a9b;
 }
 
+/* CSS OVERRIDE: CENTER-ALIGNED GLOBAL BUTTONS (For Quick-Step arrows) */
 div.stButton > button {
     background-color: transparent !important;
     border: 1px solid #139a9b !important;
     color: #1bd2d4 !important;
     font-size: 1.5rem !important;
     font-family: 'VT323', monospace !important;
-    justify-content: flex-start !important;
-    padding-left: 20px !important;
+    justify-content: center !important; 
+    padding: 5px !important;            
     box-shadow: inset 0px 0px 10px rgba(19, 154, 155, 0.1);
     width: 100%;
     transition: all 0.2s ease-in-out;
@@ -94,6 +87,12 @@ div.stButton > button:hover {
     box-shadow: 0px 0px 15px #1bd2d4;
 }
 
+/* CSS OVERRIDE: KEEP SIDEBAR BUTTONS LEFT-ALIGNED */
+[data-testid="stSidebar"] div.stButton > button {
+    justify-content: flex-start !important;
+    padding-left: 20px !important;
+}
+
 input, textarea, div[data-baseweb="select"] > div {
     background-color: #0a0a0a !important;
     border: 1px solid #139a9b !important;
@@ -102,11 +101,8 @@ input, textarea, div[data-baseweb="select"] > div {
     font-size: 1.2rem !important;
 }
 
-.stDataFrame {
-    font-family: 'VT323', monospace !important;
-}
+.stDataFrame { font-family: 'VT323', monospace !important; }
 
-/* Aggressive overrides for centering Dataframes */
 [data-testid="stDataFrame"] th, 
 [data-testid="stDataFrame"] td,
 .stDataFrame div[role="gridcell"],
@@ -115,7 +111,6 @@ input, textarea, div[data-baseweb="select"] > div {
     justify-content: center !important;
 }
 
-/* Eradicate Streamlit Dataframe Toolbars to prevent unauthorized downloads */
 [data-testid="stElementToolbar"], 
 [data-testid="stDataFrame"] [data-testid="stElementToolbar"] {
     display: none !important;
@@ -130,13 +125,8 @@ input, textarea, div[data-baseweb="select"] > div {
     line-height: 1.2;
 }
 
-.blink {
-    animation: blinker 1s linear infinite;
-}
-
-@keyframes blinker {
-    50% { opacity: 0; }
-}
+.blink { animation: blinker 1s linear infinite; }
+@keyframes blinker { 50% { opacity: 0; } }
 
 .classified-box {
     border: 2px dashed #139a9b;
@@ -145,12 +135,8 @@ input, textarea, div[data-baseweb="select"] > div {
     background-color: rgba(19, 154, 155, 0.05);
 }
 
-hr {
-    border-color: #139a9b !important;
-    opacity: 0.3;
-}
+hr { border-color: #139a9b !important; opacity: 0.3; }
 
-/* Sidebar Subheaders */
 .sidebar-header {
     color: #ffffff;
     font-size: 1.4rem;
@@ -162,7 +148,6 @@ hr {
     margin-bottom: 10px;
 }
 
-/* RED RING ACTIVE PILLS OVERRIDE */
 div[data-testid="stPills"] button { 
     background-color: #050505 !important; 
     border: 1px solid #139a9b !important; 
@@ -181,7 +166,6 @@ div[data-testid="stPills"] button[aria-pressed="true"] {
 """
 st.markdown(crt_css, unsafe_allow_html=True)
 
-# --- 3. BACKGROUND TASKS (LOCAL STORAGE INJECTION) ---
 if "profile_to_save" in st.session_state:
     js_string = json.dumps(st.session_state.profile_to_save)
     components.html(
@@ -191,7 +175,6 @@ if "profile_to_save" in st.session_state:
     )
     del st.session_state.profile_to_save
 
-# --- 4. SESSION ROUTING & GEOLOCATION HELPERS ---
 if 'sys_state' not in st.session_state: 
     st.session_state.sys_state = "OPERATOR_LOGIN"
 if 'operator_profile' not in st.session_state:
@@ -199,7 +182,6 @@ if 'operator_profile' not in st.session_state:
 if 'dash_nav' not in st.session_state: 
     st.session_state.dash_nav = "OVERVIEW"
 
-# Sticky Memory Initialization for IQ Recordings & Logging Fields
 if 'iq_date' not in st.session_state: 
     st.session_state.iq_date = datetime.datetime.now(datetime.timezone.utc).date()
 if 'iq_time' not in st.session_state: 
@@ -253,10 +235,15 @@ def update_from_search():
         except Exception: 
             pass
 
-# MATHEMATICAL FREQUENCY SORT HEURISTIC
 def safe_freq_sort(x):
     try: return float(x)
     except: return float('inf')
+
+def step_freq_cb(state_key, opts, direction):
+    val = st.session_state.get(state_key, opts[0])
+    try: idx = opts.index(val)
+    except: idx = 0
+    st.session_state[state_key] = opts[(idx + direction) % len(opts)]
 
 if st.session_state.sys_state != "OPERATOR_LOGIN":
     prof = st.session_state.operator_profile
@@ -264,7 +251,6 @@ if st.session_state.sys_state != "OPERATOR_LOGIN":
         st.session_state.sys_state = "OPERATOR_LOGIN"
         st.rerun()
 
-# --- 5. SIDEBAR NAVIGATION ---
 with st.sidebar:
     try:
         st.image("Summer of DX Banner.png", use_container_width=True)
@@ -309,12 +295,9 @@ with st.sidebar:
             st.session_state.clear()
             st.rerun()
 
-# --- 8. CENTRAL COLUMN CONSTRAINT ---
 spacer_left, main_content, spacer_right = st.columns([1, 8, 1])
 
 with main_content:
-    
-    # --- 8A. OPERATOR LOGIN SCREEN ---
     if st.session_state.sys_state == "OPERATOR_LOGIN":
         try: 
             st.image("Summer of DX Banner.png", use_container_width=True)
@@ -372,7 +355,6 @@ with main_content:
             op_city = c1.text_input("HOME QTH: CITY", value=st.session_state.get("op_city_val", ""))
             op_state = c2.text_input("STATE/PROV", value=st.session_state.get("op_state_val", ""))
             
-            # --- DYNAMIC COUNTRY OVERRIDE FIX ---
             base_countries = set(country_list + ["United States", "Canada", "Mexico", "United Kingdom", "Australia", "Other"])
             curr_ctry = st.session_state.get("op_country_val", "United States")
             if curr_ctry and curr_ctry not in base_countries:
@@ -385,7 +367,6 @@ with main_content:
             remember_me = st.checkbox("[ SAVE CREDENTIALS TO LOCAL TERMINAL ]", value=True)
             
             if st.form_submit_button("> AUTHENTICATE"):
-                # AGGRESSIVE VALIDATION ENGINE
                 if not op_name.strip():
                     st.error("ACCESS DENIED. AGENT IDENTITY REQUIRED.")
                 elif st.session_state.op_lat_val == 0.0 or st.session_state.op_lon_val == 0.0:
@@ -408,11 +389,9 @@ with main_content:
                     nav_to("TERMINAL_HOME")
                     st.rerun()
 
-    # --- 8B. THE HOME TERMINAL ---
     elif st.session_state.sys_state == "TERMINAL_HOME":
         render_terminal_home(awards_active=AWARDS_ACTIVE, bounty_active=BOUNTY_ACTIVE)
 
-    # --- PROTOCOLS ---
     elif st.session_state.sys_state == "RULES":
         st.markdown("<h1 style='color:#1bd2d4;'>DIRECTIVES & PROTOCOLS (RULES OF ENGAGEMENT)</h1>", unsafe_allow_html=True)
         st.markdown("---")
@@ -466,7 +445,6 @@ with main_content:
         </div>
         """, unsafe_allow_html=True)
 
-    # --- 8C. MW INTERCEPT ROOM ---
     elif st.session_state.sys_state == "MW_LOG":
         if not is_terminal_open():
             st.error("🔒 **UPLINK SEVERED: THE TERMINAL IS CURRENTLY LOCKED.**")
@@ -504,12 +482,18 @@ with main_content:
                 fk = st.session_state.mw_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # INJECTED: SAFE NUMERICAL SORT FOR MW FREQUENCIES
                 all_freqs = sorted([str(x) for x in mw_db['Frequency'].dropna().unique()], key=safe_freq_sort)
+                freq_opts_mw = ["All"] + all_freqs
+                
                 mw_states = sorted([str(x) for x in mw_db['State'].dropna().unique()])
                 mw_countries = sorted([str(x) for x in mw_db['Country'].dropna().unique()]) if 'Country' in mw_db.columns else ["United States"]
                 
-                f_freq = c1.selectbox("FREQ (kHz)", ["All"] + all_freqs, key=f"mw_f1_{fk}")
+                c1.markdown("<div style='font-size: 14px; color: #1bd2d4; margin-bottom: 5px;'>FREQ (kHz) Quick-Step</div>", unsafe_allow_html=True)
+                c1_p, c1_s, c1_n = c1.columns([1, 2.5, 1])
+                c1_p.button("◀", key=f"mw_p_{fk}", on_click=step_freq_cb, args=(f"mw_f1_{fk}", freq_opts_mw, -1), use_container_width=True)
+                f_freq = c1_s.selectbox("FREQ (kHz)", freq_opts_mw, key=f"mw_f1_{fk}", label_visibility="collapsed")
+                c1_n.button("▶", key=f"mw_n_{fk}", on_click=step_freq_cb, args=(f"mw_f1_{fk}", freq_opts_mw, 1), use_container_width=True)
+
                 f_call = c2.text_input("CALLSIGN", key=f"mw_f2_{fk}")
                 f_city = c3.text_input("CITY", key=f"mw_f3_{fk}")
                 f_state = c4.selectbox("STATE", ["All"] + mw_states, key=f"mw_f4_{fk}")
@@ -708,13 +692,12 @@ with main_content:
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                             
-                            # --- TEMPORAL SCRUBBER ---
                             with st.spinner("Scanning payload against temporal mission parameters..."):
                                 valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window (May 2 - Aug 31).")
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected.")
                                 else:
                                     st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
                             else:
@@ -740,7 +723,6 @@ with main_content:
                                     clean_call = clean_callsign(raw_call)
                                     clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
                                     
-                                    # DECIMAL COMMA SANITIZER INJECTED
                                     dist_val = 0.0
                                     if map_dist != "<Skip>":
                                         raw_dist = str(row[map_dist]).lower()
@@ -776,7 +758,6 @@ with main_content:
                                     station_grid = ""
                                     station_county = " - " if clean_country not in ["United States"] else ""
                                     
-                                    # EXPLICIT MW DUAL-TRACK MATCHING ENGINE & OVERWRITE
                                     if not mw_db.empty and raw_freq:
                                         try:
                                             f_val = float(str(raw_freq).replace(',', '.'))
@@ -861,7 +842,6 @@ with main_content:
                                     
                                 try:
                                     sheet.append_rows(bulk_rows)
-                                    # Force cache clear to ensure immediate award recognition
                                     try:
                                         get_full_logs_df.clear()
                                         get_logged_dict.clear()
@@ -871,7 +851,7 @@ with main_content:
                                     if skipped_dupes > 0:
                                         st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                     if skipped_out_of_range > 0:
-                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW PURGED ]")
                                     st.balloons()
                                     
                                 except Exception as e: 
@@ -887,7 +867,6 @@ with main_content:
             col_s1, col_s2, col_s3 = st.columns([1, 1, 1])
             now = datetime.datetime.now(datetime.timezone.utc)
             
-            # Use real-time for LIVE DX, use session state for IQ RECORDING
             def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
             def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
             
@@ -904,7 +883,6 @@ with main_content:
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
             if submit_log:
-                # Instantly save the submitted date/time to memory so it sticks for the next record
                 st.session_state.iq_date = log_date
                 st.session_state.iq_time = log_time
                 st.session_state.sticky_sdr = log_sdr
@@ -912,7 +890,7 @@ with main_content:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window (May 2 - Aug 31 UTC). Please verify your log and try again.")
+                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
@@ -949,8 +927,6 @@ with main_content:
                                 log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
-                            
-                            # Force cache clear
                             try:
                                 get_full_logs_df.clear()
                                 get_logged_dict.clear()
@@ -958,15 +934,13 @@ with main_content:
                             
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                             st.balloons()
-                            
                         except Exception as e: 
                             st.error(f"TRANSMISSION FAILED: {e}")
 
-    # --- 8D. FM INTERCEPT ROOM ---
     elif st.session_state.sys_state == "FM_LOG":
         if not is_terminal_open():
             st.error("🔒 **UPLINK SEVERED: THE TERMINAL IS CURRENTLY LOCKED.**")
-            st.warning("Data submission is only authorized between 2300 UTC May 1, 2026 and 2359 UTC September 30, 2026. You may continue to view the Dashboard and Intelligence Ledgers.")
+            st.warning("Data submission is only authorized between 2300 UTC May 1, 2026 and 2359 UTC September 30, 2026.")
             st.stop()
             
         st.markdown("### [ FM INTERCEPT CONSOLE ACTIVE ]")
@@ -1013,12 +987,19 @@ with main_content:
                 fk = st.session_state.fm_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # INJECTED: SAFE NUMERICAL SORT FOR FM FREQUENCIES
+                # INJECTED: TACTICAL QUICK-STEP FREQUENCY SORT
                 all_freqs = sorted([str(x) for x in fm_db['Frequency'].dropna().unique()], key=safe_freq_sort)
+                freq_opts_fm = ["All"] + all_freqs
+                
                 fm_states = sorted([str(x) for x in fm_db['State'].dropna().unique()])
                 fm_countries = sorted([str(x) for x in fm_db['Country'].dropna().unique()]) if 'Country' in fm_db.columns else ["United States"]
                 
-                f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"fm_f1_{fk}")
+                c1.markdown("<div style='font-size: 14px; color: #1bd2d4; margin-bottom: 5px;'>FREQ (MHz) Quick-Step</div>", unsafe_allow_html=True)
+                c1_p, c1_s, c1_n = c1.columns([1, 2.5, 1])
+                c1_p.button("◀", key=f"fm_p_{fk}", on_click=step_freq_cb, args=(f"fm_f1_{fk}", freq_opts_fm, -1), use_container_width=True)
+                f_freq = c1_s.selectbox("FREQ (MHz)", freq_opts_fm, key=f"fm_f1_{fk}", label_visibility="collapsed")
+                c1_n.button("▶", key=f"fm_n_{fk}", on_click=step_freq_cb, args=(f"fm_f1_{fk}", freq_opts_fm, 1), use_container_width=True)
+
                 f_call = c2.text_input("CALLSIGN", key=f"fm_f2_{fk}")
                 f_city = c3.text_input("CITY", key=f"fm_f3_{fk}")
                 f_state = c4.selectbox("STATE", ["All"] + fm_states, key=f"fm_f4_{fk}")
@@ -1256,13 +1237,12 @@ with main_content:
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                             
-                            # --- TEMPORAL SCRUBBER ---
                             with st.spinner("Scanning payload against temporal mission parameters..."):
                                 valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window (May 2 - Aug 31).")
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected.")
                                 else:
                                     st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
                             else:
@@ -1288,7 +1268,6 @@ with main_content:
                                     clean_call = clean_callsign(raw_call)
                                     clean_call = standardize_cuban_station(clean_call, raw_freq, clean_country)
                                     
-                                    # DECIMAL COMMA SANITIZER INJECTED
                                     dist_val = 0.0
                                     if map_dist != "<Skip>":
                                         raw_dist = str(row[map_dist]).lower()
@@ -1324,7 +1303,6 @@ with main_content:
                                     station_grid = ""
                                     station_county = " - " if clean_country not in ["United States"] else ""
                                     
-                                    # EXPLICIT FM TRIPLE-TRACK MATCHING ENGINE
                                     if not fm_db.empty and raw_freq:
                                         try:
                                             f_val = float(str(raw_freq).replace(',', '.'))
@@ -1344,15 +1322,10 @@ with main_content:
                                                 imp_country = simplify_string(clean_country)
                                                 imp_city = simplify_string(clean_city)
                                                 
-                                                # Track 1: Standard Callsign Match
                                                 if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
                                                     is_match = True
-                                                    
-                                                # Track 2: City + Country Match
                                                 elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
                                                     is_match = True
-                                                    
-                                                # Track 3: Slogan Match
                                                 elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
                                                     is_match = True
                                                         
@@ -1432,7 +1405,6 @@ with main_content:
                                     
                                 try:
                                     sheet.append_rows(bulk_rows)
-                                    # Force cache clear 
                                     try:
                                         get_full_logs_df.clear()
                                         get_logged_dict.clear()
@@ -1442,7 +1414,7 @@ with main_content:
                                     if skipped_dupes > 0:
                                         st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                     if skipped_out_of_range > 0:
-                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW PURGED ]")
                                     st.balloons()
                                     
                                 except Exception as e: 
@@ -1483,7 +1455,6 @@ with main_content:
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
             if submit_log:
-                # Instantly save the submitted date/time to memory so it sticks for the next record
                 st.session_state.iq_date = log_date
                 st.session_state.iq_time = log_time
                 st.session_state.sticky_prop = log_prop
@@ -1492,7 +1463,7 @@ with main_content:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window (May 2 - Aug 31 UTC). Please verify your log and try again.")
+                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
@@ -1531,8 +1502,6 @@ with main_content:
                                 log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
-                            
-                            # Force cache clear
                             try:
                                 get_full_logs_df.clear()
                                 get_logged_dict.clear()
@@ -1540,15 +1509,13 @@ with main_content:
                             
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                             st.balloons()
-                            
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
 
-    # --- 8D. NWR INTERCEPT ROOM ---
     elif st.session_state.sys_state == "NWR_LOG":
         if not is_terminal_open():
             st.error("🔒 **UPLINK SEVERED: THE TERMINAL IS CURRENTLY LOCKED.**")
-            st.warning("Data submission is only authorized between 2300 UTC May 1, 2026 and 2359 UTC September 30, 2026. You may continue to view the Dashboard and Intelligence Ledgers.")
+            st.warning("Data submission is only authorized between 2300 UTC May 1, 2026 and 2359 UTC September 30, 2026.")
             st.stop()
             
         st.markdown("### [ NOAA WEATHER RADIO (NWR) CONSOLE ACTIVE ]")
@@ -1572,8 +1539,6 @@ with main_content:
                     
         st.markdown("#### 2. TARGET ACQUISITION")
         tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
-        
-        # Initialize target data so it exists across view switching
         target_data = {}
         
         with tab_search:
@@ -1581,7 +1546,6 @@ with main_content:
             if nwr_db.empty: 
                 st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: NWR database not found.")
             else:
-                # --- NEW TACTICAL RADAR VIEW TOGGLE ---
                 view_mode = st.radio("DISPLAY INTERFACE", ["[ DATABANK VIEW ]", "[ TACTICAL MAP VIEW ]"], horizontal=True, label_visibility="collapsed")
                 st.markdown("<hr style='border: 1px dashed #139a9b; opacity: 0.3; margin-top: 5px; margin-bottom: 20px;'>", unsafe_allow_html=True)
                 
@@ -1599,16 +1563,21 @@ with main_content:
                     st.rerun()
                 
                 fk = st.session_state.nwr_filter_key
-                
-                # --- UNIVERSAL FILTERS (APPLIES TO BOTH VIEWS) ---
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # INJECTED: SAFE NUMERICAL SORT FOR NWR FREQUENCIES
+                # INJECTED: TACTICAL QUICK-STEP FREQUENCY SORT
                 all_freqs = sorted([str(x) for x in nwr_db['Frequency'].dropna().unique()], key=safe_freq_sort)
+                freq_opts_nwr = ["All"] + all_freqs
+                
                 nwr_states = sorted([str(x) for x in nwr_db['State'].dropna().unique()])
                 nwr_wfos = sorted([str(x) for x in nwr_db['WFO'].dropna().unique()]) if 'WFO' in nwr_db.columns else []
                 
-                f_freq = c1.selectbox("FREQ (MHz)", ["All"] + all_freqs, key=f"nwr_f1_{fk}")
+                c1.markdown("<div style='font-size: 14px; color: #1bd2d4; margin-bottom: 5px;'>FREQ (MHz) Quick-Step</div>", unsafe_allow_html=True)
+                c1_p, c1_s, c1_n = c1.columns([1, 2.5, 1])
+                c1_p.button("◀", key=f"nwr_p_{fk}", on_click=step_freq_cb, args=(f"nwr_f1_{fk}", freq_opts_nwr, -1), use_container_width=True)
+                f_freq = c1_s.selectbox("FREQ (MHz)", freq_opts_nwr, key=f"nwr_f1_{fk}", label_visibility="collapsed")
+                c1_n.button("▶", key=f"nwr_n_{fk}", on_click=step_freq_cb, args=(f"nwr_f1_{fk}", freq_opts_nwr, 1), use_container_width=True)
+
                 f_state = c2.selectbox("STATE", ["All"] + nwr_states, key=f"nwr_f4_{fk}")
                 
                 if nwr_wfos:
@@ -1624,15 +1593,11 @@ with main_content:
                 f_city = c6.text_input("CITY FILTER", key=f"nwr_f3_{fk}")
                 f_grid = c7.text_input("GRID FILTER", key=f"nwr_f7_{fk}")
 
-                # Execute primary filtering
                 results = nwr_db.copy()
-                
-                # Clean LAT/LON data for map engine stability
                 if 'LAT' in results.columns and 'LON' in results.columns:
                     results['LAT'] = pd.to_numeric(results['LAT'], errors='coerce')
                     results['LON'] = pd.to_numeric(results['LON'], errors='coerce')
                 
-                # Apply Base Filters
                 if f_freq != "All": 
                     results = results[results['Frequency'] == float(f_freq)]
                 if f_call: 
@@ -1647,7 +1612,6 @@ with main_content:
                 if f_wfo != "All" and 'WFO' in results.columns: 
                     results = results[results['WFO'] == f_wfo]
                 
-                # Calculate Logged Status dynamically against user's history
                 logged_dict = get_logged_dict(st.session_state.operator_profile.get('name', ''), "NWR")
                 results['Is_Logged'] = results.apply(lambda r: check_is_logged_fm(r['Frequency'], r['Callsign'], r.get('Slogan', ''), r['City'], r['State'], r['Country'] if 'Country' in r else 'United States', logged_dict), axis=1)
                 
@@ -1664,40 +1628,32 @@ with main_content:
                 else:
                     st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*To export your logs to a CSV, choose 'Logged Only' from the status filter.*</div>", unsafe_allow_html=True)
 
-                # Dynamically Inject RGBA Color Arrays based on Logged Status for PyDeck
-                # White = [255, 255, 255, 180] | Green = [85, 255, 85, 200]
                 results['Color'] = results['Is_Logged'].apply(lambda x: [85, 255, 85, 200] if x else [255, 255, 255, 180])
 
-                # ==========================================
-                # ROUTE 1: TACTICAL MAP VIEW
-                # ==========================================
                 if view_mode == "[ TACTICAL MAP VIEW ]":
                     st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-bottom: 10px;'>*Geospatial Array Active. Hover over a target to view telemetry.*</div>", unsafe_allow_html=True)
                     
-                    # Strip null coordinate rows to prevent map crashing
                     map_results = results.dropna(subset=['LAT', 'LON'])
                     map_results = map_results[(map_results['LAT'] != 0.0) & (map_results['LON'] != 0.0)]
                     
                     if not map_results.empty:
-                        # US States Borders Layer (Transparent fill, Cyan borders)
                         state_borders = pdk.Layer(
                             "GeoJsonLayer",
                             "https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
                             opacity=0.4,
                             stroked=True,
                             filled=False,
-                            get_line_color=[19, 154, 155, 200],  # DX Central Cyan
-                            get_line_width=3000,  # Line width in meters
+                            get_line_color=[19, 154, 155, 200],  
+                            get_line_width=3000,  
                             pickable=False
                         )
                         
-                        # Station Data Layer
                         station_layer = pdk.Layer(
                             "ScatterplotLayer",
                             data=map_results,
                             get_position=["LON", "LAT"],
-                            get_color="Color", # Uses dynamic logged/unlogged colors
-                            get_radius=15000, # 15km radius
+                            get_color="Color", 
+                            get_radius=15000, 
                             pickable=True,
                             auto_highlight=True
                         )
@@ -1726,16 +1682,11 @@ with main_content:
                         ))
                     else:
                         st.warning("NO TARGETS FOUND TO PLOT ON RADAR.")
-
-                # ==========================================
-                # ROUTE 2: STANDARD DATABANK VIEW
-                # ==========================================
                 else:
                     st.write(f"> {len(results)} TARGETS FOUND:")
                     st.markdown("<div style='font-size: 0.9rem; color: #1bd2d4; opacity: 0.7; margin-top: -15px; margin-bottom: 10px;'>*Source: Weather.gov (NWR)*</div>", unsafe_allow_html=True)
                     
                     if not results.empty:
-                        # Geocode missing values for top 100
                         if len(results) <= 100:
                             for idx, r in results.iterrows():
                                 if float(r.get('LAT', 0.0)) == 0.0 and float(r.get('LON', 0.0)) == 0.0:
@@ -1923,13 +1874,12 @@ with main_content:
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                             
-                            # --- TEMPORAL SCRUBBER ---
                             with st.spinner("Scanning payload against temporal mission parameters..."):
                                 valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window (May 2 - Aug 31).")
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected.")
                                 else:
                                     st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
                             else:
@@ -1938,7 +1888,6 @@ with main_content:
                                 for _, row in valid_df.iterrows():
                                     raw_freq = row[map_freq] if map_freq != "<Skip>" else ""
                                     
-                                    # Aggressive NWR Frequency Filter
                                     try:
                                         f_val = float(str(raw_freq).replace(',', '.').strip())
                                         if f_val < 162.0 or f_val > 163.0: 
@@ -1961,7 +1910,6 @@ with main_content:
                                     
                                     clean_city = str(row[map_city]).strip() if map_city != "<Skip>" and not pd.isna(row[map_city]) else ""
                                     
-                                    # DECIMAL COMMA SANITIZER INJECTED
                                     dist_val = 0.0
                                     if map_dist != "<Skip>":
                                         raw_dist = str(row[map_dist]).lower()
@@ -2006,7 +1954,6 @@ with main_content:
                                     station_grid = ""
                                     station_county = " - " if clean_country not in ["United States"] else ""
                                     
-                                    # EXPLICIT NWR TRIPLE-TRACK MATCHING ENGINE
                                     if not nwr_db.empty and raw_freq:
                                         try:
                                             f_val = float(str(raw_freq).replace(',', '.'))
@@ -2026,15 +1973,10 @@ with main_content:
                                                 imp_country = simplify_string(clean_country)
                                                 imp_city = simplify_string(clean_city)
                                                 
-                                                # Track 1: Standard Callsign Match
                                                 if imp_call and db_call and imp_call != "UNKNOWN" and db_call != "UNKNOWN" and (imp_call in db_call or db_call in imp_call): 
                                                     is_match = True
-                                                    
-                                                # Track 2: City + Country Match
                                                 elif imp_city and db_city and imp_city != "UNKNOWN" and db_city != "UNKNOWN" and (imp_city in db_city or db_city in imp_city) and imp_country == db_country:
                                                     is_match = True
-                                                    
-                                                # Track 3: Slogan Match
                                                 elif imp_call and db_slogan and imp_call != "UNKNOWN" and db_slogan != "UNKNOWN" and (imp_call in db_slogan or db_slogan in imp_call):
                                                     is_match = True
                                                         
@@ -2100,7 +2042,6 @@ with main_content:
                                     
                                 try:
                                     sheet.append_rows(bulk_rows)
-                                    # Force cache clear 
                                     try:
                                         get_full_logs_df.clear()
                                         get_logged_dict.clear()
@@ -2142,7 +2083,6 @@ with main_content:
             
             submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
             if submit_log:
-                # Instantly save the submitted date/time to memory so it sticks for the next record
                 st.session_state.iq_date = log_date
                 st.session_state.iq_time = log_time
                 st.session_state.sticky_prop = log_prop
@@ -2151,7 +2091,7 @@ with main_content:
                 if not target_data: 
                     st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
                 elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window (May 2 - Aug 31 UTC). Please verify your log and try again.")
+                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
                 else:
                     sheet = get_gsheet()
                     if sheet is None: 
@@ -2190,8 +2130,6 @@ with main_content:
                                 log_sdr
                             ]
                             sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
-                            
-                            # Force cache clear 
                             try:
                                 get_full_logs_df.clear()
                                 get_logged_dict.clear()
@@ -2199,17 +2137,14 @@ with main_content:
                             
                             st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
                             st.balloons()
-                            
                         except Exception as e: 
                             st.error(f"FAILED: {e}")
 
-    # --- 8F. ENCRYPTED INTERCEPT REPORT (BOUNTY STUB) ---
     elif st.session_state.sys_state == "BOUNTY_HUNT":
         if BOUNTY_ACTIVE:
             render_bounty_module()
         else:
             st.warning("🚨 ENCRYPTED INTERCEPT MODULE OFFLINE. (Ensure modules/bounty.py is deployed).")
 
-    # --- 8G. GLOBAL INTELLIGENCE (DASHBOARD STUB) ---
     elif st.session_state.sys_state == "DASHBOARD":
         render_dashboard()
