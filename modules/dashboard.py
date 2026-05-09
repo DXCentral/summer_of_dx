@@ -15,7 +15,7 @@ from modules.importers import calculate_distance
 
 # --- CYAN ESPIONAGE AESTHETIC ---
 CYAN_SCALE = [
-    '#167a7b', 
+   '#167a7b', 
     '#1bd2d4', 
     '#5ce1e2', 
     '#a3e8e9', 
