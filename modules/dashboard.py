@@ -1089,7 +1089,20 @@ def render_dashboard():
                     
                     fig_g = px.choropleth_mapbox(grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id', color='Logs', color_continuous_scale=CYAN_SCALE, hover_name='Grid4', mapbox_style="carto-darkmatter", center=dict(lat=40, lon=-95), zoom=2.5)
                     fig_g.update_traces(marker_line_width=1.5, marker_line_color='#050505')
-                    fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
+                    
+                    # INJECTED: OVERLAY GEOJSON FOR HIGH-VISIBILITY WHITE BORDERS
+                    fig_g.update_layout(
+                        height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False,
+                        mapbox_layers=[
+                            dict(
+                                sourcetype="geojson",
+                                source="https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+                                type="line",
+                                color="rgba(255, 255, 255, 0.6)",
+                                line=dict(width=2)
+                            )
+                        ]
+                    )
                 else: fig_g = go.Figure()
                 ev_g = st.plotly_chart(fig_g, use_container_width=True, on_select="rerun", key=f"m_geo_grid_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_g and ev_g.get("selection") and ev_g["selection"].get("points"):
@@ -1123,7 +1136,22 @@ def render_dashboard():
                     band_colors = {'AM': '#1bd2d4', 'FM': '#39ff14', 'NWR': '#ffa500'}
                     fig_st = px.scatter_mapbox(st_map_data, lat='ST_Lat', lon='ST_Lon', color='Band', color_discrete_map=band_colors, hover_name='Loc_Name', mapbox_style="carto-darkmatter", zoom=3.5, center=dict(lat=38, lon=-95))
                     fig_st.update_traces(marker=dict(size=10), marker_sizemin=8)
-                    fig_st.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), paper_bgcolor='rgba(0,0,0,0)')
+                    
+                    # INJECTED: OVERLAY GEOJSON FOR HIGH-VISIBILITY WHITE BORDERS
+                    fig_st.update_layout(
+                        margin={"r":0,"t":30,"l":0,"b":0}, 
+                        legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), 
+                        paper_bgcolor='rgba(0,0,0,0)',
+                        mapbox_layers=[
+                            dict(
+                                sourcetype="geojson",
+                                source="https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+                                type="line",
+                                color="rgba(255, 255, 255, 0.6)",
+                                line=dict(width=2)
+                            )
+                        ]
+                    )
                 else: fig_st = go.Figure()
                 ev_st = st.plotly_chart(fig_st, use_container_width=True, on_select="rerun", key=f"m_geo_st_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
@@ -1401,9 +1429,22 @@ def render_dashboard():
                     elif dist < 2500: zoom_lvl = 2.5
                     else: zoom_lvl = 2.0
                     
+                    # INJECTED: OVERLAY GEOJSON FOR HIGH-VISIBILITY WHITE BORDERS
                     target_fig.update_layout(
                         mapbox_style="carto-darkmatter",
-                        mapbox=dict(center=dict(lat=mid_lat, lon=mid_lon), zoom=zoom_lvl),
+                        mapbox=dict(
+                            center=dict(lat=mid_lat, lon=mid_lon), 
+                            zoom=zoom_lvl,
+                            layers=[
+                                dict(
+                                    sourcetype="geojson",
+                                    source="https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
+                                    type="line",
+                                    color="rgba(255, 255, 255, 0.6)",
+                                    line=dict(width=2)
+                                )
+                            ]
+                        ),
                         margin={"r":0,"t":0,"l":0,"b":0}, height=500,
                         paper_bgcolor='rgba(0,0,0,0)', showlegend=False
                     )
