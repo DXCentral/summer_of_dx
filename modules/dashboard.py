@@ -15,7 +15,7 @@ from modules.importers import calculate_distance
 
 # --- CYAN ESPIONAGE AESTHETIC ---
 CYAN_SCALE = [
-   '#167a7b', 
+    '#167a7b', 
     '#1bd2d4', 
     '#5ce1e2', 
     '#a3e8e9', 
@@ -53,14 +53,7 @@ BAND_CONFIG = {
     "NWR": {"min": 162.400, "max": 162.550, "unit": "MHz", "step": 0.025}
 }
 
-# --- COUNTY SANITIZER ENGINE ---
-def sanitize_county(name):
-    """Aggressively standardizes county names to prevent mapping drop-offs."""
-    n = str(name).upper().strip()
-    n = n.replace(' COUNTY', '').replace(' PARISH', '')
-    n = n.replace('SAINT ', 'ST').replace('SAINT', 'ST')
-    return re.sub(r'[^A-Z0-9]', '', n)
-
+# --- GEOJSON OVERLAY CACHES ---
 @st.cache_data
 def get_custom_county_geojson():
     url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
@@ -71,9 +64,24 @@ def get_custom_county_geojson():
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
             state_abbr = FIPS_TO_ABBR.get(state_fips, "").upper()
             county_name = str(feature['properties'].get('NAME', ''))
-            map_id = f"{state_abbr}_{sanitize_county(county_name)}"
+            
+            n = str(county_name).upper().strip()
+            n = n.replace(' COUNTY', '').replace(' PARISH', '')
+            n = n.replace('SAINT ', 'ST').replace('SAINT', 'ST')
+            n = re.sub(r'[^A-Z0-9]', '', n)
+            
+            map_id = f"{state_abbr}_{n}"
             feature['id'] = map_id
         return geojson
+    except Exception:
+        return None
+
+@st.cache_data
+def get_us_states_geojson():
+    url = "https://raw.githubusercontent.com/python-visualization/folium/master/examples/data/us-states.json"
+    try:
+        resp = requests.get(url, timeout=10)
+        return resp.json()
     except Exception:
         return None
 
@@ -272,6 +280,31 @@ def render_dashboard():
     if 'DX_Lon' not in df.columns: df['DX_Lon'] = 0.0
     if 'ST_Lat' not in df.columns: df['ST_Lat'] = 0.0
     if 'ST_Lon' not in df.columns: df['ST_Lon'] = 0.0
+
+    # HARDCODED AGENT COORDINATE DICTIONARY TO PREVENT NULL ISLAND NOMINATIM BLOCKS
+    AGENT_QTH_CACHE = {
+        "MANDEVILLE, LA": (30.3582, -90.0656), "MANDEVILLE, LOUISIANA": (30.3582, -90.0656),
+        "CARY, NC": (35.7915, -78.7811), "CARY, NORTH CAROLINA": (35.7915, -78.7811),
+        "WAYNE, MI": (42.2814, -83.3861), "WAYNE, MICHIGAN": (42.2814, -83.3861),
+        "GARLAND, NE": (40.9472, -96.9842), "GARLAND, NEBRASKA": (40.9472, -96.9842),
+        "MAYLENE, AL": (33.2045, -86.8525), "MAYLENE, ALABAMA": (33.2045, -86.8525),
+        "ZARAGOZA, ARAGON": (41.6497, -0.8877), "ZARAGOZA, SPAIN": (41.6497, -0.8877),
+        "CHAMPAIGN, IL": (40.1164, -88.2434), "CHAMPAIGN, ILLINOIS": (40.1164, -88.2434),
+        "CROSSVILLE, TN": (35.9490, -85.0269), "CROSSVILLE, TENNESSEE": (35.9490, -85.0269),
+        "MESA, AZ": (33.4152, -111.8315), "MESA, ARIZONA": (33.4152, -111.8315),
+        "COLUMBIA, MO": (38.9517, -92.3341), "COLUMBIA, MISSOURI": (38.9517, -92.3341),
+        "OLD TOWN, ME": (44.9331, -68.6456), "OLD TOWN, MAINE": (44.9331, -68.6456),
+        "ALBANY, GA": (31.5785, -84.1557), "ALBANY, GEORGIA": (31.5785, -84.1557),
+        "BERGEN, NY": (43.0837, -77.9422), "BERGEN, NEW YORK": (43.0837, -77.9422),
+        "TORONTO, ON": (43.6532, -79.3832), "TORONTO, ONTARIO": (43.6532, -79.3832),
+        "CASTLE ROCK, CO": (39.3722, -104.8561), "CASTLE ROCK, COLORADO": (39.3722, -104.8561),
+        "ANN ARBOR, MI": (42.2808, -83.7430), "ANN ARBOR, MICHIGAN": (42.2808, -83.7430),
+        "MOSES LAKE, WA": (47.1301, -119.2781), "MOSES LAKE, WASHINGTON": (47.1301, -119.2781),
+        "NIAGARA FALLS, NY": (43.0962, -79.0377), "NIAGARA FALLS, NEW YORK": (43.0962, -79.0377),
+        "NEWMANSVILLE, IL": (40.0464, -90.0093), "NEWMANSVILLE, ILLINOIS": (40.0464, -90.0093),
+        "WASHINGTON, DC": (38.8951, -77.0364), "WASHINGTON, DISTRICT OF COLUMBIA": (38.8951, -77.0364),
+        "JURIQUILLA, QUERETARO": (20.7042, -100.4489)
+    }
     
     # Universal Geocoder Override: Fix Missing DXer Coordinates
     mask_dx = df['DX_Lat'].isna() | (df['DX_Lat'] == 0.0)
@@ -280,9 +313,17 @@ def render_dashboard():
         lats, lons = [], []
         for _, r in missing_dx.iterrows():
             city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') not in ['', 'XX', 'DX'] else r['DXer_City']
-            lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
+            cache_key = str(city_q).strip().upper()
+            
+            if cache_key in AGENT_QTH_CACHE:
+                lat, lon = AGENT_QTH_CACHE[cache_key]
+            else:
+                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
+                time.sleep(0.5) # Prevents Nominatim 429 Rate Limits
+                
             lats.append(lat)
             lons.append(lon)
+            
         missing_dx['New_DX_Lat'], missing_dx['New_DX_Lon'] = lats, lons
         df = df.merge(missing_dx, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
         df['DX_Lat'] = df['DX_Lat'].where(~mask_dx, df['New_DX_Lat'])
@@ -297,8 +338,10 @@ def render_dashboard():
         for _, r in missing_st.iterrows():
             city_q = f"{r['City']}, {r['State']}" if pd.notna(r.get('State')) and r.get('State') not in ['', 'XX', 'DX', ' - '] else r['City']
             lat, lon = get_lat_lon_from_city(city_q, r['Country'])
+            time.sleep(0.5)
             lats.append(lat)
             lons.append(lon)
+            
         missing_st['New_ST_Lat'], missing_st['New_ST_Lon'] = lats, lons
         df = df.merge(missing_st, on=['City', 'State', 'Country'], how='left')
         df['ST_Lat'] = df['ST_Lat'].where(~mask_st, df['New_ST_Lat'])
@@ -313,9 +356,14 @@ def render_dashboard():
     elif 'SDR_Bonus' not in df.columns:
         df['SDR_Bonus'] = 0
 
-    # DYNAMIC DISTANCE RECALCULATOR
+    # DYNAMIC DISTANCE RECALCULATOR & ANOMALY RESOLUTION
     df['Distance'] = pd.to_numeric(df['Distance'], errors='coerce').fillna(0.0)
-    df['Distance'] = df.apply(lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) if r['Distance'] == 0.0 else r['Distance'], axis=1)
+    df['Distance'] = df.apply(
+        lambda r: calculate_distance(r['DX_Lat'], r['DX_Lon'], r['ST_Lat'], r['ST_Lon']) 
+        if (r['Distance'] == 0.0 or r['Distance'] > 4000) and (r['DX_Lat'] != 0.0 and r['ST_Lat'] != 0.0) 
+        else r['Distance'], 
+        axis=1
+    )
     
     # Recalculate Base Score
     df['Dist_Points'] = df['Distance'].apply(lambda x: max(1, math.floor(x / 100)) if x >= 0 else 0)
@@ -361,7 +409,7 @@ def render_dashboard():
     c_f5, c_f6, c_f7, c_f8 = st.columns(4)
     f_prop = c_f5.selectbox("Propagation (FM/NWR)", ["ALL", "Local", "Tropo", "Sporadic E", "Meteor Scatter", "Aurora"], key=f"f_prop_{fk}")
     
-    # INJECTED: TACTICAL QUICK-STEP FOR GLOBAL FREQUENCY
+    # TACTICAL QUICK-STEP FOR GLOBAL FREQUENCY
     f_freq_opts = ["ALL"] + sorted(df['Freq_Num'].dropna().unique().tolist(), key=safe_freq_sort)
     c_f6.markdown("<div style='font-size: 14px; color: #1bd2d4; margin-bottom: 5px;'>Frequency Quick-Step</div>", unsafe_allow_html=True)
     c_f6_p, c_f6_s, c_f6_n = c_f6.columns([1, 2.5, 1])
@@ -571,7 +619,6 @@ def render_dashboard():
         op_name = st.session_state.operator_profile.get('name', 'UNKNOWN')
         st.markdown(f"### 📂 AGENT INTEL DEBRIEF: {op_name.upper()}")
 
-        # ROBUST CASE-INSENSITIVE MATCHING ENGINE
         my_df = df[df['DXer'].str.upper() == active_agent]
 
         if my_df.empty:
@@ -1090,19 +1137,21 @@ def render_dashboard():
                     fig_g = px.choropleth_mapbox(grid_counts, geojson=grid_geojson, locations='Grid4', featureidkey='id', color='Logs', color_continuous_scale=CYAN_SCALE, hover_name='Grid4', mapbox_style="carto-darkmatter", center=dict(lat=40, lon=-95), zoom=2.5)
                     fig_g.update_traces(marker_line_width=1.5, marker_line_color='#050505')
                     
-                    # INJECTED: OVERLAY GEOJSON FOR HIGH-VISIBILITY WHITE BORDERS
-                    fig_g.update_layout(
-                        height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False,
-                        mapbox_layers=[
-                            dict(
-                                sourcetype="geojson",
-                                source="https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
-                                type="line",
-                                color="rgba(255, 255, 255, 0.6)",
-                                line=dict(width=2)
-                            )
-                        ]
-                    )
+                    state_geo = get_us_states_geojson()
+                    if state_geo:
+                        fig_g.update_layout(
+                            mapbox_layers=[
+                                dict(
+                                    sourcetype="geojson",
+                                    source=state_geo,
+                                    type="line",
+                                    color="white",
+                                    line=dict(width=1.5)
+                                )
+                            ]
+                        )
+                        
+                    fig_g.update_layout(height=500, paper_bgcolor='rgba(0,0,0,0)', margin={"r":0,"t":0,"l":0,"b":0}, coloraxis_showscale=False, showlegend=False)
                 else: fig_g = go.Figure()
                 ev_g = st.plotly_chart(fig_g, use_container_width=True, on_select="rerun", key=f"m_geo_grid_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_g and ev_g.get("selection") and ev_g["selection"].get("points"):
@@ -1137,21 +1186,21 @@ def render_dashboard():
                     fig_st = px.scatter_mapbox(st_map_data, lat='ST_Lat', lon='ST_Lon', color='Band', color_discrete_map=band_colors, hover_name='Loc_Name', mapbox_style="carto-darkmatter", zoom=3.5, center=dict(lat=38, lon=-95))
                     fig_st.update_traces(marker=dict(size=10), marker_sizemin=8)
                     
-                    # INJECTED: OVERLAY GEOJSON FOR HIGH-VISIBILITY WHITE BORDERS
-                    fig_st.update_layout(
-                        margin={"r":0,"t":30,"l":0,"b":0}, 
-                        legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), 
-                        paper_bgcolor='rgba(0,0,0,0)',
-                        mapbox_layers=[
-                            dict(
-                                sourcetype="geojson",
-                                source="https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
-                                type="line",
-                                color="rgba(255, 255, 255, 0.6)",
-                                line=dict(width=2)
-                            )
-                        ]
-                    )
+                    state_geo = get_us_states_geojson()
+                    if state_geo:
+                        fig_st.update_layout(
+                            mapbox_layers=[
+                                dict(
+                                    sourcetype="geojson",
+                                    source=state_geo,
+                                    type="line",
+                                    color="white",
+                                    line=dict(width=1.5)
+                                )
+                            ]
+                        )
+                        
+                    fig_st.update_layout(margin={"r":0,"t":30,"l":0,"b":0}, legend=dict(title="Active Band", orientation="h", yanchor="bottom", y=1.02, xanchor="right", x=1, font=dict(color="white")), paper_bgcolor='rgba(0,0,0,0)')
                 else: fig_st = go.Figure()
                 ev_st = st.plotly_chart(fig_st, use_container_width=True, on_select="rerun", key=f"m_geo_st_{st.session_state.geo_map_key}", config={'scrollZoom': True})
                 if ev_st and ev_st.get("selection") and ev_st["selection"].get("points"):
@@ -1176,38 +1225,7 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
-        filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
-        filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
-        
-        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
-        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
-        
-        # Universal Geocoder Override to eliminate Null Island drops
-        mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
-        if mask.any():
-            missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
-            lats, lons = [], []
-            for _, r in missing_locs.iterrows():
-                city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') != '' else r['DXer_City']
-                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
-                lats.append(lat)
-                lons.append(lon)
-            missing_locs['New_Lat'] = lats
-            missing_locs['New_Lon'] = lons
-            
-            filt_df = filt_df.merge(missing_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
-            filt_df['DX_Lat'] = filt_df['DX_Lat'].where(~mask, filt_df['New_Lat'])
-            filt_df['DX_Lon'] = filt_df['DX_Lon'].where(~mask, filt_df['New_Lon'])
-            filt_df.drop(columns=['New_Lat', 'New_Lon'], inplace=True)
-            
-        if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
-        if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
-        
-        filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
-        filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
-        
-        # --- 2. TACTICAL SECTORS ---
+        # --- 1. TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
@@ -1429,21 +1447,23 @@ def render_dashboard():
                     elif dist < 2500: zoom_lvl = 2.5
                     else: zoom_lvl = 2.0
                     
-                    # INJECTED: OVERLAY GEOJSON FOR HIGH-VISIBILITY WHITE BORDERS
+                    layers = []
+                    state_geo = get_us_states_geojson()
+                    if state_geo:
+                        layers.append(dict(
+                            sourcetype="geojson",
+                            source=state_geo,
+                            type="line",
+                            color="rgba(255, 255, 255, 0.6)",
+                            line=dict(width=1.5)
+                        ))
+                    
                     target_fig.update_layout(
                         mapbox_style="carto-darkmatter",
                         mapbox=dict(
                             center=dict(lat=mid_lat, lon=mid_lon), 
                             zoom=zoom_lvl,
-                            layers=[
-                                dict(
-                                    sourcetype="geojson",
-                                    source="https://raw.githubusercontent.com/PublicaMundi/MappingAPI/master/data/geojson/us-states.json",
-                                    type="line",
-                                    color="rgba(255, 255, 255, 0.6)",
-                                    line=dict(width=2)
-                                )
-                            ]
+                            layers=layers
                         ),
                         margin={"r":0,"t":0,"l":0,"b":0}, height=500,
                         paper_bgcolor='rgba(0,0,0,0)', showlegend=False
