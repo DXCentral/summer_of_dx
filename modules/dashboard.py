@@ -61,7 +61,6 @@ def sanitize_county(name):
     n = n.replace('SAINT ', 'ST').replace('SAINT', 'ST')
     return re.sub(r'[^A-Z0-9]', '', n)
 
-# --- GEOJSON OVERLAY CACHES ---
 @st.cache_data
 def get_custom_county_geojson():
     url = "https://raw.githubusercontent.com/plotly/datasets/master/geojson-counties-fips.json"
@@ -72,7 +71,6 @@ def get_custom_county_geojson():
             state_fips = str(feature['properties'].get('STATE', '')).zfill(2)
             state_abbr = FIPS_TO_ABBR.get(state_fips, "").upper()
             county_name = str(feature['properties'].get('NAME', ''))
-            
             map_id = f"{state_abbr}_{sanitize_county(county_name)}"
             feature['id'] = map_id
         return geojson
@@ -1296,7 +1294,7 @@ def render_dashboard():
             with col_map:
                 if not v_df.empty:
                     color_map = {'AM': [27, 210, 212, 200], 'FM': [57, 255, 20, 200], 'NWR': [255, 165, 0, 200]}
-                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df))))
+                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df)))
                     
                     layers = [
                         pdk.Layer(
