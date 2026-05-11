@@ -22,7 +22,9 @@ from modules.data_forge import (
 )
 from modules.dashboard import render_dashboard
 from modules.terminal_home import render_terminal_home 
-from challenge_rules import is_terminal_open, is_reception_valid, filter_bulk_dataframe
+
+# WE DROPPED filter_bulk_dataframe AND is_reception_valid FROM IMPORT TO USE OUR CUSTOM UTC SCRUBBERS
+from challenge_rules import is_terminal_open
 
 try:
     from modules.awards import manual_award_claim_popup
@@ -166,6 +168,44 @@ div[data-testid="stPills"] button[aria-pressed="true"] {
 """
 st.markdown(crt_css, unsafe_allow_html=True)
 
+# --- INJECTED TEMPORAL SCRUBBERS (BYPASSING FLAWED SERVER-TIME LOGIC) ---
+def local_is_reception_valid(date_str, time_str):
+    try:
+        log_date = pd.to_datetime(date_str).date()
+        start_window = datetime.date(2026, 5, 1)
+        end_window = datetime.date(2026, 8, 31)
+        # 48-hour future buffer eliminates UTC vs Server Local Time false positives
+        current_utc_date = datetime.datetime.now(datetime.timezone.utc).date() + datetime.timedelta(days=2)
+        
+        if log_date < start_window or log_date > end_window: return False
+        if log_date > current_utc_date: return False
+        return True
+    except:
+        return False
+
+def local_filter_bulk_dataframe(df, date_col, time_col):
+    valid_df = df.copy()
+    drop_indices = []
+    start_window = datetime.date(2026, 5, 1)
+    end_window = datetime.date(2026, 8, 31)
+    current_utc_date = datetime.datetime.now(datetime.timezone.utc).date() + datetime.timedelta(days=2)
+
+    if date_col != "<Skip>":
+        for idx, row in valid_df.iterrows():
+            try:
+                d_val = row[date_col]
+                if pd.isna(d_val) or str(d_val).strip() == "": continue
+                log_date = pd.to_datetime(d_val).date()
+                if log_date < start_window or log_date > end_window or log_date > current_utc_date:
+                    drop_indices.append(idx)
+            except:
+                drop_indices.append(idx)
+                
+    skipped = len(drop_indices)
+    valid_df = valid_df.drop(index=drop_indices)
+    return valid_df, skipped
+
+# --- BACKGROUND TASKS (LOCAL STORAGE INJECTION) ---
 if "profile_to_save" in st.session_state:
     js_string = json.dumps(st.session_state.profile_to_save)
     components.html(
@@ -457,11 +497,13 @@ with main_content:
         active_lon = float(st.session_state.operator_profile.get('lon', 0.0))
         entry_cat_val = "HOME QTH"
                 
-        st.markdown("#### 1. TARGET ACQUISITION")
-        tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
+        st.markdown("#### 1. TARGET ACQUISITION & INGESTION")
+        entry_method = st.pills("ENTRY METHOD", ["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"], default="[ DATABASE SEARCH ]", selection_mode="single", label_visibility="collapsed", key="mw_entry_method")
+        if not entry_method: entry_method = "[ DATABASE SEARCH ]"
+        
         target_data = {}
         
-        with tab_search:
+        if entry_method == "[ DATABASE SEARCH ]":
             st.write("ACCESSING DOMESTIC & INTERNATIONAL DATABANKS...")
             if mw_db.empty: 
                 st.error("[ SYSTEM ALERT ] DATABANK OFFLINE.")
@@ -598,7 +640,7 @@ with main_content:
                             "sdr": sdr_choice_db
                         }
 
-        with tab_manual:
+        elif entry_method == "[ MANUAL ENTRY ]":
             st.write("INITIATE UNLISTED / INTERNATIONAL PROTOCOL...")
             spacing = st.radio("CHANNEL SPACING", ["10 kHz (Region 2)", "9 kHz (Regions 1 & 3)"], horizontal=True)
             step_val = 10 if "10" in spacing else 9
@@ -632,7 +674,7 @@ with main_content:
                     "dist": man_dist
                 }
 
-        with tab_import:
+        elif entry_method == "[ BULK IMPORT ]":
             st.write("INITIATE BULK INGESTION PROTOCOL (MWLIST ONLY)...")
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="mw_bulk")
             if uploaded_file is not None:
@@ -692,12 +734,11 @@ with main_content:
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                             
-                            # --- PRE-FLIGHT TEMPORAL SCRUBBER ---
                             if map_date != "<Skip>":
                                 df_import[map_date] = df_import[map_date].apply(lambda x: format_date_import(x) if pd.notna(x) else x)
 
                             with st.spinner("Scanning payload against temporal mission parameters..."):
-                                valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
+                                valid_df, skipped_out_of_range = local_filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
@@ -863,83 +904,84 @@ with main_content:
                 except Exception as e: 
                     st.error(f"FILE PARSING ERROR: {e}")
 
-        st.markdown("#### 3. TIME SYNCHRONIZATION")
-        log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="mw_log_mode", label_visibility="collapsed")
-
-        st.markdown("#### 4. SUBMIT INTERCEPT")
-        with st.form("mw_submit_form", clear_on_submit=True):
-            col_s1, col_s2, col_s3 = st.columns([1, 1, 1])
-            now = datetime.datetime.now(datetime.timezone.utc)
-            
-            def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
-            def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
-            
-            log_date = col_s1.date_input("DATE (UTC)", value=def_date)
-            log_time = col_s2.text_input("TIME (UTC)", value=def_time)
-            
-            if "sdr" in target_data: 
-                log_sdr = target_data["sdr"]
-            else: 
-                sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
-                log_sdr = col_s3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="mw_man_sdr")
+        if entry_method in ["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"]:
+            st.markdown("#### 2. TIME SYNCHRONIZATION")
+            log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="mw_log_mode", label_visibility="collapsed")
+    
+            st.markdown("#### 3. SUBMIT INTERCEPT")
+            with st.form("mw_submit_form", clear_on_submit=True):
+                col_s1, col_s2, col_s3 = st.columns([1, 1, 1])
+                now = datetime.datetime.now(datetime.timezone.utc)
                 
-            log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
-            
-            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
-            if submit_log:
-                st.session_state.iq_date = log_date
-                st.session_state.iq_time = log_time
-                st.session_state.sticky_sdr = log_sdr
+                def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
+                def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
                 
-                if not target_data: 
-                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-                elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
-                else:
-                    sheet = get_gsheet()
-                    if sheet is None: 
-                        st.error("🚨 DATALINK OFFLINE. Streamlit Secrets are not configured.")
+                log_date = col_s1.date_input("DATE (UTC)", value=def_date)
+                log_time = col_s2.text_input("TIME (UTC)", value=def_time)
+                
+                if "sdr" in target_data: 
+                    log_sdr = target_data["sdr"]
+                else: 
+                    sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                    log_sdr = col_s3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="mw_man_sdr")
+                    
+                log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES")
+                
+                submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+                if submit_log:
+                    st.session_state.iq_date = log_date
+                    st.session_state.iq_time = log_time
+                    st.session_state.sticky_sdr = log_sdr
+                    
+                    if not target_data: 
+                        st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                    elif not local_is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
+                        st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
                     else:
-                        try:
-                            op = st.session_state.operator_profile
-                            row_data = [
-                                op.get('name', ''), 
-                                op.get('city', ''), 
-                                op.get('state', ''), 
-                                op.get('country', ''),
-                                "AM", 
-                                target_data.get("freq", ""), 
-                                "", 
-                                target_data.get("call", ""), 
-                                "", 
-                                target_data.get("city", ""),
-                                target_data.get("state", ""), 
-                                target_data.get("country", ""), 
-                                "", 
-                                target_data.get("grid", ""),
-                                log_date.strftime("%m/%d/%Y"), 
-                                log_time, 
-                                target_data.get("dist", 0.0), 
-                                log_notes, 
-                                "", 
-                                "",
-                                "", 
-                                target_data.get("county", ""), 
-                                entry_cat_val, 
-                                "", 
-                                "",
-                                log_sdr
-                            ]
-                            sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                        sheet = get_gsheet()
+                        if sheet is None: 
+                            st.error("🚨 DATALINK OFFLINE. Streamlit Secrets are not configured.")
+                        else:
                             try:
-                                get_full_logs_df.clear()
-                                get_logged_dict.clear()
-                            except Exception: pass
-                            
-                            st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
-                            st.balloons()
-                        except Exception as e: 
-                            st.error(f"TRANSMISSION FAILED: {e}")
+                                op = st.session_state.operator_profile
+                                row_data = [
+                                    op.get('name', ''), 
+                                    op.get('city', ''), 
+                                    op.get('state', ''), 
+                                    op.get('country', ''),
+                                    "AM", 
+                                    target_data.get("freq", ""), 
+                                    "", 
+                                    target_data.get("call", ""), 
+                                    "", 
+                                    target_data.get("city", ""),
+                                    target_data.get("state", ""), 
+                                    target_data.get("country", ""), 
+                                    "", 
+                                    target_data.get("grid", ""),
+                                    log_date.strftime("%m/%d/%Y"), 
+                                    log_time, 
+                                    target_data.get("dist", 0.0), 
+                                    log_notes, 
+                                    "", 
+                                    "",
+                                    "", 
+                                    target_data.get("county", ""), 
+                                    entry_cat_val, 
+                                    "", 
+                                    "",
+                                    log_sdr
+                                ]
+                                sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                                try:
+                                    get_full_logs_df.clear()
+                                    get_logged_dict.clear()
+                                except Exception: pass
+                                
+                                st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                                st.balloons()
+                            except Exception as e: 
+                                st.error(f"TRANSMISSION FAILED: {e}")
 
     elif st.session_state.sys_state == "FM_LOG":
         if not is_terminal_open():
@@ -966,11 +1008,13 @@ with main_content:
                 except Exception: 
                     pass
                     
-        st.markdown("#### 2. TARGET ACQUISITION")
-        tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
+        st.markdown("#### 2. TARGET ACQUISITION & INGESTION")
+        entry_method = st.pills("ENTRY METHOD", ["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"], default="[ DATABASE SEARCH ]", selection_mode="single", label_visibility="collapsed", key="fm_entry_method")
+        if not entry_method: entry_method = "[ DATABASE SEARCH ]"
+        
         target_data = {}
         
-        with tab_search:
+        if entry_method == "[ DATABASE SEARCH ]":
             st.write("ACCESSING WTFDA DATABANKS...")
             if fm_db.empty: 
                 st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: WTFDA database not found in repository.")
@@ -1112,7 +1156,7 @@ with main_content:
                             "sdr": sdr_choice_db
                         }
 
-        with tab_manual:
+        elif entry_method == "[ MANUAL ENTRY ]":
             st.write("INITIATE UNLISTED PROTOCOL...")
             c_m1, c_m2, c_m3 = st.columns(3)
             man_freq = c_m1.number_input("MANUAL FREQ (MHz)", min_value=87.7, max_value=107.9, value=88.1, step=0.1, key="man_fm")
@@ -1144,7 +1188,7 @@ with main_content:
                     "dist": man_dist
                 }
 
-        with tab_import:
+        elif entry_method == "[ BULK IMPORT ]":
             st.write("INITIATE BULK INGESTION PROTOCOL...")
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="fm_bulk")
             
@@ -1245,7 +1289,7 @@ with main_content:
                                 df_import[map_date] = df_import[map_date].apply(lambda x: format_date_import(x) if pd.notna(x) else x)
 
                             with st.spinner("Scanning payload against temporal mission parameters..."):
-                                valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
+                                valid_df, skipped_out_of_range = local_filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
@@ -1421,7 +1465,7 @@ with main_content:
                                     if skipped_dupes > 0:
                                         st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                     if skipped_out_of_range > 0:
-                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW PURGED ]")
                                     st.balloons()
                                     
                                 except Exception as e: 
@@ -1429,95 +1473,96 @@ with main_content:
                 except Exception as e: 
                     st.error(f"FILE PARSING ERROR: {e}")
 
-        st.markdown("#### 3. TIME SYNCHRONIZATION")
-        log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="fm_log_mode", label_visibility="collapsed")
-
-        st.markdown("#### 4. SUBMIT INTERCEPT")
-        with st.form("fm_submit_form", clear_on_submit=True):
-            col_s1, col_s2, col_s3 = st.columns(3)
-            now = datetime.datetime.now(datetime.timezone.utc)
-            
-            def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
-            def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
-            
-            log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="fm_dt")
-            log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="fm_tm")
-            
-            prop_opts = ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"]
-            prop_idx = prop_opts.index(st.session_state.sticky_prop) if st.session_state.sticky_prop in prop_opts else 0
-            log_prop = col_s3.selectbox("PROPAGATION MODE", prop_opts, index=prop_idx)
-            
-            c_p1, c_p2, c_p3 = st.columns(3)
-            log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
-            default_pi = target_data["pi"] if "pi" in target_data else ""
-            log_pi = c_p2.text_input("PI CODE", value=default_pi)
-            
-            if "sdr" in target_data:
-                log_sdr = target_data["sdr"]
-            else:
-                sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
-                log_sdr = c_p3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="fm_man_sdr")
+        if entry_method in ["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"]:
+            st.markdown("#### 2. TIME SYNCHRONIZATION")
+            log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="fm_log_mode", label_visibility="collapsed")
+    
+            st.markdown("#### 3. SUBMIT INTERCEPT")
+            with st.form("fm_submit_form", clear_on_submit=True):
+                col_s1, col_s2, col_s3 = st.columns(3)
+                now = datetime.datetime.now(datetime.timezone.utc)
                 
-            log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
-            
-            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
-            if submit_log:
-                st.session_state.iq_date = log_date
-                st.session_state.iq_time = log_time
-                st.session_state.sticky_prop = log_prop
-                st.session_state.sticky_sdr = log_sdr
+                def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
+                def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
                 
-                if not target_data: 
-                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-                elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
+                log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="fm_dt")
+                log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="fm_tm")
+                
+                prop_opts = ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"]
+                prop_idx = prop_opts.index(st.session_state.sticky_prop) if st.session_state.sticky_prop in prop_opts else 0
+                log_prop = col_s3.selectbox("PROPAGATION MODE", prop_opts, index=prop_idx)
+                
+                c_p1, c_p2, c_p3 = st.columns(3)
+                log_rds = c_p1.selectbox("RDS DECODE?", ["No", "Yes"])
+                default_pi = target_data["pi"] if "pi" in target_data else ""
+                log_pi = c_p2.text_input("PI CODE", value=default_pi)
+                
+                if "sdr" in target_data:
+                    log_sdr = target_data["sdr"]
                 else:
-                    sheet = get_gsheet()
-                    if sheet is None: 
-                        st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                    sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                    log_sdr = c_p3.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="fm_man_sdr")
+                    
+                log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="fm_nts")
+                
+                submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+                if submit_log:
+                    st.session_state.iq_date = log_date
+                    st.session_state.iq_time = log_time
+                    st.session_state.sticky_prop = log_prop
+                    st.session_state.sticky_sdr = log_sdr
+                    
+                    if not target_data: 
+                        st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                    elif not local_is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
+                        st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
                     else:
-                        try:
-                            op = st.session_state.operator_profile
-                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
-                            
-                            row_data = [
-                                op.get('name', ''), 
-                                op.get('city', ''), 
-                                op.get('state', ''), 
-                                op.get('country', ''),
-                                "FM", 
-                                "", 
-                                target_data.get("freq", ""), 
-                                target_data.get("call", ""), 
-                                "", 
-                                target_data.get("city", ""),
-                                target_data.get("state", ""), 
-                                target_data.get("country", ""), 
-                                "", 
-                                target_data.get("grid", ""),
-                                log_date.strftime("%m/%d/%Y"), 
-                                log_time, 
-                                target_data.get("dist", 0.0), 
-                                log_notes, 
-                                log_rds, 
-                                log_pi, 
-                                log_prop, 
-                                target_data.get("county", ""), 
-                                entry_cat_val, 
-                                "", 
-                                "",
-                                log_sdr
-                            ]
-                            sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                        sheet = get_gsheet()
+                        if sheet is None: 
+                            st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                        else:
                             try:
-                                get_full_logs_df.clear()
-                                get_logged_dict.clear()
-                            except Exception: pass
-                            
-                            st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
-                            st.balloons()
-                        except Exception as e: 
-                            st.error(f"FAILED: {e}")
+                                op = st.session_state.operator_profile
+                                entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
+                                
+                                row_data = [
+                                    op.get('name', ''), 
+                                    op.get('city', ''), 
+                                    op.get('state', ''), 
+                                    op.get('country', ''),
+                                    "FM", 
+                                    "", 
+                                    target_data.get("freq", ""), 
+                                    target_data.get("call", ""), 
+                                    "", 
+                                    target_data.get("city", ""),
+                                    target_data.get("state", ""), 
+                                    target_data.get("country", ""), 
+                                    "", 
+                                    target_data.get("grid", ""),
+                                    log_date.strftime("%m/%d/%Y"), 
+                                    log_time, 
+                                    target_data.get("dist", 0.0), 
+                                    log_notes, 
+                                    log_rds, 
+                                    log_pi, 
+                                    log_prop, 
+                                    target_data.get("county", ""), 
+                                    entry_cat_val, 
+                                    "", 
+                                    "",
+                                    log_sdr
+                                ]
+                                sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                                try:
+                                    get_full_logs_df.clear()
+                                    get_logged_dict.clear()
+                                except Exception: pass
+                                
+                                st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                                st.balloons()
+                            except Exception as e: 
+                                st.error(f"FAILED: {e}")
 
     elif st.session_state.sys_state == "NWR_LOG":
         if not is_terminal_open():
@@ -1544,11 +1589,13 @@ with main_content:
                 except Exception: 
                     pass
                     
-        st.markdown("#### 2. TARGET ACQUISITION")
-        tab_search, tab_manual, tab_import = st.tabs(["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"])
+        st.markdown("#### 2. TARGET ACQUISITION & INGESTION")
+        entry_method = st.pills("ENTRY METHOD", ["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]", "[ BULK IMPORT ]"], default="[ DATABASE SEARCH ]", selection_mode="single", label_visibility="collapsed", key="nwr_entry_method")
+        if not entry_method: entry_method = "[ DATABASE SEARCH ]"
+        
         target_data = {}
         
-        with tab_search:
+        if entry_method == "[ DATABASE SEARCH ]":
             st.write("ACCESSING NWS DATABANKS...")
             if nwr_db.empty: 
                 st.error("[ SYSTEM ALERT ] DATABANK OFFLINE: NWR database not found.")
@@ -1752,7 +1799,7 @@ with main_content:
                                 "sdr": sdr_choice_db
                             }
 
-        with tab_manual:
+        elif entry_method == "[ MANUAL ENTRY ]":
             st.write("INITIATE UNLISTED PROTOCOL...")
             c_m1, c_m2, c_m3 = st.columns(3)
             man_freq = c_m1.number_input("MANUAL FREQ (MHz)", min_value=162.400, max_value=162.550, value=162.400, step=0.025, key="man_nwr")
@@ -1784,7 +1831,7 @@ with main_content:
                     "dist": man_dist
                 }
 
-        with tab_import:
+        elif entry_method == "[ BULK IMPORT ]":
             st.write("INITIATE BULK INGESTION PROTOCOL...")
             uploaded_file = st.file_uploader("UPLOAD CSV/TSV PAYLOAD", type=["csv", "txt", "tsv"], key="nwr_bulk")
             
@@ -1885,7 +1932,7 @@ with main_content:
                                 df_import[map_date] = df_import[map_date].apply(lambda x: format_date_import(x) if pd.notna(x) else x)
 
                             with st.spinner("Scanning payload against temporal mission parameters..."):
-                                valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
+                                valid_df, skipped_out_of_range = local_filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
@@ -2065,90 +2112,91 @@ with main_content:
                 except Exception as e: 
                     st.error(f"FILE ERROR: {e}")
 
-        st.markdown("#### 3. TIME SYNCHRONIZATION")
-        log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="nwr_log_mode", label_visibility="collapsed")
-
-        st.markdown("#### 4. SUBMIT INTERCEPT")
-        with st.form("nwr_submit_form", clear_on_submit=True):
-            col_s1, col_s2, col_s3 = st.columns(3)
-            now = datetime.datetime.now(datetime.timezone.utc)
-            
-            def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
-            def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
-            
-            log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="nwr_dt")
-            log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="nwr_tm")
-            
-            prop_opts = ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"]
-            prop_idx = prop_opts.index(st.session_state.sticky_prop) if st.session_state.sticky_prop in prop_opts else 0
-            log_prop = col_s3.selectbox("PROPAGATION MODE", prop_opts, index=prop_idx, key="nwr_prop")
-            
-            if "sdr" in target_data:
-                log_sdr = target_data["sdr"]
-            else:
-                sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
-                log_sdr = st.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="nwr_man_sdr")
+        if entry_method in ["[ DATABASE SEARCH ]", "[ MANUAL ENTRY ]"]:
+            st.markdown("#### 2. TIME SYNCHRONIZATION")
+            log_mode = st.pills("LOGGING MODE", ["LIVE DX (AUTO-CLOCK)", "IQ RECORDING (STICKY MEMORY)"], default="LIVE DX (AUTO-CLOCK)", selection_mode="single", key="nwr_log_mode", label_visibility="collapsed")
+    
+            st.markdown("#### 3. SUBMIT INTERCEPT")
+            with st.form("nwr_submit_form", clear_on_submit=True):
+                col_s1, col_s2, col_s3 = st.columns(3)
+                now = datetime.datetime.now(datetime.timezone.utc)
                 
-            log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="nwr_nts")
-            
-            submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
-            if submit_log:
-                st.session_state.iq_date = log_date
-                st.session_state.iq_time = log_time
-                st.session_state.sticky_prop = log_prop
-                st.session_state.sticky_sdr = log_sdr
+                def_date = now.date() if log_mode and "LIVE" in log_mode else st.session_state.iq_date
+                def_time = now.strftime("%H%M") if log_mode and "LIVE" in log_mode else st.session_state.iq_time
                 
-                if not target_data: 
-                    st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
-                elif not is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
-                    st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
+                log_date = col_s1.date_input("DATE (UTC)", value=def_date, key="nwr_dt")
+                log_time = col_s2.text_input("TIME (UTC)", value=def_time, key="nwr_tm")
+                
+                prop_opts = ["Tropo", "Sporadic E", "Meteor Scatter", "Aurora", "Local"]
+                prop_idx = prop_opts.index(st.session_state.sticky_prop) if st.session_state.sticky_prop in prop_opts else 0
+                log_prop = col_s3.selectbox("PROPAGATION MODE", prop_opts, index=prop_idx, key="nwr_prop")
+                
+                if "sdr" in target_data:
+                    log_sdr = target_data["sdr"]
                 else:
-                    sheet = get_gsheet()
-                    if sheet is None: 
-                        st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                    sdr_idx = 0 if st.session_state.sticky_sdr == "Yes" else 1
+                    log_sdr = st.selectbox("RECEPTION VIA SDR?", ["Yes", "No"], index=sdr_idx, key="nwr_man_sdr")
+                    
+                log_notes = st.text_area("PROGRAMMING / INTERCEPT NOTES", key="nwr_nts")
+                
+                submit_log = st.form_submit_button("> TRANSMIT REPORT TO SERVER")
+                if submit_log:
+                    st.session_state.iq_date = log_date
+                    st.session_state.iq_time = log_time
+                    st.session_state.sticky_prop = log_prop
+                    st.session_state.sticky_sdr = log_sdr
+                    
+                    if not target_data: 
+                        st.error("TARGET NOT ACQUIRED. SELECT OR ENTER A STATION.")
+                    elif not local_is_reception_valid(log_date.strftime("%Y-%m-%d"), log_time):
+                        st.error("🚨 TRANSMISSION REJECTED: Intercept date falls outside the authorized DEFCON 6 window.")
                     else:
-                        try:
-                            op = st.session_state.operator_profile
-                            entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
-                            
-                            row_data = [
-                                op.get('name', ''), 
-                                op.get('city', ''), 
-                                op.get('state', ''), 
-                                op.get('country', ''),
-                                "NWR", 
-                                "", 
-                                target_data.get("freq", ""), 
-                                target_data.get("call", ""), 
-                                "", 
-                                target_data.get("city", ""),
-                                target_data.get("state", ""), 
-                                target_data.get("country", ""), 
-                                "", 
-                                target_data.get("grid", ""),
-                                log_date.strftime("%m/%d/%Y"), 
-                                log_time, 
-                                target_data.get("dist", 0.0), 
-                                log_notes, 
-                                "", 
-                                "",
-                                log_prop, 
-                                target_data.get("county", ""), 
-                                entry_cat_val, 
-                                "", 
-                                "",
-                                log_sdr
-                            ]
-                            sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                        sheet = get_gsheet()
+                        if sheet is None: 
+                            st.error("🚨 TRANSMISSION FAILED: Streamlit Secrets are not configured.")
+                        else:
                             try:
-                                get_full_logs_df.clear()
-                                get_logged_dict.clear()
-                            except Exception: pass
-                            
-                            st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
-                            st.balloons()
-                        except Exception as e: 
-                            st.error(f"FAILED: {e}")
+                                op = st.session_state.operator_profile
+                                entry_cat_val = f"ROVER ({rover_grid})" if r_cat and r_cat == "ROVER" and rover_grid else r_cat
+                                
+                                row_data = [
+                                    op.get('name', ''), 
+                                    op.get('city', ''), 
+                                    op.get('state', ''), 
+                                    op.get('country', ''),
+                                    "NWR", 
+                                    "", 
+                                    target_data.get("freq", ""), 
+                                    target_data.get("call", ""), 
+                                    "", 
+                                    target_data.get("city", ""),
+                                    target_data.get("state", ""), 
+                                    target_data.get("country", ""), 
+                                    "", 
+                                    target_data.get("grid", ""),
+                                    log_date.strftime("%m/%d/%Y"), 
+                                    log_time, 
+                                    target_data.get("dist", 0.0), 
+                                    log_notes, 
+                                    "", 
+                                    "",
+                                    log_prop, 
+                                    target_data.get("county", ""), 
+                                    entry_cat_val, 
+                                    "", 
+                                    "",
+                                    log_sdr
+                                ]
+                                sheet.append_row(["" if pd.isna(item) else (item.item() if hasattr(item, 'item') else item) for item in row_data])
+                                try:
+                                    get_full_logs_df.clear()
+                                    get_logged_dict.clear()
+                                except Exception: pass
+                                
+                                st.markdown("### [ TRANSMISSION SUCCESSFUL ]")
+                                st.balloons()
+                            except Exception as e: 
+                                st.error(f"FAILED: {e}")
 
     elif st.session_state.sys_state == "BOUNTY_HUNT":
         if BOUNTY_ACTIVE:
