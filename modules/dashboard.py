@@ -53,6 +53,14 @@ BAND_CONFIG = {
     "NWR": {"min": 162.400, "max": 162.550, "unit": "MHz", "step": 0.025}
 }
 
+# --- COUNTY SANITIZER ENGINE ---
+def sanitize_county(name):
+    """Aggressively standardizes county names to prevent mapping drop-offs."""
+    n = str(name).upper().strip()
+    n = n.replace(' COUNTY', '').replace(' PARISH', '')
+    n = n.replace('SAINT ', 'ST').replace('SAINT', 'ST')
+    return re.sub(r'[^A-Z0-9]', '', n)
+
 # --- GEOJSON OVERLAY CACHES ---
 @st.cache_data
 def get_custom_county_geojson():
@@ -65,12 +73,7 @@ def get_custom_county_geojson():
             state_abbr = FIPS_TO_ABBR.get(state_fips, "").upper()
             county_name = str(feature['properties'].get('NAME', ''))
             
-            n = str(county_name).upper().strip()
-            n = n.replace(' COUNTY', '').replace(' PARISH', '')
-            n = n.replace('SAINT ', 'ST').replace('SAINT', 'ST')
-            n = re.sub(r'[^A-Z0-9]', '', n)
-            
-            map_id = f"{state_abbr}_{n}"
+            map_id = f"{state_abbr}_{sanitize_county(county_name)}"
             feature['id'] = map_id
         return geojson
     except Exception:
@@ -280,7 +283,7 @@ def render_dashboard():
     if 'DX_Lon' not in df.columns: df['DX_Lon'] = 0.0
     if 'ST_Lat' not in df.columns: df['ST_Lat'] = 0.0
     if 'ST_Lon' not in df.columns: df['ST_Lon'] = 0.0
-
+    
     # HARDCODED AGENT COORDINATE DICTIONARY TO PREVENT NULL ISLAND NOMINATIM BLOCKS
     AGENT_QTH_CACHE = {
         "MANDEVILLE, LA": (30.3582, -90.0656), "MANDEVILLE, LOUISIANA": (30.3582, -90.0656),
@@ -319,7 +322,7 @@ def render_dashboard():
                 lat, lon = AGENT_QTH_CACHE[cache_key]
             else:
                 lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
-                time.sleep(0.5) # Prevents Nominatim 429 Rate Limits
+                time.sleep(0.5) 
                 
             lats.append(lat)
             lons.append(lon)
@@ -1225,7 +1228,37 @@ def render_dashboard():
         
         radar_tab = st.pills("SECTOR", ["INTERCEPT VECTORS", "ES-CLOUD RADAR", "RANGE FORENSICS"], default="INTERCEPT VECTORS")
         
-        # --- 1. TACTICAL SECTORS ---
+        # --- 1. GLOBAL DATE & GEO PARSING ENGINE ---
+        filt_df['Date_TS'] = pd.to_datetime(filt_df['Date_Str'], errors='coerce')
+        filt_df['Date_Obj'] = filt_df['Date_TS'].dt.date
+        
+        if 'DX_Lat' not in filt_df.columns: filt_df['DX_Lat'] = 0.0
+        if 'DX_Lon' not in filt_df.columns: filt_df['DX_Lon'] = 0.0
+        
+        mask = filt_df['DX_Lat'].isna() | (filt_df['DX_Lat'] == 0.0)
+        if mask.any():
+            missing_locs = filt_df[mask][['DXer_City', 'DXer_State', 'DXer_Country']].drop_duplicates()
+            lats, lons = [], []
+            for _, r in missing_locs.iterrows():
+                city_q = f"{r['DXer_City']}, {r['DXer_State']}" if pd.notna(r.get('DXer_State')) and r.get('DXer_State') != '' else r['DXer_City']
+                lat, lon = get_lat_lon_from_city(city_q, r['DXer_Country'])
+                lats.append(lat)
+                lons.append(lon)
+            missing_locs['New_Lat'] = lats
+            missing_locs['New_Lon'] = lons
+            
+            filt_df = filt_df.merge(missing_locs, on=['DXer_City', 'DXer_State', 'DXer_Country'], how='left')
+            filt_df['DX_Lat'] = filt_df['DX_Lat'].where(~mask, filt_df['New_Lat'])
+            filt_df['DX_Lon'] = filt_df['DX_Lon'].where(~mask, filt_df['New_Lon'])
+            filt_df.drop(columns=['New_Lat', 'New_Lon'], inplace=True)
+            
+        if 'ST_Lat' not in filt_df.columns: filt_df['ST_Lat'] = 0.0
+        if 'ST_Lon' not in filt_df.columns: filt_df['ST_Lon'] = 0.0
+        
+        filt_df['Mid_Lat'] = (filt_df['DX_Lat'] + filt_df['ST_Lat']) / 2
+        filt_df['Mid_Lon'] = (filt_df['DX_Lon'] + filt_df['ST_Lon']) / 2
+        
+        # --- 2. TACTICAL SECTORS ---
         if radar_tab == "INTERCEPT VECTORS":
             col_ctrl, col_map = st.columns([1, 3])
             
@@ -1263,7 +1296,7 @@ def render_dashboard():
             with col_map:
                 if not v_df.empty:
                     color_map = {'AM': [27, 210, 212, 200], 'FM': [57, 255, 20, 200], 'NWR': [255, 165, 0, 200]}
-                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df)))
+                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df))))
                     
                     layers = [
                         pdk.Layer(
