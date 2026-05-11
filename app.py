@@ -692,12 +692,16 @@ with main_content:
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                             
+                            # --- PRE-FLIGHT TEMPORAL SCRUBBER ---
+                            if map_date != "<Skip>":
+                                df_import[map_date] = df_import[map_date].apply(lambda x: format_date_import(x) if pd.notna(x) else x)
+
                             with st.spinner("Scanning payload against temporal mission parameters..."):
                                 valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected.")
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window.")
                                 else:
                                     st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
                             else:
@@ -851,7 +855,7 @@ with main_content:
                                     if skipped_dupes > 0:
                                         st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                     if skipped_out_of_range > 0:
-                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW PURGED ]")
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
                                     st.balloons()
                                     
                                 except Exception as e: 
@@ -987,7 +991,6 @@ with main_content:
                 fk = st.session_state.fm_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # INJECTED: TACTICAL QUICK-STEP FREQUENCY SORT
                 all_freqs = sorted([str(x) for x in fm_db['Frequency'].dropna().unique()], key=safe_freq_sort)
                 freq_opts_fm = ["All"] + all_freqs
                 
@@ -1237,12 +1240,16 @@ with main_content:
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                             
+                            # --- PRE-FLIGHT TEMPORAL SCRUBBER ---
+                            if map_date != "<Skip>":
+                                df_import[map_date] = df_import[map_date].apply(lambda x: format_date_import(x) if pd.notna(x) else x)
+
                             with st.spinner("Scanning payload against temporal mission parameters..."):
                                 valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected.")
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window.")
                                 else:
                                     st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
                             else:
@@ -1414,7 +1421,7 @@ with main_content:
                                     if skipped_dupes > 0:
                                         st.info(f"### [ {skipped_dupes} DUPLICATES IGNORED ]")
                                     if skipped_out_of_range > 0:
-                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW PURGED ]")
+                                        st.warning(f"### [ {skipped_out_of_range} LOGS OUTSIDE WINDOW (May 1 - Aug 31) PURGED ]")
                                     st.balloons()
                                     
                                 except Exception as e: 
@@ -1565,7 +1572,6 @@ with main_content:
                 fk = st.session_state.nwr_filter_key
                 c1, c2, c3, c4 = st.columns(4)
                 
-                # INJECTED: TACTICAL QUICK-STEP FREQUENCY SORT
                 all_freqs = sorted([str(x) for x in nwr_db['Frequency'].dropna().unique()], key=safe_freq_sort)
                 freq_opts_nwr = ["All"] + all_freqs
                 
@@ -1874,12 +1880,16 @@ with main_content:
                                         r_time = str(r[15]).strip()
                                         existing_signatures.add(f"{r_band}_{r_freq}_{r_call}_{r_date}_{r_time}")
                             
+                            # --- PRE-FLIGHT TEMPORAL SCRUBBER ---
+                            if map_date != "<Skip>":
+                                df_import[map_date] = df_import[map_date].apply(lambda x: format_date_import(x) if pd.notna(x) else x)
+
                             with st.spinner("Scanning payload against temporal mission parameters..."):
                                 valid_df, skipped_out_of_range = filter_bulk_dataframe(df_import, date_col=map_date, time_col=map_time)
                             
                             if valid_df.empty:
                                 if skipped_out_of_range > 0:
-                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected.")
+                                    st.error(f"❌ **INFILTRATION FAILED:** All {skipped_out_of_range} intercepts were rejected for falling outside the authorized DEFCON 6 operational window.")
                                 else:
                                     st.error("❌ **INFILTRATION FAILED:** No valid intercepts found.")
                             else:
