@@ -65,7 +65,9 @@ def render_terminal_home(awards_active=True, bounty_active=True):
         
         def parse_dt(d_str, t_str):
             try:
-                return datetime.datetime.strptime(f"{d_str} {str(t_str).zfill(4)}", "%m/%d/%Y %H%M").replace(tzinfo=datetime.timezone.utc)
+                # Strip out any lingering colons to ensure zero failures during strptime
+                t_clean = str(t_str).replace(':', '').strip().zfill(4)
+                return datetime.datetime.strptime(f"{d_str} {t_clean}", "%m/%d/%Y %H%M").replace(tzinfo=datetime.timezone.utc)
             except:
                 return datetime.datetime.min.replace(tzinfo=datetime.timezone.utc)
         
@@ -73,7 +75,9 @@ def render_terminal_home(awards_active=True, bounty_active=True):
         df_recent = df.tail(500).copy()
         df_recent['Rec_DT'] = df_recent.apply(lambda row: parse_dt(row['Date_Str'], row['Time_Str']), axis=1)
         
-        live_logs = df_recent[df_recent['Rec_DT'] >= thirty_mins_ago]
+        # Prevent "Future UTC" logs from falsely triggering the alert forever
+        upper_bound = now_utc + datetime.timedelta(minutes=10)
+        live_logs = df_recent[(df_recent['Rec_DT'] >= thirty_mins_ago) & (df_recent['Rec_DT'] <= upper_bound)]
         
         if live_logs.empty:
             st.markdown("""
@@ -166,6 +170,7 @@ Due to feedback from field operatives, we have also re-calibrated the multiplier
         st.markdown("### 💾 DECRYPTED PATCH NOTES (CHANGELOG)")
         st.markdown("""
         <div class='classified-box' style='height: 350px; overflow-y: auto;'>
+            <b style='color:#1bd2d4;'>[ 2026-05-11 03:50 UTC | v1.1.7 ] TEMPORAL SCRUBBER & INFILTRATION UI PATCH:</b> Severed the terminal's reliance on flawed server-time logic by injecting a pre-flight UTC temporal scrubber for bulk imports. This prevents valid "tomorrow" UTC logs from being falsely quarantined. Additionally, the Data Entry UI was upgraded: the single-log form now completely hides when the [ BULK IMPORT ] pill is selected, eliminating dual-button submission confusion. We also patched the Real-Time Propagation Alerts to explicitly ignore future-dated telemetry anomalies.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-07 15:09 UTC | v1.1.6 ] TACTICAL BANDSCAN UPGRADE & SORTING CALIBRATION:</b> Injected structural Quick-Step buttons (◀ / ▶) into the Frequency drop-downs across all Intercept Rooms and the Global Dashboard to allow rapid, single-click frequency bandscanning. Deployed a mathematical sorting heuristic to fix alphanumeric sorting anomalies (ensuring 1000 kHz no longer floats above 530 kHz).<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-06 02:45 UTC | v1.1.5 ] CENTURY CLUB MATH OVERHAUL:</b> Fixed a critical overcounting anomaly in the Mission Overview and Matrix Ledgers. Gridsquare metrics now strictly calculate 4-character Maidenhead bases (resolving 6-character duplication), and County ledgers now mathematically bind State to County names to prevent cross-state collisions (e.g., Washington, PA vs. Washington, OH). Your metrics may have dropped, but they are now mathematically accurate to Century Club standards.<br><br>
             <b style='color:#1bd2d4;'>[ 2026-05-05 15:33 UTC | v1.1.4 ] TACTICAL UI PATCH:</b> Upgraded the post-search "Reception via SDR?" toggle to the high-visibility Pill format, ensuring aesthetic consistency across all data entry modules and linking it securely to the sticky memory state.<br><br>
