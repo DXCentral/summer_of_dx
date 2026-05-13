@@ -1320,7 +1320,7 @@ def render_dashboard():
             with col_map:
                 if not v_df.empty:
                     color_map = {'AM': [27, 210, 212, 200], 'FM': [57, 255, 20, 200], 'NWR': [255, 165, 0, 200]}
-                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df))))
+                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df)))
                     
                     layers = [
                         pdk.Layer(
