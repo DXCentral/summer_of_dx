@@ -625,6 +625,32 @@ def render_dashboard():
         if my_df.empty:
             st.warning("NO TELEMETRY DETECTED FOR YOUR AGENT IDENTITY.")
         else:
+            st.markdown("#### 📥 EXPORT TELEMETRY LOGS")
+            c_dl1, c_dl2, c_dl3, c_dl4 = st.columns(4)
+            
+            csv_all = my_df.to_csv(index=False).encode('utf-8')
+            c_dl1.download_button("ALL BANDS (CSV)", data=csv_all, file_name=f"{op_name}_All_Logs.csv", mime="text/csv", use_container_width=True)
+            
+            mw_logs = my_df[my_df['Band'] == 'AM']
+            if not mw_logs.empty:
+                c_dl2.download_button("MW ONLY (CSV)", data=mw_logs.to_csv(index=False).encode('utf-8'), file_name=f"{op_name}_MW_Logs.csv", mime="text/csv", use_container_width=True)
+            else:
+                c_dl2.button("MW ONLY (CSV)", disabled=True, use_container_width=True)
+                
+            fm_logs = my_df[my_df['Band'] == 'FM']
+            if not fm_logs.empty:
+                c_dl3.download_button("FM ONLY (CSV)", data=fm_logs.to_csv(index=False).encode('utf-8'), file_name=f"{op_name}_FM_Logs.csv", mime="text/csv", use_container_width=True)
+            else:
+                c_dl3.button("FM ONLY (CSV)", disabled=True, use_container_width=True)
+                
+            nwr_logs = my_df[my_df['Band'] == 'NWR']
+            if not nwr_logs.empty:
+                c_dl4.download_button("NWR ONLY (CSV)", data=nwr_logs.to_csv(index=False).encode('utf-8'), file_name=f"{op_name}_NWR_Logs.csv", mime="text/csv", use_container_width=True)
+            else:
+                c_dl4.button("NWR ONLY (CSV)", disabled=True, use_container_width=True)
+                
+            st.markdown("<hr>", unsafe_allow_html=True)
+            
             def b_cnt(df_in, col=None, unique=False):
                 if df_in.empty: return 0, 0, 0, 0
                 t = df_in[col].nunique() if unique else len(df_in)
@@ -1294,7 +1320,7 @@ def render_dashboard():
             with col_map:
                 if not v_df.empty:
                     color_map = {'AM': [27, 210, 212, 200], 'FM': [57, 255, 20, 200], 'NWR': [255, 165, 0, 200]}
-                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df)))
+                    v_df['Vector_Color'] = v_df['Band'].map(color_map).fillna(pd.Series([[255, 255, 255, 100]] * len(v_df))))
                     
                     layers = [
                         pdk.Layer(
