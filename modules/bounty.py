@@ -15,7 +15,7 @@ from modules.data_forge import load_global_dashboard_data, get_gsheet
 ACTIVE_CODEWORD = "EXILE"
 BOUNTY_NAME = "OPERATION BORDER INFILTRATION"
 BOUNTY_DESC = "Intercept a broadcast originating from outside your home country at a distance of MORE THAN 1,300 miles. The station must be a NEW catch (not previously logged by you in this challenge)."
-DOSSIER_URL = "https://raw.githubusercontent.com/DXCentral/summer_of_dx/86f6f7cb38388eaab6dae0940a34b88071687857/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-02-ALLBAND.jpg" 
+DOSSIER_URL = "https://github.com/DXCentral/summer_of_dx/blob/14be16928cb50544e46336d97498d5403e1fd39e/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-02-ALLBAND.jpg" 
 # =========================================================================
 
 def verify_bounty_eligibility(callsign, country, distance):
