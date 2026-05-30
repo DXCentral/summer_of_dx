@@ -10,37 +10,47 @@ from email import encoders
 from modules.data_forge import load_global_dashboard_data, get_gsheet
 
 # =========================================================================
-# 🎯 MISSION CONTROL PARAMETERS (BOUNTY 02)
+# 🎯 MISSION CONTROL PARAMETERS (BOUNTY 03)
 # =========================================================================
-ACTIVE_CODEWORD = "EXILE"
-BOUNTY_NAME = "OPERATION BORDER INFILTRATION"
-BOUNTY_DESC = "Intercept a broadcast originating from outside your home country at a distance of MORE THAN 1,300 miles. The station must be a NEW catch (not previously logged by you in this challenge)."
-DOSSIER_URL = "https://raw.githubusercontent.com/DXCentral/summer_of_dx/main/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-02-ALLBAND.jpg" 
+ACTIVE_CODEWORD = "CLOUD"
+BOUNTY_NAME = "OPERATION IONOSPHERIC BOUNCE"
+BOUNTY_DESC = "Intercept an FM broadcast station via Sporadic E propagation at a distance of 800 miles or greater. The station must be a NEW catch (not previously logged by you) and the intercept MUST occur AFTER May 30, 2026 @ 0200 UTC."
+DOSSIER_URL = "https://raw.githubusercontent.com/DXCentral/summer_of_dx/main/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-03%20-%20FM.jpg" 
 # =========================================================================
 
-def verify_bounty_eligibility(callsign, country, distance):
+def verify_bounty_eligibility(callsign, band, distance, rec_date, rec_time):
     """
     Tactical Verification Engine: Ensures the submitted bounty claim 
-    meets the strict parameters of Operation Border Infiltration.
+    meets the strict parameters of Operation Ionospheric Bounce.
     """
     op_name = str(st.session_state.operator_profile.get('name', 'UNKNOWN')).strip().upper()
-    op_country = str(st.session_state.operator_profile.get('country', 'United States')).strip().upper()
-    target_country = str(country).strip().upper()
     
-    # 1. BORDER CHECK: Must be outside the Agent's Home Country
-    if target_country == op_country:
-        return False, f"Target country ({country}) matches your Home QTH Country ({st.session_state.operator_profile.get('country')}). Target must be international."
+    # 1. BAND CHECK: Must be FM
+    if str(band).strip().upper() != "FM":
+        return False, f"Target band ({band}) is invalid. This mission requires an FM broadcast intercept."
         
-    # 2. RANGE CHECK: Must be > 1300 miles
+    # 2. RANGE CHECK: Must be >= 800 miles
     try:
         dist_float = float(distance)
     except:
         dist_float = 0.0
         
-    if dist_float <= 1300.0:
-        return False, f"Target distance ({dist_float:,.1f} mi) does not exceed the 1,300 mile minimum threshold."
+    if dist_float < 800.0:
+        return False, f"Target distance ({dist_float:,.1f} mi) does not meet the 800 mile minimum threshold."
+
+    # 3. TEMPORAL CHECK: Must be >= May 30, 2026 @ 0200 UTC
+    try:
+        time_clean = str(rec_time).replace(':', '').strip().zfill(4)
+        dt_str = f"{rec_date.strftime('%Y-%m-%d')} {time_clean}"
+        intercept_dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H%M").replace(tzinfo=datetime.timezone.utc)
+        cutoff_dt = datetime.datetime(2026, 5, 30, 2, 0, tzinfo=datetime.timezone.utc)
         
-    # 3. NO-RECYCLE CHECK: Must not have been logged in the current challenge
+        if intercept_dt < cutoff_dt:
+            return False, f"Target was intercepted at {intercept_dt.strftime('%Y-%m-%d %H%M')}Z. This mission strictly requires fresh intercepts captured AFTER May 30, 2026 @ 0200 UTC."
+    except Exception as e:
+        return False, "Invalid Date or Time format provided. Time must be formatted as UTC (e.g., 0215)."
+        
+    # 4. NO-RECYCLE CHECK: Must not have been logged in the current challenge
     df = load_global_dashboard_data()
     if not df.empty:
         my_logs = df[df['DXer'].str.upper() == op_name]
@@ -52,7 +62,7 @@ def verify_bounty_eligibility(callsign, country, distance):
                 
     return True, "Target verified against mission parameters."
 
-def transmit_bounty_email(op_name, target_call, target_freq, target_band, target_city, target_country, target_dist, user_email, notes, audio_file, filename):
+def transmit_bounty_email(op_name, target_call, target_freq, target_band, target_city, target_country, target_dist, rec_date, rec_time, user_email, notes, audio_file, filename):
     """
     Securely transmits the Bounty Claim and attached MP3 directly to High Command via SMTP.
     """
@@ -75,16 +85,18 @@ Agent: {op_name}
 Target: {target_call} ({target_freq} {target_band})
 Location: {target_city}, {target_country}
 Distance: {target_dist} miles
+Intercept Time: {rec_date} @ {rec_time} UTC
 Agent Email: {user_email}
-Timestamp: {datetime.datetime.now(datetime.timezone.utc)} UTC
+Transmission Timestamp: {datetime.datetime.now(datetime.timezone.utc)} UTC
 
 AGENT NOTES:
 {notes}
 
 =========================================================
 SYSTEM VERIFICATION ROUTINE: 
-- BORDER CHECK: PASSED (Target Country != Agent Country)
-- RANGE CHECK: PASSED (Distance > 1300 mi)
+- BAND CHECK: PASSED (Target Band == FM)
+- RANGE CHECK: PASSED (Distance >= 800 mi)
+- TEMPORAL CHECK: PASSED (Intercept >= May 30 0200Z)
 - RECYCLE CHECK: PASSED (Target not found in Agent's local cache)
 =========================================================
 
@@ -168,8 +180,8 @@ def render_bounty_module():
             st.markdown("#### 1. TARGET INFORMATION")
             c1, c2, c3 = st.columns(3)
             b_call = c1.text_input("TARGET CALLSIGN")
-            b_freq = c2.text_input("TARGET FREQUENCY (e.g. 102.1 or 1120)")
-            b_band = c3.selectbox("BAND", ["AM", "FM", "NWR"])
+            b_freq = c2.text_input("TARGET FREQUENCY (e.g. 102.1)")
+            b_band = c3.selectbox("BAND", ["AM", "FM", "NWR"], index=1) # Default to FM for this challenge
             
             c4, c5, c6 = st.columns(3)
             b_city = c4.text_input("TARGET CITY")
@@ -178,11 +190,12 @@ def render_bounty_module():
             # Auto-populate the country dropdown
             import modules.data_forge as df_forge
             country_options = sorted(list(set(df_forge.country_list + ["Canada", "Mexico", "United Kingdom", "Australia", "Other"])))
-            b_country = c6.selectbox("TARGET COUNTRY", [""] + country_options)
+            b_country = c6.selectbox("TARGET COUNTRY", ["United States"] + country_options)
             
-            c7, c8 = st.columns(2)
+            c7, c8, c9 = st.columns(3)
             b_dist = c7.number_input("CALCULATED DISTANCE (MILES)", min_value=0.0, step=1.0)
             b_date = c8.date_input("RECEPTION DATE (UTC)")
+            b_time = c9.text_input("RECEPTION TIME (UTC)", placeholder="e.g. 0215")
             
             b_notes = st.text_area("INTERCEPT NOTES & EQUIPMENT USED")
             b_email = st.text_input("SECURE EMAIL UPLINK (REQUIRED FOR CONFIRMATION)")
@@ -197,13 +210,13 @@ def render_bounty_module():
             submit_claim = st.form_submit_button("🚀 TRANSMIT CLAIM TO HIGH COMMAND")
             
             if submit_claim:
-                if not b_call or not b_country or b_dist == 0.0 or not b_email:
-                    st.error("❌ INCOMPLETE DOSSIER. Callsign, Country, Distance, and Email are strictly required.")
+                if not b_call or not b_country or b_dist == 0.0 or not b_email or not b_time:
+                    st.error("❌ INCOMPLETE DOSSIER. Callsign, Country, Distance, Time, and Email are strictly required.")
                 elif not b_audio:
                     st.error("❌ FAILED: AUDIO AIRCHECK REQUIRED TO CLAIM BOUNTY.")
                 else:
                     # Run the active validation engine
-                    is_valid, reason = verify_bounty_eligibility(b_call, b_country, b_dist)
+                    is_valid, reason = verify_bounty_eligibility(b_call, b_band, b_dist, b_date, b_time)
                     
                     if not is_valid:
                         st.error(f"❌ CLAIM REJECTED: {reason}")
@@ -213,7 +226,7 @@ def render_bounty_module():
                             filename = f"SODX_Bounty_{op.get('name')}_{b_call}.mp3"
                             
                             # Transmit via Email
-                            email_success = transmit_bounty_email(op.get('name'), b_call, b_freq, b_band, b_city, b_country, b_dist, b_email, b_notes, b_audio, filename)
+                            email_success = transmit_bounty_email(op.get('name'), b_call, b_freq, b_band, b_city, b_country, b_dist, b_date, b_time, b_email, b_notes, b_audio, filename)
                             
                             if not email_success:
                                 st.error("❌ AUDIO UPLINK FAILED. Ensure SMTP Secrets are configured.")
@@ -231,7 +244,7 @@ def render_bounty_module():
                                             f"{b_freq} {b_band}",
                                             b_dist,
                                             b_email,
-                                            f"{b_city}, {b_state}, {b_country}",
+                                            f"{b_city}, {b_state}, {b_country} (Caught: {b_date.strftime('%Y-%m-%d')} {b_time}Z)",
                                             "PENDING REVIEW"
                                         ]
                                         bounty_sheet.append_row(row_data)
