@@ -254,7 +254,6 @@ def render_bounty_module():
                                         st.error(f"❌ DATABASE WRITE FAILED: {e}")
         st.markdown("</div>", unsafe_allow_html=True)
 
-
     # --- 3. TRANSMISSION SCHEDULE (MOVED TO BOTTOM AS FOOTER) ---
     st.markdown("""
 <div class='comms-box'>
@@ -284,10 +283,4 @@ All active field agents must maintain receiver synchronization to the following 
 <li><b>ATMOSPHERIC JAMMING:</b> In the event of catastrophic QRM or D-Layer absorption, maintain radio silence and monitor the secure web portal. Do not break cover.</li>
 <li><b>ACKNOWLEDGEMENT:</b> No return transmission required. Monitor, log, and report confirmed targets to the SEDAP mainframe.</li>
 </ul>
-<p style='color: #cccccc; margin-top: 20px;'>Target dossiers rotate every 14 days. To acquire your target, tune your receiver to an active transmission source and listen for the High Command interval signal. The phonetic authentication cipher will follow.</p>
-<p style='color: #cccccc;'>Do not transmit the codeword over open channels. Enter the decrypted string below to unlock your target dossier. If intercepted, disavow all knowledge of High Command.</p>
-<div style='text-align: center; color: #ffaa00; margin-top: 25px;'>
-// HIGH COMMAND ACTUAL - END OF MESSAGE //
-</div>
-</div>
-    """, unsafe_allow_html=True)
+<p style='color: #cccccc; margin-top: 20px;'>Target dossiers rotate every 14 days. To acquire your target, tune your receiver to an active transmission source and listen for the High Command interval signal. The phonetic
