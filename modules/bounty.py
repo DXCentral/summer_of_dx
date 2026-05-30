@@ -14,7 +14,7 @@ from modules.data_forge import load_global_dashboard_data, get_gsheet
 # =========================================================================
 ACTIVE_CODEWORD = "CLOUD"
 BOUNTY_NAME = "OPERATION IONOSPHERIC BOUNCE"
-BOUNTY_DESC = "Intercept an FM broadcast station via Sporadic E propagation at a distance of 800 miles or greater. The station must be a NEW catch (not previously logged by you) and the intercept MUST occur AFTER May 30, 2026 @ 0200 UTC."
+BOUNTY_DESC = "Intercept an FM broadcast station at a distance of 800 miles or greater. The station must be a NEW catch (not previously logged by you) and the intercept MUST occur AFTER May 30, 2026 @ 0200 UTC."
 DOSSIER_URL = "https://raw.githubusercontent.com/DXCentral/summer_of_dx/main/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-03%20-%20FM.jpg" 
 # =========================================================================
 
