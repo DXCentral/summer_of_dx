@@ -10,47 +10,57 @@ from email import encoders
 from modules.data_forge import load_global_dashboard_data, get_gsheet
 
 # =========================================================================
-# 🎯 MISSION CONTROL PARAMETERS (BOUNTY 03)
+# 🎯 MISSION CONTROL PARAMETERS (BOUNTY 04)
 # =========================================================================
-ACTIVE_CODEWORD = "CLOUD"
-BOUNTY_NAME = "OPERATION IONOSPHERIC BOUNCE"
-BOUNTY_DESC = "Intercept an FM broadcast station at a distance of 800 miles or greater. The station must be a NEW catch (not previously logged by you) and the intercept MUST occur AFTER May 30, 2026 @ 0200 UTC."
-DOSSIER_URL = "https://raw.githubusercontent.com/DXCentral/summer_of_dx/main/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-03%20-%20FM.jpg" 
+ACTIVE_CODEWORD = "GHOST"
+BOUNTY_NAME = "OPERATION GHOST NODE"
+BOUNTY_DESC = "Intercept a Class C 'Graveyard' AM station (1230, 1240, 1340, 1400, 1450, or 1490 kHz) at a distance of 400 miles or greater. The station must be a NEW catch (not previously logged by you) and the intercept MUST occur AFTER July 4, 2026 @ 0000 UTC."
+DOSSIER_URL = "https://raw.githubusercontent.com/DXCentral/summer_of_dx/38e3f6951765ce98deb003c1bf7c9d8b08c74a88/INTERCEPT%20TARGET%20DOSSIER%20-%20ID%20SOD-04-GRAVEYARD.jpg" 
 # =========================================================================
 
-def verify_bounty_eligibility(callsign, band, distance, rec_date, rec_time):
+def verify_bounty_eligibility(callsign, freq, band, distance, rec_date, rec_time):
     """
     Tactical Verification Engine: Ensures the submitted bounty claim 
-    meets the strict parameters of Operation Ionospheric Bounce.
+    meets the strict parameters of Operation Ghost Node.
     """
     op_name = str(st.session_state.operator_profile.get('name', 'UNKNOWN')).strip().upper()
     
-    # 1. BAND CHECK: Must be FM
-    if str(band).strip().upper() != "FM":
-        return False, f"Target band ({band}) is invalid. This mission requires an FM broadcast intercept."
+    # 1. BAND CHECK: Must be AM
+    if str(band).strip().upper() != "AM":
+        return False, f"Target band ({band}) is invalid. This mission requires an AM (MW) broadcast intercept."
         
-    # 2. RANGE CHECK: Must be >= 800 miles
+    # 2. FREQUENCY CHECK: Must be a Graveyard Channel
+    try:
+        f_val = float(freq)
+    except:
+        return False, "Invalid frequency format provided. Must be numeric (e.g. 1240)."
+        
+    graveyard_channels = [1230.0, 1240.0, 1340.0, 1400.0, 1450.0, 1490.0]
+    if f_val not in graveyard_channels:
+        return False, f"Target frequency ({f_val} kHz) is invalid. Mission restricted to 1230, 1240, 1340, 1400, 1450, or 1490 kHz."
+
+    # 3. RANGE CHECK: Must be >= 400 miles
     try:
         dist_float = float(distance)
     except:
         dist_float = 0.0
         
-    if dist_float < 800.0:
-        return False, f"Target distance ({dist_float:,.1f} mi) does not meet the 800 mile minimum threshold."
+    if dist_float < 400.0:
+        return False, f"Target distance ({dist_float:,.1f} mi) does not meet the 400 mile minimum threshold."
 
-    # 3. TEMPORAL CHECK: Must be >= May 30, 2026 @ 0200 UTC
+    # 4. TEMPORAL CHECK: Must be >= July 4, 2026 @ 0000 UTC
     try:
         time_clean = str(rec_time).replace(':', '').strip().zfill(4)
         dt_str = f"{rec_date.strftime('%Y-%m-%d')} {time_clean}"
         intercept_dt = datetime.datetime.strptime(dt_str, "%Y-%m-%d %H%M").replace(tzinfo=datetime.timezone.utc)
-        cutoff_dt = datetime.datetime(2026, 5, 30, 2, 0, tzinfo=datetime.timezone.utc)
+        cutoff_dt = datetime.datetime(2026, 7, 4, 0, 0, tzinfo=datetime.timezone.utc)
         
         if intercept_dt < cutoff_dt:
-            return False, f"Target was intercepted at {intercept_dt.strftime('%Y-%m-%d %H%M')}Z. This mission strictly requires fresh intercepts captured AFTER May 30, 2026 @ 0200 UTC."
+            return False, f"Target was intercepted at {intercept_dt.strftime('%Y-%m-%d %H%M')}Z. This mission strictly requires fresh intercepts captured AFTER July 4, 2026 @ 0000 UTC."
     except Exception as e:
         return False, "Invalid Date or Time format provided. Time must be formatted as UTC (e.g., 0215)."
         
-    # 4. NO-RECYCLE CHECK: Must not have been logged in the current challenge
+    # 5. NO-RECYCLE CHECK: Must not have been logged in the current challenge
     df = load_global_dashboard_data()
     if not df.empty:
         my_logs = df[df['DXer'].str.upper() == op_name]
@@ -94,9 +104,10 @@ AGENT NOTES:
 
 =========================================================
 SYSTEM VERIFICATION ROUTINE: 
-- BAND CHECK: PASSED (Target Band == FM)
-- RANGE CHECK: PASSED (Distance >= 800 mi)
-- TEMPORAL CHECK: PASSED (Intercept >= May 30 0200Z)
+- BAND CHECK: PASSED (Target Band == AM)
+- FREQ CHECK: PASSED (Target in Graveyard List)
+- RANGE CHECK: PASSED (Distance >= 400 mi)
+- TEMPORAL CHECK: PASSED (Intercept >= July 4 0000Z)
 - RECYCLE CHECK: PASSED (Target not found in Agent's local cache)
 =========================================================
 
@@ -180,8 +191,8 @@ def render_bounty_module():
             st.markdown("#### 1. TARGET INFORMATION")
             c1, c2, c3 = st.columns(3)
             b_call = c1.text_input("TARGET CALLSIGN")
-            b_freq = c2.text_input("TARGET FREQUENCY (e.g. 102.1)")
-            b_band = c3.selectbox("BAND", ["AM", "FM", "NWR"], index=1) # Default to FM for this challenge
+            b_freq = c2.text_input("TARGET FREQUENCY (e.g. 1240)")
+            b_band = c3.selectbox("BAND", ["AM", "FM", "NWR"], index=0) # Default to AM for this challenge
             
             c4, c5, c6 = st.columns(3)
             b_city = c4.text_input("TARGET CITY")
@@ -210,13 +221,13 @@ def render_bounty_module():
             submit_claim = st.form_submit_button("🚀 TRANSMIT CLAIM TO HIGH COMMAND")
             
             if submit_claim:
-                if not b_call or not b_country or b_dist == 0.0 or not b_email or not b_time:
-                    st.error("❌ INCOMPLETE DOSSIER. Callsign, Country, Distance, Time, and Email are strictly required.")
+                if not b_call or not b_country or b_dist == 0.0 or not b_email or not b_time or not b_freq:
+                    st.error("❌ INCOMPLETE DOSSIER. Callsign, Frequency, Country, Distance, Time, and Email are strictly required.")
                 elif not b_audio:
                     st.error("❌ FAILED: AUDIO AIRCHECK REQUIRED TO CLAIM BOUNTY.")
                 else:
                     # Run the active validation engine
-                    is_valid, reason = verify_bounty_eligibility(b_call, b_band, b_dist, b_date, b_time)
+                    is_valid, reason = verify_bounty_eligibility(b_call, b_freq, b_band, b_dist, b_date, b_time)
                     
                     if not is_valid:
                         st.error(f"❌ CLAIM REJECTED: {reason}")
